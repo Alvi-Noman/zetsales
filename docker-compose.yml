@@ -1,0 +1,85 @@
+version: "3.9"
+
+services:
+  mongo:
+    image: mongo:6
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongo_data:/data/db
+    restart: unless-stopped
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: services/auth-service/Dockerfile
+    environment:
+      NODE_ENV: development
+      PORT: "3001"
+      MONGODB_URI: mongodb://mongo:27017/zetsales
+      JWT_SECRET: ${JWT_SECRET:-super-secret-key-change-me}
+      CORS_ORIGIN: http://localhost:3000,http://localhost:8081,http://127.0.0.1:3000
+    working_dir: /app/services/auth-service
+    ports:
+      - "3011:3001"
+    depends_on:
+      - mongo
+    restart: unless-stopped
+
+  commerce-service:
+    build:
+      context: .
+      dockerfile: services/commerce-service/Dockerfile
+    environment:
+      NODE_ENV: development
+      PORT: "3002"
+      MONGODB_URI: mongodb://mongo:27017/zetsales
+      JWT_SECRET: ${JWT_SECRET:-super-secret-key-change-me}
+      STORE_CREDENTIALS_SECRET: ${STORE_CREDENTIALS_SECRET:-dev-store-credentials-secret-change-me}
+      SHOPIFY_CLIENT_ID: ${SHOPIFY_CLIENT_ID:-}
+      SHOPIFY_CLIENT_SECRET: ${SHOPIFY_CLIENT_SECRET:-}
+      SHOPIFY_WEBHOOK_SECRET: ${SHOPIFY_WEBHOOK_SECRET:-dev-shopify-webhook-secret}
+      WOOCOMMERCE_WEBHOOK_SECRET: ${WOOCOMMERCE_WEBHOOK_SECRET:-dev-woocommerce-webhook-secret}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:3000}
+      PUBLIC_COMMERCE_URL: ${PUBLIC_COMMERCE_URL:-http://localhost:8081/api/v1/commerce}
+      CORS_ORIGIN: http://localhost:3000,http://localhost:8081,http://127.0.0.1:3000
+    working_dir: /app/services/commerce-service
+    ports:
+      - "3012:3002"
+    depends_on:
+      - mongo
+    restart: unless-stopped
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: services/api-gateway/Dockerfile
+    environment:
+      NODE_ENV: development
+      PORT: "8080"
+      AUTH_SERVICE_URL: http://auth-service:3001
+      COMMERCE_SERVICE_URL: http://commerce-service:3002
+      CORS_ORIGIN: http://localhost:3000,http://127.0.0.1:3000
+    ports:
+      - "8081:8080"
+    depends_on:
+      - auth-service
+      - commerce-service
+    restart: unless-stopped
+
+  mainapp:
+    build:
+      context: .
+      dockerfile: apps/mainapp/Dockerfile
+    environment:
+      NODE_ENV: development
+      PORT: "3000"
+    working_dir: /app/apps/mainapp
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api-gateway
+    restart: unless-stopped
+
+volumes:
+  mongo_data:

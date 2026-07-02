@@ -1,0 +1,29 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import sharedPreset from '@zetsales/config/eslint-preset';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+export default [
+  ...sharedPreset,
+  {
+    files: ['**/*.{ts,tsx,js,jsx}'],
+    ignores: [
+      '**/dist/**',
+      '**/*.d.ts',
+    ],
+    languageOptions: {
+      parserOptions: {
+        project: path.resolve(__dirname, './tsconfig.json'),
+        tsconfigRootDir: __dirname,
+        ecmaVersion: 2021,
+        sourceType: 'module',
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'warn',
+      'no-console': 'warn',
+    },
+  },
+];

@@ -1,0 +1,17 @@
+# .gitignore
+node_modules/
+.pnpm-store/
+.next/
+dist/
+build/
+.turbo/
+.env
+.env.*
+.env*.local
+!.env.example
+*.timestamp-*.mjs
+*.log
+.vscode/
+.idea/
+.DS_Store
+*.ps1

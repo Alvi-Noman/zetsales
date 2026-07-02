@@ -1,0 +1,32 @@
+{
+  "name": "@zetsales/shared",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/types/index.d.ts",
+      "import": "./src/types/index.js"
+    },
+    "./types": {
+      "types": "./src/types/index.d.ts",
+      "import": "./src/types/index.js"
+    }
+  },
+  "types": "./src/types/index.d.ts",
+  "files": ["src"],
+  "scripts": {
+    "lint": "eslint \"**/*.{ts,tsx}\" --ignore-pattern \"**/*.d.ts\""
+  },
+  "devDependencies": {
+    "@zetsales/config": "workspace:*",
+    "@types/react": "18",
+    "@types/react-dom": "18",
+    "eslint": "^9.9.0",
+    "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "react": "18",
+    "react-dom": "18"
+  }
+}
