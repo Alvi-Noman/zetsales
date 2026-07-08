@@ -19,7 +19,7 @@ function useFunnel(query: AnalyticsCardComponentProps['query']) {
     return () => {
       cancelled = true;
     };
-  }, [query.range, query.from, query.to, query.storeId]);
+  }, [query.range, query.from, query.to, query.storeId, query.comparisonMode, query.comparisonFrom, query.comparisonTo]);
   return data;
 }
 

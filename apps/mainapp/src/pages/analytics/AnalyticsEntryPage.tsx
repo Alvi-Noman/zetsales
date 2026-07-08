@@ -11,6 +11,7 @@ import type { AnalyticsCardDefinition } from '../../analytics/types';
 import { toAnalyticsQuery } from '../../analytics/query';
 import { formatMoney, formatCount, formatPercentRounded } from '../../analytics/format';
 import type { CustomDateRange, DateRangeKey } from '../../components/orders/dateRange';
+import type { ComparisonMode, CustomComparisonRange } from '../../components/analytics/comparisonMode';
 
 // Module-level, not state: this page fully unmounts when you click into a card's detail view
 // (a separate route) and remounts on the way back, so any scroll position saved in component state
@@ -36,12 +37,17 @@ export function AnalyticsEntryPage() {
   const [dateRange, setDateRange] = useState<DateRangeKey>('last30');
   const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
   const [storeId, setStoreId] = useState('all');
+  const [comparisonMode, setComparisonMode] = useState<ComparisonMode>('none');
+  const [comparisonRange, setComparisonRange] = useState<CustomComparisonRange | null>(null);
   const [stores, setStores] = useState<StoreDTO[]>([]);
   const [summary, setSummary] = useState<AnalyticsSummaryDTO | null>(null);
   const [layout, setLayout] = useState<AnalyticsLayoutDTO | null>(null);
   const [customizeOpen, setCustomizeOpen] = useState(false);
 
-  const query = useMemo(() => toAnalyticsQuery(dateRange, customRange, storeId), [dateRange, customRange, storeId]);
+  const query = useMemo(
+    () => toAnalyticsQuery(dateRange, customRange, storeId, comparisonMode, comparisonRange),
+    [dateRange, customRange, storeId, comparisonMode, comparisonRange]
+  );
 
   useEffect(() => {
     void listStores().then(setStores);
@@ -51,7 +57,7 @@ export function AnalyticsEntryPage() {
   useEffect(() => {
     setSummary(null);
     void getAnalyticsSummary(query).then(setSummary);
-  }, [query.range, query.from, query.to, query.storeId]);
+  }, [query.range, query.from, query.to, query.storeId, query.comparisonMode, query.comparisonFrom, query.comparisonTo]);
 
   const orderedVisibleCards = useMemo(() => {
     if (!layout) return ANALYTICS_CARDS;
@@ -113,6 +119,10 @@ export function AnalyticsEntryPage() {
             storeId={storeId}
             onStoreIdChange={setStoreId}
             stores={stores}
+            comparisonMode={comparisonMode}
+            onComparisonModeChange={setComparisonMode}
+            comparisonRange={comparisonRange}
+            onComparisonRangeChange={setComparisonRange}
           />
         </div>
       </div>

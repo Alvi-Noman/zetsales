@@ -12,7 +12,7 @@ function useData(query: AnalyticsCardComponentProps['query'], limit: number) {
   useEffect(() => {
     setData(null);
     void getReturnedProducts({ ...query, limit }).then(setData);
-  }, [query.range, query.from, query.to, query.storeId, limit]);
+  }, [query.range, query.from, query.to, query.storeId, query.comparisonMode, query.comparisonFrom, query.comparisonTo, limit]);
   return data;
 }
 

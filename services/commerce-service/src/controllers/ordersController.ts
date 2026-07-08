@@ -464,6 +464,8 @@ export async function listOrders(req: AuthenticatedRequest, res: Response) {
   const match: Record<string, unknown> = { tenantId, ...tabMatch(req.query.tab as string | undefined) };
   if (typeof req.query.storeId === 'string' && req.query.storeId !== 'all') match.storeId = req.query.storeId;
   if (typeof req.query.paymentStatus === 'string' && req.query.paymentStatus !== 'all') match.paymentStatus = req.query.paymentStatus;
+  if (typeof req.query.holdReason === 'string' && req.query.holdReason !== 'all') match.holdReason = req.query.holdReason;
+  if (typeof req.query.cancelReason === 'string' && req.query.cancelReason !== 'all') match.cancelReason = req.query.cancelReason;
 
   if (typeof req.query.dateFrom === 'string' || typeof req.query.dateTo === 'string') {
     const range: Record<string, Date> = {};
@@ -726,7 +728,7 @@ export async function getOrderTrends(req: AuthenticatedRequest, res: Response) {
 // Computed from real order history for this customer's phone number — not a fabricated score.
 // Thresholds are a reasonable starting heuristic for COD sellers: a customer with no delivery
 // track record yet is unproven rather than risky, and success rate below 40% is a real red flag.
-async function computeOrderRisk(tenantId: string, customerPhone: string | null, excludeOrderId: ObjectId): Promise<OrderRiskDTO> {
+async function computeOrderRisk(tenantId: string, customerPhone: string | null, excludeOrderId: ObjectId): Promise<Omit<OrderRiskDTO, 'possibleDuplicateOrders'>> {
   if (!customerPhone) {
     return { label: 'New Customer', totalOrders: 0, deliveredCount: 0, cancelledOrReturnedCount: 0, successRate: null };
   }
@@ -757,6 +759,33 @@ async function computeOrderRisk(tenantId: string, customerPhone: string | null, 
   return { label, totalOrders, deliveredCount, cancelledOrReturnedCount, successRate };
 }
 
+// Bangladesh doesn't observe DST, so its UTC+6 offset is safe to hardcode rather than needing a
+// real timezone library — mirrors the Asia/Dhaka bucketing getDuplicateOrders already does via
+// Mongo's $dateToString, just computed in JS here since this path is a plain .find(), not an
+// aggregation.
+const DHAKA_OFFSET_MS = 6 * 60 * 60 * 1000;
+function dhakaDayBounds(date: Date): { from: Date; to: Date } {
+  const shifted = new Date(date.getTime() + DHAKA_OFFSET_MS);
+  const dayStartUtc = new Date(Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate()) - DHAKA_OFFSET_MS);
+  return { from: dayStartUtc, to: new Date(dayStartUtc.getTime() + 24 * 60 * 60 * 1000) };
+}
+
+// The real-time half of duplicate detection — computed fresh on every order view rather than
+// waiting for the retrospective getDuplicateOrders analytics grouping to catch it. Only counts
+// still-active siblings (not Cancelled/Returned): a duplicate that's already been resolved one way
+// or another isn't a decision staff still need to make on this order.
+async function findPossibleDuplicates(tenantId: string, customerPhone: string | null, createdAt: Date, excludeOrderId: ObjectId): Promise<string[]> {
+  if (!customerPhone) return [];
+  const db = getDb();
+  const { from, to } = dhakaDayBounds(createdAt);
+  const siblings = await db
+    .collection('orders')
+    .find({ tenantId, customerPhone, _id: { $ne: excludeOrderId }, createdAt: { $gte: from, $lt: to }, stage: { $nin: ['Cancelled', 'Returned'] } })
+    .project({ number: 1 })
+    .toArray();
+  return siblings.map((s) => s.number);
+}
+
 export async function getOrder(req: AuthenticatedRequest, res: Response) {
   const db = getDb();
   const tenantId = req.user!.tenantId!;
@@ -766,7 +795,11 @@ export async function getOrder(req: AuthenticatedRequest, res: Response) {
     return;
   }
 
-  const risk = await computeOrderRisk(tenantId, doc.customerPhone, doc._id);
+  const [riskBase, possibleDuplicateOrders] = await Promise.all([
+    computeOrderRisk(tenantId, doc.customerPhone, doc._id),
+    findPossibleDuplicates(tenantId, doc.customerPhone, doc.createdAt, doc._id),
+  ]);
+  const risk: OrderRiskDTO = { ...riskBase, possibleDuplicateOrders };
   const dto = toOrderDto(doc);
   await attachBlockedFlags(db, tenantId, [dto]);
   res.json({ success: true, order: dto, risk });
@@ -785,7 +818,7 @@ const HOLD_REASONS = [
 ] as const;
 const CANCEL_REASONS = [
   'Customer unreachable', 'Customer changed mind', 'Duplicate order', 'Out of stock',
-  'Fraud suspected', 'Wrong address', 'Price/payment dispute', 'Blocked customer', 'Other',
+  'Fraud suspected', 'Spam', 'Wrong address', 'Price/payment dispute', 'Blocked customer', 'Other',
 ] as const;
 // What actually happened on a confirmation call — a plain attempt counter can't tell "rang out"
 // from "customer picked up and confirmed", which is the difference call-outcome analytics need.
@@ -1034,6 +1067,13 @@ export async function markPaymentCollected(req: AuthenticatedRequest, res: Respo
     res.status(400).json({ success: false, message: 'Already marked collected.' });
     return;
   }
+  // A courier can't have settled cash for a parcel it hasn't delivered yet — without this, an order
+  // still sitting in Processing/Shipped could get flagged Collected before any money has actually
+  // changed hands anywhere in the chain.
+  if (!['Delivered', 'Partial Delivered'].includes(order.stage)) {
+    res.status(400).json({ success: false, message: 'Only delivered orders can be marked collected.' });
+    return;
+  }
 
   const now = new Date();
   const update: Record<string, unknown> = {
@@ -1044,6 +1084,43 @@ export async function markPaymentCollected(req: AuthenticatedRequest, res: Respo
   const dto = toOrderDto(result!);
   await attachBlockedFlags(db, tenantId, [dto]);
   res.json({ success: true, order: dto });
+}
+
+const bulkMarkCollectedSchema = z.object({ orderIds: z.array(z.string()).min(1).max(500) });
+
+// The batch counterpart to markPaymentCollected — courier COD settlements arrive as one payout
+// covering many delivered parcels at once (see createSettlement above), so reconciling that against
+// individual orders one drawer at a time doesn't match how the money actually shows up. Silently
+// skips orders that aren't eligible (not COD, already Collected, or not yet delivered — same
+// "can't have settled cash for an undelivered parcel" reasoning as the single-order endpoint) rather
+// than failing the whole batch, same tolerance bulkUpdateOrders already has for a mixed selection.
+export async function bulkMarkPaymentCollected(req: AuthenticatedRequest, res: Response) {
+  const parsed = bulkMarkCollectedSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, message: 'Invalid bulk payload' });
+    return;
+  }
+
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const now = new Date();
+  const objectIds = parsed.data.orderIds.map((id) => new ObjectId(id));
+
+  const update: Record<string, unknown> = {
+    $set: { paymentStatus: 'Collected', updatedAt: now },
+    $push: { history: { label: 'Payment collected', detail: 'Marked collected manually (bulk)', at: now, by: req.user!.email } },
+  };
+  const result = await db.collection('orders').updateMany(
+    {
+      _id: { $in: objectIds },
+      tenantId,
+      paymentMethod: 'Cash on Delivery',
+      paymentStatus: { $ne: 'Collected' },
+      stage: { $in: ['Delivered', 'Partial Delivered'] },
+    },
+    update
+  );
+  res.json({ success: true, matchedCount: result.matchedCount, modifiedCount: result.modifiedCount });
 }
 
 const partialDeliverSchema = z.object({
@@ -1199,6 +1276,10 @@ async function dispatchCourierConsignment(tenantId: string, order: any) {
         codAmount,
       });
       consignmentId = result.consignmentId;
+      // Pathao's create-order response has no separate tracking field — merchants and customers
+      // both track a Pathao parcel by its consignment id, so that's the value that belongs in
+      // courierTrackingId too (otherwise it stays null forever for every Pathao order, unlike Steadfast).
+      trackingCode = result.consignmentId;
       chargeRate = courier.deliveryChargeRate ?? null;
       await markCourierUsed(courier._id);
     } else {

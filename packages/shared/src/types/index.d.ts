@@ -8,7 +8,7 @@ export interface UserDTO {
     role: TeamRole | null;
 }
 export type TeamRole = 'owner' | 'admin' | 'manager' | 'agent' | 'viewer';
-export declare const MODULE_KEYS: readonly ["home", "orders", "products", "inventory", "customers", "adPerformance", "customerService", "supplyChain", "accounting", "professionalServices", "hr", "analytics", "discounts", "content", "integrations", "team", "settings"];
+export declare const MODULE_KEYS: readonly ["home", "orders", "products", "inventory", "customers", "adPerformance", "customerService", "callCenter", "supplyChain", "accounting", "professionalServices", "hr", "analytics", "discounts", "content", "integrations", "team", "settings"];
 export type ModuleKey = (typeof MODULE_KEYS)[number];
 export interface RoleDefinition {
     role: TeamRole;
@@ -217,7 +217,7 @@ export type OrderStage = 'Pending' | 'Flagged' | 'Confirmed' | 'Processing' | 'S
 export type OrderPaymentStatus = 'COD Pending' | 'Advance Paid' | 'Paid' | 'Collected' | 'Refunded' | 'Failed';
 export type CallOutcome = 'Confirmed' | 'Rescheduled' | 'Customer Cancelled' | 'No Answer' | 'Wrong Number' | 'Switched Off' | 'Busy';
 export type HoldReason = 'Payment verification pending' | 'Address needs confirmation' | 'Stock check needed' | 'Customer requested reschedule' | 'Awaiting customer response' | 'Stock shortfall found' | 'Customer unreachable for delivery' | 'Address unclear to courier' | 'Courier delay' | 'Attempting redelivery' | 'Courier dispute' | 'Customer says they never refused it' | 'Other';
-export type CancelReason = 'Customer unreachable' | 'Customer changed mind' | 'Duplicate order' | 'Out of stock' | 'Fraud suspected' | 'Wrong address' | 'Price/payment dispute' | 'Blocked customer' | 'Other';
+export type CancelReason = 'Customer unreachable' | 'Customer changed mind' | 'Duplicate order' | 'Out of stock' | 'Fraud suspected' | 'Spam' | 'Wrong address' | 'Price/payment dispute' | 'Blocked customer' | 'Other';
 export type RiskLabel = 'Trusted' | 'Normal' | 'Risky' | 'New Customer';
 export type PaymentMethod = 'Cash on Delivery' | 'bKash' | 'Nagad' | 'Rocket' | 'Card' | 'Other';
 export type CourierPartner = 'Steadfast' | 'Pathao';
@@ -227,6 +227,7 @@ export interface OrderRiskDTO {
     deliveredCount: number;
     cancelledOrReturnedCount: number;
     successRate: number | null;
+    possibleDuplicateOrders: string[];
 }
 export interface OrderLineItemDTO {
     title: string;
@@ -379,7 +380,7 @@ export interface MessageDTO {
 export interface MessagingCapabilitiesDTO {
     metaAppConfigured: boolean;
 }
-export type AnalyticsCardKey = 'orderFunnel' | 'confirmationPerformance' | 'salesOverTime' | 'aovOverTime' | 'salesByStore' | 'topProducts' | 'fulfillmentTime' | 'courierPerformance' | 'deliveryZones' | 'cancelReasons' | 'holdReasons' | 'newVsReturning' | 'topCustomers' | 'rfmSegments' | 'riskSegments' | 'customersByZone' | 'grossProfitOverTime' | 'profitByProduct' | 'salesByPaymentMethod' | 'discountsOverTime' | 'codCashflow' | 'abcAnalysis' | 'sellThrough' | 'stockoutCancellations' | 'itemsBoughtTogether' | 'returnedProducts' | 'weeklyPatterns' | 'partialDeliveryRate' | 'channelPerformance' | 'inventoryAdjustments' | 'inventoryThroughput' | 'shippingAndTracking' | 'newCustomerRevenue' | 'netSalesOverTime' | 'profitByCourier' | 'profitByZone' | 'deadStock' | 'duplicateOrders' | 'courierReconciliation' | 'marketingRoas' | 'addressQuality' | 'slaBreach' | 'callOutcomes' | 'flagReasons' | 'rescheduleEffectiveness' | 'blocklistHitRate' | 'rtoLoss' | 'marginWaterfall' | 'cohortRetention' | 'productPerformance' | 'confirmedSalesOverTime' | 'paymentStatusBreakdown' | 'employeeActivity' | 'productCourierHistory' | 'dailyLeadQuantity' | 'codChangeLog' | 'handoverSales';
+export type AnalyticsCardKey = 'orderFunnel' | 'confirmationPerformance' | 'salesOverTime' | 'aovOverTime' | 'salesByStore' | 'topProducts' | 'fulfillmentTime' | 'courierPerformance' | 'deliveryZones' | 'cancelReasons' | 'holdReasons' | 'newVsReturning' | 'topCustomers' | 'rfmSegments' | 'riskSegments' | 'customersByZone' | 'grossProfitOverTime' | 'profitByProduct' | 'salesByPaymentMethod' | 'discountsOverTime' | 'codCashflow' | 'abcAnalysis' | 'sellThrough' | 'stockoutCancellations' | 'itemsBoughtTogether' | 'returnedProducts' | 'weeklyPatterns' | 'partialDeliveryRate' | 'channelPerformance' | 'inventoryAdjustments' | 'inventoryThroughput' | 'shippingAndTracking' | 'newCustomerRevenue' | 'netSalesOverTime' | 'profitByCourier' | 'profitByZone' | 'deadStock' | 'duplicateOrders' | 'courierReconciliation' | 'marketingRoas' | 'addressQuality' | 'slaBreach' | 'callOutcomes' | 'flagReasons' | 'rescheduleEffectiveness' | 'blocklistHitRate' | 'rtoLoss' | 'marginWaterfall' | 'cohortRetention' | 'productPerformance' | 'confirmedSalesOverTime' | 'paymentStatusBreakdown' | 'employeeActivity' | 'productCourierHistory' | 'dailyLeadQuantity' | 'codChangeLog' | 'handoverSales' | 'spamOrders';
 export type AnalyticsCategory = 'Sales' | 'Orders' | 'Delivery' | 'Customers' | 'Finance' | 'Inventory';
 export interface AnalyticsLayoutCardDTO {
     key: AnalyticsCardKey;
@@ -580,6 +581,10 @@ export interface ProductPerformanceRowDTO {
     cancelledOrders: number;
     cancelledUnits: number;
     cancelRate: number | null;
+    spamOrders: number;
+    spamRate: number | null;
+    duplicateOrders: number;
+    duplicateRate: number | null;
     rtoOrders: number;
     rtoUnits: number;
     rtoRate: number | null;
@@ -602,6 +607,61 @@ export interface EmployeeActivityRowDTO {
 }
 export interface EmployeeActivityDTO {
     rows: EmployeeActivityRowDTO[];
+}
+export type CallCenterPresenceStatus = 'onCall' | 'available' | 'offline';
+export interface CallCenterAgentDTO {
+    email: string;
+    role: TeamRole;
+    status: CallCenterPresenceStatus;
+    statusSince: string;
+    statusDurationSeconds: number;
+    callsToday: number;
+    confirmedToday: number;
+    failedToday: number;
+    avgTimeToConfirmMinutes: number | null;
+    isYou: boolean;
+}
+export interface CallCenterQueueItemDTO {
+    orderId: string;
+    number: string;
+    customerName: string | null;
+    customerPhone: string | null;
+    total: number;
+    callAttempts: number;
+    waitingMinutes: number;
+    lastOutcome: string | null;
+    isPriorityCall: boolean;
+}
+export interface CallCenterHourlyVolumeDTO {
+    hour: number;
+    label: string;
+    calls: number;
+    confirmed: number;
+}
+export interface CallCenterLeaderboardEntryDTO {
+    email: string;
+    confirmedCount: number;
+    avgTimeToConfirmMinutes: number | null;
+    deliveredRate: number | null;
+    compositeScore: number | null;
+}
+export interface CallCenterKpisDTO {
+    callsToday: number;
+    confirmedToday: number;
+    failedToday: number;
+    rescheduledToday: number;
+    pendingQueueCount: number;
+    confirmationRateToday: number | null;
+    avgTimeToConfirmMinutesToday: number | null;
+    avgTimeToFirstCallMinutesToday: number | null;
+    slaBreachCount: number;
+}
+export interface CallCenterOverviewDTO {
+    kpis: CallCenterKpisDTO;
+    agents: CallCenterAgentDTO[];
+    queue: CallCenterQueueItemDTO[];
+    hourlyVolume: CallCenterHourlyVolumeDTO[];
+    leaderboard: CallCenterLeaderboardEntryDTO[];
 }
 export interface ProductCourierHistoryRowDTO {
     productId: string;
@@ -663,6 +723,14 @@ export interface StockoutCancellationsDTO {
     series: AnalyticsSeriesDTO;
     topAffectedProducts: AnalyticsBreakdownRowDTO[];
 }
+export interface SpamOrdersDTO {
+    totalOrders: number;
+    spamOrders: number;
+    spamRate: number | null;
+    valueLost: number;
+    series: AnalyticsSeriesDTO;
+    topAffectedProducts: AnalyticsBreakdownRowDTO[];
+}
 export interface InventoryThroughputDTO {
     totalOrdered: number;
     totalReceived: number;
@@ -712,9 +780,14 @@ export interface DuplicateOrderGroupDTO {
     orderCount: number;
     orderNumbers: string[];
     totalValue: number;
+    confirmedOrderNumbers: string[];
 }
 export interface DuplicateOrdersDTO {
     groups: DuplicateOrderGroupDTO[];
+    totalOrders: number;
+    confirmedOrders: number;
+    confirmationRate: number | null;
+    series: AnalyticsSeriesDTO;
 }
 export interface CourierReconciliationRowDTO {
     provider: string;

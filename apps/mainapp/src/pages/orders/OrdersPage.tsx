@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  Ban,
   Check,
   ChevronDown,
   Copy,
@@ -19,14 +20,14 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import type { CancelReason, CourierAccountDTO, HoldReason, OrderDTO, OrderPaymentStatus, OrderStatsDTO, OrderTabKey, OrderTrendsDTO, StoreDTO } from '@zetsales/shared';
-import { blockCustomer, bulkUpdateOrders, getOrderStats, getOrderTrends, listCouriers, listInventory, listOrders, listStores, unblockCustomer } from '../../lib/commerceApi';
+import { blockCustomer, bulkMarkPaymentCollected, bulkUpdateOrders, getOrderStats, getOrderTrends, listCouriers, listInventory, listOrders, listStores, unblockCustomer } from '../../lib/commerceApi';
 import { OrderDetailDrawer } from '../../components/orders/OrderDetailDrawer';
 import { PrintOrderModal, type PrintDocType } from '../../components/orders/PrintOrderModal';
 import { CourierLabelModal } from '../../components/orders/CourierLabelModal';
 import { buildBinLookup, type BinLookup } from '../../components/orders/binLookup';
 import { ShopifyLogo, WooCommerceLogo } from '../../components/orders/platformLogos';
 import { STAGE_TONE, PAYMENT_METHOD_SHORT } from '../../components/orders/orderTone';
-import { holdReasonsForMany } from '../../components/orders/reasons';
+import { ALL_HOLD_REASONS, CANCEL_REASONS_FOR_FILTER, holdReasonsForMany } from '../../components/orders/reasons';
 import { ImportOrdersModal } from '../../components/integrations/ImportOrdersModal';
 import { StatsRow } from '../../components/orders/StatsRow';
 import { ORDER_TABS } from '../../components/orders/tabs';
@@ -97,6 +98,8 @@ export function OrdersPage() {
   const [search, setSearch] = useState('');
   const [storeFilter, setStoreFilter] = useState<string>('all');
   const [paymentFilter, setPaymentFilter] = useState<string>('all');
+  const [holdReasonFilter, setHoldReasonFilter] = useState<string>('all');
+  const [cancelReasonFilter, setCancelReasonFilter] = useState<string>('all');
   const [dateRange, setDateRange] = useState<DateRangeKey>('all');
   const [statsDateRange, setStatsDateRange] = useState<DateRangeKey>('today');
   const [statsCustomRange, setStatsCustomRange] = useState<CustomDateRange | null>(null);
@@ -179,6 +182,8 @@ export function OrdersPage() {
         storeId: storeFilter,
         tab,
         paymentStatus: paymentFilter,
+        holdReason: tab === 'hold' && holdReasonFilter !== 'all' ? (holdReasonFilter as HoldReason) : undefined,
+        cancelReason: tab === 'cancelled' && cancelReasonFilter !== 'all' ? (cancelReasonFilter as CancelReason) : undefined,
         search,
         dateFrom: from ?? undefined,
         dateTo: to ?? undefined,
@@ -218,7 +223,7 @@ export function OrdersPage() {
     setSelected(new Set());
     void loadOrders(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storeFilter, tab, paymentFilter, dateRange, advancedFilters, search, sort, pageSize]);
+  }, [storeFilter, tab, paymentFilter, holdReasonFilter, cancelReasonFilter, dateRange, advancedFilters, search, sort, pageSize]);
 
   useEffect(() => {
     void loadStats();
@@ -324,6 +329,32 @@ export function OrdersPage() {
     }
   };
 
+  // Not part of the order patch schema either — a courier COD settlement is a batch payout that
+  // doesn't map onto the normal stage/hold/cancel patch shape, so this goes through its own
+  // dedicated bulk endpoint (bulkMarkPaymentCollected) rather than runBulk/bulkUpdateOrders.
+  const handleBulkMarkCollected = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    setBulkBusy(true);
+    try {
+      const res = await bulkMarkPaymentCollected(ids);
+      setSelected(new Set());
+      refreshAll();
+      // ids.length and modifiedCount should normally match (the frontend already filters to the
+      // same Delivered/COD-Pending criteria the backend checks) — they can only diverge if an order
+      // changed state between selecting it here and this request landing, so surface that when it happens.
+      toast.push(
+        res.modifiedCount === ids.length
+          ? `Marked ${res.modifiedCount} order${res.modifiedCount === 1 ? '' : 's'} as collected.`
+          : `Marked ${res.modifiedCount} of ${ids.length} selected orders as collected.`,
+        'success'
+      );
+    } catch {
+      toast.push('Could not mark those orders collected.', 'info');
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   // Block/unblock aren't part of the order patch schema — blocking is a customer-level fact (by
   // phone), not a field on this one order — so they go through their own dedicated endpoints rather
   // than runBulk/bulkUpdateOrders.
@@ -373,6 +404,8 @@ export function OrdersPage() {
       storeId: storeFilter,
       tab,
       paymentStatus: paymentFilter,
+      holdReason: tab === 'hold' && holdReasonFilter !== 'all' ? (holdReasonFilter as HoldReason) : undefined,
+      cancelReason: tab === 'cancelled' && cancelReasonFilter !== 'all' ? (cancelReasonFilter as CancelReason) : undefined,
       search,
       dateFrom: from ?? undefined,
       dateTo: to ?? undefined,
@@ -423,6 +456,12 @@ export function OrdersPage() {
   };
 
   const selectedOrders = orders.filter((o) => selected.has(o.id));
+  // Delivered/Partial Delivered only — a courier can't have settled cash for a parcel it hasn't
+  // delivered yet, so a Processing/Shipped order in the selection is silently left out here (and
+  // by the backend's own matching filter, as a second guard) rather than incorrectly offered.
+  const collectibleSelectedIds = selectedOrders
+    .filter((o) => o.paymentMethod === 'Cash on Delivery' && o.paymentStatus !== 'Collected' && ['Delivered', 'Partial Delivered'].includes(o.stage))
+    .map((o) => o.id);
 
   const copyOrderId = (order: OrderDTO, e: MouseEvent) => {
     e.stopPropagation();
@@ -434,6 +473,8 @@ export function OrdersPage() {
   const handleTabChange = (nextTab: OrderTabKey) => {
     setTab(nextTab);
     setSort(defaultSortForTab(nextTab));
+    if (nextTab !== 'hold') setHoldReasonFilter('all');
+    if (nextTab !== 'cancelled') setCancelReasonFilter('all');
   };
 
   const handleStatsNavigate = (nextTab: OrderTabKey) => {
@@ -445,7 +486,14 @@ export function OrdersPage() {
   const rangeStart = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const rangeEnd = Math.min(total, page * pageSize);
   const noFiltersActive =
-    !search && storeFilter === 'all' && tab === 'all' && paymentFilter === 'all' && dateRange === 'all' && activeAdvancedFilterCount(advancedFilters) === 0;
+    !search &&
+    storeFilter === 'all' &&
+    tab === 'all' &&
+    paymentFilter === 'all' &&
+    holdReasonFilter === 'all' &&
+    cancelReasonFilter === 'all' &&
+    dateRange === 'all' &&
+    activeAdvancedFilterCount(advancedFilters) === 0;
 
   const clearFilters = () => {
     setSearchInput('');
@@ -532,6 +580,24 @@ export function OrdersPage() {
                     options={ORDER_TABS.filter((t) => t.key !== 'all').map((t) => ({ value: t.key, label: t.label }))}
                     onChange={(v) => handleTabChange(v as OrderTabKey)}
                   />
+                  {tab === 'hold' && (
+                    <FilterMenu
+                      icon={PhoneCall}
+                      allLabel="All Hold Reasons"
+                      value={holdReasonFilter}
+                      options={ALL_HOLD_REASONS.map((r) => ({ value: r, label: r }))}
+                      onChange={setHoldReasonFilter}
+                    />
+                  )}
+                  {tab === 'cancelled' && (
+                    <FilterMenu
+                      icon={Ban}
+                      allLabel="All Cancel Reasons"
+                      value={cancelReasonFilter}
+                      options={CANCEL_REASONS_FOR_FILTER.map((r) => ({ value: r, label: r }))}
+                      onChange={setCancelReasonFilter}
+                    />
+                  )}
                   <FilterMenu
                     icon={CreditCard}
                     allLabel="All Payment Types"
@@ -780,6 +846,7 @@ export function OrdersPage() {
         onConfirm={() => void runBulk([...selected], { stage: 'Confirmed' })}
         onHold={(reason, note, rescheduledFor) => void runBulk([...selected], { stage: 'On Hold', holdReason: reason as HoldReason, note: note || null, rescheduledFor })}
         onCancel={(reason, note) => void runBulk([...selected], { stage: 'Cancelled', cancelReason: reason as CancelReason, note: note || null })}
+        onMarkCollected={collectibleSelectedIds.length > 0 ? () => void handleBulkMarkCollected(collectibleSelectedIds) : undefined}
         holdReasons={holdReasonsForMany(selectedOrders.map((o) => o.stage))}
         onPrintInvoices={() => setPrintDocType('invoice')}
         onPrintPackingSlips={() => {

@@ -38,18 +38,27 @@ function DocHeader({ businessName, label, order, compact }: { businessName: stri
 
 function DocMeta({ order }: { order: OrderDTO }) {
   return (
-    <div className="mb-6 grid grid-cols-2 gap-4 text-sm">
-      <div className="rounded-xl bg-slate-50 p-4">
-        <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Customer</p>
-        <p className="font-semibold text-slate-800">{order.customerName || 'No name'}</p>
-        {order.customerPhone && <p className="text-slate-600">{order.customerPhone}</p>}
-        {order.address && <p className="text-slate-600">{order.address}</p>}
+    <div className="mb-6 space-y-4">
+      <div className="grid grid-cols-2 gap-4 text-sm">
+        <div className="rounded-xl bg-slate-50 p-4">
+          <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Customer</p>
+          <p className="font-semibold text-slate-800">{order.customerName || 'No name'}</p>
+          {order.customerPhone && <p className="text-slate-600">{order.customerPhone}</p>}
+          {order.address && <p className="text-slate-600">{order.address}</p>}
+        </div>
+        <div className="rounded-xl bg-slate-50 p-4">
+          <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Payment</p>
+          <p className="font-semibold text-slate-800">{order.paymentMethod}</p>
+          <p className="text-slate-600">{order.paymentStatus}</p>
+        </div>
       </div>
-      <div className="rounded-xl bg-slate-50 p-4">
-        <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Payment</p>
-        <p className="font-semibold text-slate-800">{order.paymentMethod}</p>
-        <p className="text-slate-600">{order.paymentStatus}</p>
-      </div>
+      {order.courierPartner && (
+        <div className="rounded-xl bg-slate-50 p-4 text-sm">
+          <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Delivery</p>
+          <p className="font-semibold text-slate-800">{order.courierPartner}</p>
+          {order.courierTrackingId && <p className="text-slate-600">Tracking: {order.courierTrackingId}</p>}
+        </div>
+      )}
     </div>
   );
 }

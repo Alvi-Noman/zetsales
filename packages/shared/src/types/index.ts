@@ -18,6 +18,7 @@ export const MODULE_KEYS = [
   'customers',
   'adPerformance',
   'customerService',
+  'callCenter',
   'supplyChain',
   'accounting',
   'professionalServices',
@@ -70,6 +71,7 @@ export const ROLE_DEFINITIONS: Record<TeamRole, RoleDefinition> = {
       'customers',
       'adPerformance',
       'customerService',
+      'callCenter',
       'supplyChain',
       'analytics',
       'discounts',
@@ -82,7 +84,7 @@ export const ROLE_DEFINITIONS: Record<TeamRole, RoleDefinition> = {
     role: 'agent',
     label: 'Order Agent',
     description: 'Confirms orders and handles customer conversations.',
-    modules: ['home', 'orders', 'customerService', 'customers'],
+    modules: ['home', 'orders', 'customerService', 'callCenter', 'customers'],
     canManageTeam: false,
     canWrite: true,
   },
@@ -377,6 +379,7 @@ export type CancelReason =
   | 'Duplicate order'
   | 'Out of stock'
   | 'Fraud suspected'
+  | 'Spam'
   | 'Wrong address'
   | 'Price/payment dispute'
   | 'Blocked customer'
@@ -392,6 +395,10 @@ export interface OrderRiskDTO {
   deliveredCount: number;
   cancelledOrReturnedCount: number;
   successRate: number | null;
+  // Other still-active (not Cancelled/Returned) orders from this same phone number placed on the
+  // same Asia/Dhaka calendar day as this one — the real-time half of duplicate detection, computed
+  // fresh on every view rather than waiting for the retrospective analytics grouping to catch it.
+  possibleDuplicateOrders: string[];
 }
 
 export interface OrderLineItemDTO {
@@ -639,7 +646,8 @@ export type AnalyticsCardKey =
   | 'productCourierHistory'
   | 'dailyLeadQuantity'
   | 'codChangeLog'
-  | 'handoverSales';
+  | 'handoverSales'
+  | 'spamOrders';
 
 export type AnalyticsCategory = 'Sales' | 'Orders' | 'Delivery' | 'Customers' | 'Finance' | 'Inventory';
 
@@ -883,6 +891,15 @@ export interface ProductPerformanceRowDTO {
   // Of every order placed for this product in the period, what share never made it past Cancelled —
   // a pre-shipment failure signal (confirmation/stock/blocklist), distinct from rtoRate below.
   cancelRate: number | null;
+  // Spam is a subset of cancelledOrders (cancelReason: 'Spam'), broken out on its own — a high spam
+  // rate on one product points at a junk-order/bot-attack pattern specific to that listing (e.g. a
+  // viral ad drawing bait orders), which a blended cancelRate would otherwise bury.
+  spamOrders: number;
+  spamRate: number | null;
+  // Same idea as spamRate, for cancelReason: 'Duplicate order' — a high rate here means customers
+  // (or the confirmation flow) keep re-submitting for this specific product, distinct from spam/fraud.
+  duplicateOrders: number;
+  duplicateRate: number | null;
   rtoOrders: number;
   rtoUnits: number;
   // Of orders that actually shipped and reached a final outcome (delivered or RTO'd), what share
@@ -910,6 +927,76 @@ export interface EmployeeActivityRowDTO {
 
 export interface EmployeeActivityDTO {
   rows: EmployeeActivityRowDTO[];
+}
+
+// --- Call Center ---
+// Presence is a hybrid: 'onCall' is inferred server-side from a real order-history action in the
+// last ACTIVE_WINDOW seconds (see callCenterController), so agents never have to clock in/out for
+// it. 'break' is the one state that leaves no data trail, so it's the only one an agent sets
+// themselves; 'available'/'offline' are the idle fallbacks once a break ends or nothing's happened
+// in a while.
+export type CallCenterPresenceStatus = 'onCall' | 'available' | 'offline';
+
+export interface CallCenterAgentDTO {
+  email: string;
+  role: TeamRole;
+  status: CallCenterPresenceStatus;
+  statusSince: string;
+  statusDurationSeconds: number;
+  callsToday: number;
+  confirmedToday: number;
+  failedToday: number;
+  avgTimeToConfirmMinutes: number | null;
+  isYou: boolean;
+}
+
+export interface CallCenterQueueItemDTO {
+  orderId: string;
+  number: string;
+  customerName: string | null;
+  customerPhone: string | null;
+  total: number;
+  callAttempts: number;
+  waitingMinutes: number;
+  lastOutcome: string | null;
+  isPriorityCall: boolean;
+}
+
+export interface CallCenterHourlyVolumeDTO {
+  hour: number;
+  label: string;
+  calls: number;
+  confirmed: number;
+}
+
+export interface CallCenterLeaderboardEntryDTO {
+  email: string;
+  confirmedCount: number;
+  avgTimeToConfirmMinutes: number | null;
+  deliveredRate: number | null;
+  compositeScore: number | null;
+}
+
+// One completed (or, if `end` is null, still-in-progress) break — this is the answer to "who took a
+// break for how long": a chronological log, not just a running daily total.
+export interface CallCenterKpisDTO {
+  callsToday: number;
+  confirmedToday: number;
+  failedToday: number;
+  rescheduledToday: number;
+  pendingQueueCount: number;
+  confirmationRateToday: number | null;
+  avgTimeToConfirmMinutesToday: number | null;
+  avgTimeToFirstCallMinutesToday: number | null;
+  slaBreachCount: number;
+}
+
+export interface CallCenterOverviewDTO {
+  kpis: CallCenterKpisDTO;
+  agents: CallCenterAgentDTO[];
+  queue: CallCenterQueueItemDTO[];
+  hourlyVolume: CallCenterHourlyVolumeDTO[];
+  leaderboard: CallCenterLeaderboardEntryDTO[];
 }
 
 export interface ProductCourierHistoryRowDTO {
@@ -987,6 +1074,17 @@ export interface StockoutCancellationsDTO {
   topAffectedProducts: AnalyticsBreakdownRowDTO[];
 }
 
+export interface SpamOrdersDTO {
+  totalOrders: number;
+  spamOrders: number;
+  // Share of every order placed in the period that got cancelled as Spam — the one number that
+  // answers "is this actually a problem right now" without opening the detail view.
+  spamRate: number | null;
+  valueLost: number;
+  series: AnalyticsSeriesDTO;
+  topAffectedProducts: AnalyticsBreakdownRowDTO[];
+}
+
 export interface InventoryThroughputDTO {
   totalOrdered: number;
   totalReceived: number;
@@ -1034,10 +1132,21 @@ export interface DuplicateOrderGroupDTO {
   orderCount: number;
   orderNumbers: string[];
   totalValue: number;
+  // Which of orderNumbers above actually got cancelled with reason "Duplicate order" — the manual
+  // confirmation on top of the automatic same-phone/same-day detection that flagged this group in
+  // the first place. Empty doesn't mean it wasn't a duplicate, just that nobody's acted on it (yet).
+  confirmedOrderNumbers: string[];
 }
 
 export interface DuplicateOrdersDTO {
   groups: DuplicateOrderGroupDTO[];
+  // Of every order cancelled as "Duplicate order" in the period (the manual/confirmed signal) —
+  // same total/rate/series shape as SpamOrdersDTO, so the two "which cancel reason, how often, on
+  // what day" questions are answered the same way for both.
+  totalOrders: number;
+  confirmedOrders: number;
+  confirmationRate: number | null;
+  series: AnalyticsSeriesDTO;
 }
 
 export interface CourierReconciliationRowDTO {

@@ -11,7 +11,7 @@ function useData(query: AnalyticsCardComponentProps['query']) {
   useEffect(() => {
     setData(null);
     void getInventoryThroughput(query).then(setData);
-  }, [query.range, query.from, query.to, query.storeId]);
+  }, [query.range, query.from, query.to, query.storeId, query.comparisonMode, query.comparisonFrom, query.comparisonTo]);
   return data;
 }
 

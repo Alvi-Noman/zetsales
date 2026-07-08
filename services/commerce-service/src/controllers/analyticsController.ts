@@ -45,8 +45,9 @@ import type {
   ProductPerformanceDTO,
   EmployeeActivityDTO,
   ProductCourierHistoryDTO,
+  SpamOrdersDTO,
 } from '@zetsales/shared';
-import { resolveRange, bucketDate, bucketLabel, bucketIndexExpr, bucketIndexJs, type TrendGranularity, type TrendWindow } from '../utils/dateRange.js';
+import { resolveRange, bucketDate, bucketLabel, bucketIndexExpr, bucketIndexJs, type TrendGranularity, type TrendWindow, type ComparisonMode } from '../utils/dateRange.js';
 import { COGS_REASONS } from './accountingController.js';
 
 // --- Shared query parsing ---
@@ -56,7 +57,12 @@ interface BaseQuery {
   range: string;
   from?: string;
   to?: string;
+  comparisonMode?: ComparisonMode;
+  comparisonFrom?: string;
+  comparisonTo?: string;
 }
+
+const COMPARISON_MODES = ['previousPeriod', 'previousYear', 'previousYearMatchDay', 'custom', 'none'];
 
 function parseBaseQuery(req: AuthenticatedRequest): BaseQuery {
   return {
@@ -64,7 +70,24 @@ function parseBaseQuery(req: AuthenticatedRequest): BaseQuery {
     range: typeof req.query.range === 'string' ? req.query.range : 'last30',
     from: typeof req.query.from === 'string' ? req.query.from : undefined,
     to: typeof req.query.to === 'string' ? req.query.to : undefined,
+    comparisonMode:
+      typeof req.query.comparisonMode === 'string' && COMPARISON_MODES.includes(req.query.comparisonMode)
+        ? (req.query.comparisonMode as ComparisonMode)
+        : undefined,
+    comparisonFrom: typeof req.query.comparisonFrom === 'string' ? req.query.comparisonFrom : undefined,
+    comparisonTo: typeof req.query.comparisonTo === 'string' ? req.query.comparisonTo : undefined,
   };
+}
+
+// True whenever the caller has explicitly asked for no comparison — the one mode resolveRange
+// deliberately doesn't special-case itself (see its own comment), so every AnalyticsSeriesDTO
+// builder below checks this directly and blanks its own comparison window/trend when it's set.
+function comparisonDisabled(q: BaseQuery): boolean {
+  return q.comparisonMode === 'none';
+}
+
+function emptySeriesWindow(window: TrendWindow): AnalyticsSeriesWindowDTO {
+  return { from: window.from.toISOString(), to: window.to.toISOString(), points: [] };
 }
 
 function baseMatch(tenantId: string, storeId: string | undefined): Record<string, unknown> {
@@ -149,10 +172,11 @@ async function runAnalyticsSeries(
   // figure directly from one ungrouped aggregation instead of from the chart's bucket points.
   totalMode: 'sum' | 'avg' = 'sum'
 ): Promise<AnalyticsSeriesDTO> {
-  const { granularity, bucketCount, current, comparison } = resolveRange(q.range, q.from, q.to);
+  const { granularity, bucketCount, current, comparison } = resolveRange(q.range, q.from, q.to, q.comparisonMode, q.comparisonFrom, q.comparisonTo);
+  const skipComparison = comparisonDisabled(q);
   const [currentWindow, comparisonWindow] = await Promise.all([
     bucketedWindow(collectionName, match, current, granularity, bucketCount, valueExpr, dateField),
-    bucketedWindow(collectionName, match, comparison, granularity, bucketCount, valueExpr, dateField),
+    skipComparison ? Promise.resolve(emptySeriesWindow(comparison)) : bucketedWindow(collectionName, match, comparison, granularity, bucketCount, valueExpr, dateField),
   ]);
   let totalCurrent: number;
   let totalComparison: number;
@@ -165,12 +189,12 @@ async function runAnalyticsSeries(
         .toArray();
       return Number(agg?.value) || 0;
     };
-    [totalCurrent, totalComparison] = await Promise.all([overallFor(current), overallFor(comparison)]);
+    [totalCurrent, totalComparison] = await Promise.all([overallFor(current), skipComparison ? Promise.resolve(0) : overallFor(comparison)]);
   } else {
     totalCurrent = currentWindow.points.reduce((s, p) => s + p.value, 0);
     totalComparison = comparisonWindow.points.reduce((s, p) => s + p.value, 0);
   }
-  return { granularity, current: currentWindow, comparison: comparisonWindow, totalCurrent, totalComparison, trend: pctTrend(totalCurrent, totalComparison) };
+  return { granularity, current: currentWindow, comparison: comparisonWindow, totalCurrent, totalComparison, trend: skipComparison ? null : pctTrend(totalCurrent, totalComparison) };
 }
 
 // --- Generic breakdown-by-dimension builder — powers every Pareto/ranked-dimension card. ---
@@ -271,7 +295,7 @@ export async function getAnalyticsSummary(req: AuthenticatedRequest, res: Respon
   const tenantId = req.user!.tenantId!;
   const q = parseBaseQuery(req);
   const match = baseMatch(tenantId, q.storeId);
-  const { current, comparison } = resolveRange(q.range, q.from, q.to);
+  const { current, comparison } = resolveRange(q.range, q.from, q.to, q.comparisonMode, q.comparisonFrom, q.comparisonTo);
 
   async function windowTotals(window: TrendWindow) {
     const [agg] = await db
@@ -319,8 +343,10 @@ export async function getAnalyticsSummary(req: AuthenticatedRequest, res: Respon
     };
   }
 
-  const [cur, cmp] = await Promise.all([windowTotals(current), windowTotals(comparison)]);
-  const metric = (curVal: number, cmpVal: number): MetricWithTrendDTO => ({ value: Math.round(curVal * 100) / 100, trend: pctTrend(curVal, cmpVal) });
+  const skipComparison = comparisonDisabled(q);
+  const cur = await windowTotals(current);
+  const cmp = skipComparison ? cur : await windowTotals(comparison);
+  const metric = (curVal: number, cmpVal: number): MetricWithTrendDTO => ({ value: Math.round(curVal * 100) / 100, trend: skipComparison ? null : pctTrend(curVal, cmpVal) });
 
   const summary: AnalyticsSummaryDTO = {
     totalSales: metric(cur.totalSales, cmp.totalSales),
@@ -892,7 +918,8 @@ export async function getNewVsReturning(req: AuthenticatedRequest, res: Response
   const tenantId = req.user!.tenantId!;
   const q = parseBaseQuery(req);
   const match = baseMatch(tenantId, q.storeId);
-  const { granularity, bucketCount, current, comparison } = resolveRange(q.range, q.from, q.to);
+  const { granularity, bucketCount, current, comparison } = resolveRange(q.range, q.from, q.to, q.comparisonMode, q.comparisonFrom, q.comparisonTo);
+  const skipComparison = comparisonDisabled(q);
 
   const firstOrderRows = await db
     .collection('orders')
@@ -925,7 +952,10 @@ export async function getNewVsReturning(req: AuthenticatedRequest, res: Response
     return { from: window.from.toISOString(), to: window.to.toISOString(), points };
   }
 
-  const [currentWindow, comparisonWindow] = await Promise.all([classifyWindow(current), classifyWindow(comparison)]);
+  const [currentWindow, comparisonWindow] = await Promise.all([
+    classifyWindow(current),
+    skipComparison ? Promise.resolve({ from: comparison.from.toISOString(), to: comparison.to.toISOString(), points: [] }) : classifyWindow(comparison),
+  ]);
   const dto: NewVsReturningDTO = { granularity, current: currentWindow, comparison: comparisonWindow };
   res.json({ success: true, series: dto });
 }
@@ -1133,14 +1163,22 @@ export async function getGrossProfitOverTime(req: AuthenticatedRequest, res: Res
   const tenantId = req.user!.tenantId!;
   const q = parseBaseQuery(req);
   const match = baseMatch(tenantId, q.storeId);
-  const { granularity, bucketCount, current, comparison } = resolveRange(q.range, q.from, q.to);
+  const { granularity, bucketCount, current, comparison } = resolveRange(q.range, q.from, q.to, q.comparisonMode, q.comparisonFrom, q.comparisonTo);
+  const skipComparison = comparisonDisabled(q);
   const [currentWindow, comparisonWindow] = await Promise.all([
     windowGrossProfit(tenantId, match, current, granularity, bucketCount),
-    windowGrossProfit(tenantId, match, comparison, granularity, bucketCount),
+    skipComparison ? Promise.resolve(emptySeriesWindow(comparison)) : windowGrossProfit(tenantId, match, comparison, granularity, bucketCount),
   ]);
   const totalCurrent = currentWindow.points.reduce((s, p) => s + p.value, 0);
   const totalComparison = comparisonWindow.points.reduce((s, p) => s + p.value, 0);
-  const series: AnalyticsSeriesDTO = { granularity, current: currentWindow, comparison: comparisonWindow, totalCurrent, totalComparison, trend: pctTrend(totalCurrent, totalComparison) };
+  const series: AnalyticsSeriesDTO = {
+    granularity,
+    current: currentWindow,
+    comparison: comparisonWindow,
+    totalCurrent,
+    totalComparison,
+    trend: skipComparison ? null : pctTrend(totalCurrent, totalComparison),
+  };
   res.json({ success: true, series });
 }
 
@@ -1279,7 +1317,15 @@ export async function getCodCashflow(req: AuthenticatedRequest, res: Response) {
   // Bucketed by the collection *event's* own date, not order.createdAt — the generic
   // runAnalyticsSeries only buckets by a plain top-level field, so this needs the same
   // unwind-then-rebucket approach windowGrossProfit uses for history-nested dates.
-  const { granularity, bucketCount, current: curWindow, comparison: cmpWindow } = resolveRange(q.range, q.from, q.to);
+  const { granularity, bucketCount, current: curWindow, comparison: cmpWindow } = resolveRange(
+    q.range,
+    q.from,
+    q.to,
+    q.comparisonMode,
+    q.comparisonFrom,
+    q.comparisonTo
+  );
+  const skipComparison = comparisonDisabled(q);
   const collectedPipelineFor = (window: TrendWindow) => [
     { $match: { ...match, history: { $elemMatch: { label: 'Payment collected', at: { $gte: window.from, $lt: window.to } } } } },
     { $unwind: '$history' },
@@ -1287,7 +1333,9 @@ export async function getCodCashflow(req: AuthenticatedRequest, res: Response) {
   ];
   const [collectedCurrent, collectedComparison] = await Promise.all([
     bucketedWindowWithPipeline('orders', collectedPipelineFor(curWindow), curWindow, granularity, bucketCount, { $sum: '$total' }, 'history.at'),
-    bucketedWindowWithPipeline('orders', collectedPipelineFor(cmpWindow), cmpWindow, granularity, bucketCount, { $sum: '$total' }, 'history.at'),
+    skipComparison
+      ? Promise.resolve(emptySeriesWindow(cmpWindow))
+      : bucketedWindowWithPipeline('orders', collectedPipelineFor(cmpWindow), cmpWindow, granularity, bucketCount, { $sum: '$total' }, 'history.at'),
   ]);
   const collectedTotalCurrent = collectedCurrent.points.reduce((s, p) => s + p.value, 0);
   const collectedTotalComparison = collectedComparison.points.reduce((s, p) => s + p.value, 0);
@@ -1297,7 +1345,7 @@ export async function getCodCashflow(req: AuthenticatedRequest, res: Response) {
     comparison: collectedComparison,
     totalCurrent: collectedTotalCurrent,
     totalComparison: collectedTotalComparison,
-    trend: pctTrend(collectedTotalCurrent, collectedTotalComparison),
+    trend: skipComparison ? null : pctTrend(collectedTotalCurrent, collectedTotalComparison),
   };
 
   const dto: CodCashflowDTO = { outstanding: outstandingAgg?.total ?? 0, collected: collectedAgg?.total ?? 0, avgDaysToCollect, series, collectedSeries };
@@ -1420,6 +1468,46 @@ export async function getStockoutCancellations(req: AuthenticatedRequest, res: R
 
   const dto: StockoutCancellationsDTO = { series, topAffectedProducts };
   res.json({ success: true, stockoutCancellations: dto });
+}
+
+// Same shape as getBlocklistHitRate (a rate against every order placed) plus getStockoutCancellations'
+// per-day series and per-product breakdown — spam is the one cancellation reason sellers want to
+// watch on both axes at once: "is it getting worse right now" (series) and "which listing is a bot/
+// junk-order magnet" (topAffectedProducts, e.g. a viral ad drawing bait orders on one product).
+export async function getSpamOrders(req: AuthenticatedRequest, res: Response) {
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const q = parseBaseQuery(req);
+  const match = baseMatch(tenantId, q.storeId);
+  const { current } = resolveRange(q.range, q.from, q.to);
+  const dateMatch = { ...match, createdAt: { $gte: current.from, $lt: current.to } };
+  const spamMatch = { ...dateMatch, stage: 'Cancelled', cancelReason: 'Spam' };
+
+  const [totalAgg] = await db.collection('orders').aggregate([{ $match: dateMatch }, { $group: { _id: null, count: { $sum: 1 } } }]).toArray();
+  const [spamAgg] = await db.collection('orders').aggregate([{ $match: spamMatch }, { $group: { _id: null, count: { $sum: 1 }, value: { $sum: '$total' } } }]).toArray();
+  const series = await runAnalyticsSeries({ ...match, stage: 'Cancelled', cancelReason: 'Spam' }, q, { $sum: 1 });
+
+  const productRows = await db
+    .collection('orders')
+    .aggregate([
+      { $match: spamMatch },
+      { $unwind: '$lineItems' },
+      { $group: { _id: { $ifNull: ['$lineItems.sku', '$lineItems.title'] }, title: { $first: '$lineItems.title' }, count: { $sum: '$lineItems.quantity' }, value: { $sum: { $multiply: ['$lineItems.quantity', '$lineItems.price'] } } } },
+    ])
+    .toArray();
+  const topAffectedProducts = buildBreakdown(productRows.map((r) => ({ key: r._id, label: r.title, count: r.count, value: r.value }))).rows;
+
+  const totalOrders = totalAgg?.count ?? 0;
+  const spamOrders = spamAgg?.count ?? 0;
+  const dto: SpamOrdersDTO = {
+    totalOrders,
+    spamOrders,
+    spamRate: totalOrders > 0 ? Math.round((spamOrders / totalOrders) * 1000) / 10 : null,
+    valueLost: spamAgg?.value ?? 0,
+    series,
+    topAffectedProducts,
+  };
+  res.json({ success: true, spamOrders: dto });
 }
 
 export async function getItemsBoughtTogether(req: AuthenticatedRequest, res: Response) {
@@ -1713,7 +1801,8 @@ export async function getNewCustomerRevenue(req: AuthenticatedRequest, res: Resp
   const tenantId = req.user!.tenantId!;
   const q = parseBaseQuery(req);
   const match = baseMatch(tenantId, q.storeId);
-  const { granularity, bucketCount, current, comparison } = resolveRange(q.range, q.from, q.to);
+  const { granularity, bucketCount, current, comparison } = resolveRange(q.range, q.from, q.to, q.comparisonMode, q.comparisonFrom, q.comparisonTo);
+  const skipComparison = comparisonDisabled(q);
 
   const firstOrderRows = await db
     .collection('orders')
@@ -1746,7 +1835,10 @@ export async function getNewCustomerRevenue(req: AuthenticatedRequest, res: Resp
     return { from: window.from.toISOString(), to: window.to.toISOString(), points };
   }
 
-  const [currentWindow, comparisonWindow] = await Promise.all([classifyWindow(current), classifyWindow(comparison)]);
+  const [currentWindow, comparisonWindow] = await Promise.all([
+    classifyWindow(current),
+    skipComparison ? Promise.resolve({ from: comparison.from.toISOString(), to: comparison.to.toISOString(), points: [] }) : classifyWindow(comparison),
+  ]);
   const dto: NewCustomerRevenueDTO = { granularity, current: currentWindow, comparison: comparisonWindow };
   res.json({ success: true, series: dto });
 }
@@ -1863,19 +1955,24 @@ export async function getDeadStock(req: AuthenticatedRequest, res: Response) {
   res.json({ success: true, deadStock: dto });
 }
 
+// The automatic half of duplicate detection (same phone, same Dhaka day, 2+ orders — the live
+// per-order version of this same check lives in ordersController's findPossibleDuplicates) joined
+// against the manual half: which of those flagged orders a staff member actually looked at and
+// cancelled with reason "Duplicate order". Same totalOrders/rate/series shape as getSpamOrders, so
+// the two "which cancel reason, how often, on what day" questions read the same way for both.
 export async function getDuplicateOrders(req: AuthenticatedRequest, res: Response) {
   const db = getDb();
   const tenantId = req.user!.tenantId!;
   const q = parseBaseQuery(req);
   const match = baseMatch(tenantId, q.storeId);
   const { current } = resolveRange(q.range, q.from, q.to);
-  match.createdAt = { $gte: current.from, $lt: current.to };
-  match.customerPhone = { $ne: null };
+  const dateMatch = { ...match, createdAt: { $gte: current.from, $lt: current.to } };
+  const phoneMatch = { ...dateMatch, customerPhone: { $ne: null } };
 
   const rows = await db
     .collection('orders')
     .aggregate([
-      { $match: match },
+      { $match: phoneMatch },
       {
         $group: {
           // Bucketed in Bangladesh local time, not UTC — this product's orders are placed and
@@ -1886,6 +1983,9 @@ export async function getDuplicateOrders(req: AuthenticatedRequest, res: Respons
           orderCount: { $sum: 1 },
           orderNumbers: { $push: '$number' },
           totalValue: { $sum: '$total' },
+          confirmedOrderNumbers: {
+            $push: { $cond: [{ $and: [{ $eq: ['$stage', 'Cancelled'] }, { $eq: ['$cancelReason', 'Duplicate order'] }] }, '$number', '$$REMOVE'] },
+          },
         },
       },
       { $match: { orderCount: { $gte: 2 } } },
@@ -1894,8 +1994,27 @@ export async function getDuplicateOrders(req: AuthenticatedRequest, res: Respons
     ])
     .toArray();
 
+  const [totalAgg] = await db.collection('orders').aggregate([{ $match: dateMatch }, { $group: { _id: null, count: { $sum: 1 } } }]).toArray();
+  const confirmedMatch = { ...dateMatch, stage: 'Cancelled', cancelReason: 'Duplicate order' };
+  const [confirmedAgg] = await db.collection('orders').aggregate([{ $match: confirmedMatch }, { $group: { _id: null, count: { $sum: 1 } } }]).toArray();
+  const series = await runAnalyticsSeries({ ...match, stage: 'Cancelled', cancelReason: 'Duplicate order' }, q, { $sum: 1 });
+
+  const totalOrders = totalAgg?.count ?? 0;
+  const confirmedOrders = confirmedAgg?.count ?? 0;
   const dto: DuplicateOrdersDTO = {
-    groups: rows.map((r) => ({ phone: r._id.phone, customerName: r.customerName ?? null, date: r._id.day, orderCount: r.orderCount, orderNumbers: r.orderNumbers, totalValue: r.totalValue })),
+    groups: rows.map((r) => ({
+      phone: r._id.phone,
+      customerName: r.customerName ?? null,
+      date: r._id.day,
+      orderCount: r.orderCount,
+      orderNumbers: r.orderNumbers,
+      totalValue: r.totalValue,
+      confirmedOrderNumbers: r.confirmedOrderNumbers ?? [],
+    })),
+    totalOrders,
+    confirmedOrders,
+    confirmationRate: totalOrders > 0 ? Math.round((confirmedOrders / totalOrders) * 1000) / 10 : null,
+    series,
   };
   res.json({ success: true, duplicateOrders: dto });
 }
@@ -2387,6 +2506,8 @@ export async function getProductPerformance(req: AuthenticatedRequest, res: Resp
           revenue: { $sum: { $multiply: ['$lineItems.quantity', '$lineItems.price'] } },
           cancelledOrders: { $sum: { $cond: [{ $eq: ['$stage', 'Cancelled'] }, 1, 0] } },
           cancelledUnits: { $sum: { $cond: [{ $eq: ['$stage', 'Cancelled'] }, '$lineItems.quantity', 0] } },
+          spamOrders: { $sum: { $cond: [{ $and: [{ $eq: ['$stage', 'Cancelled'] }, { $eq: ['$cancelReason', 'Spam'] }] }, 1, 0] } },
+          duplicateOrders: { $sum: { $cond: [{ $and: [{ $eq: ['$stage', 'Cancelled'] }, { $eq: ['$cancelReason', 'Duplicate order'] }] }, 1, 0] } },
           deliveredOrders: { $sum: { $cond: [{ $in: ['$stage', ['Delivered', 'Partial Delivered']] }, 1, 0] } },
           deliveredUnits: { $sum: { $cond: [{ $in: ['$stage', ['Delivered', 'Partial Delivered']] }, '$lineItems.quantity', 0] } },
           rtoOrders: { $sum: { $cond: [{ $in: ['$stage', ['RTO Initiated', 'QC Pending', 'Returned']] }, 1, 0] } },
@@ -2411,6 +2532,10 @@ export async function getProductPerformance(req: AuthenticatedRequest, res: Resp
         cancelledOrders: r.cancelledOrders,
         cancelledUnits: r.cancelledUnits,
         cancelRate: r.orderCount > 0 ? Math.round((r.cancelledOrders / r.orderCount) * 1000) / 10 : null,
+        spamOrders: r.spamOrders,
+        spamRate: r.orderCount > 0 ? Math.round((r.spamOrders / r.orderCount) * 1000) / 10 : null,
+        duplicateOrders: r.duplicateOrders,
+        duplicateRate: r.orderCount > 0 ? Math.round((r.duplicateOrders / r.orderCount) * 1000) / 10 : null,
         rtoOrders: r.rtoOrders,
         rtoUnits: r.rtoUnits,
         rtoRate: resolved > 0 ? Math.round((r.rtoOrders / resolved) * 1000) / 10 : null,
@@ -2460,14 +2585,22 @@ export async function getConfirmedSalesOverTime(req: AuthenticatedRequest, res: 
   const tenantId = req.user!.tenantId!;
   const q = parseBaseQuery(req);
   const match = baseMatch(tenantId, q.storeId);
-  const { granularity, bucketCount, current, comparison } = resolveRange(q.range, q.from, q.to);
+  const { granularity, bucketCount, current, comparison } = resolveRange(q.range, q.from, q.to, q.comparisonMode, q.comparisonFrom, q.comparisonTo);
+  const skipComparison = comparisonDisabled(q);
   const [currentWindow, comparisonWindow] = await Promise.all([
     windowConfirmedSales(match, current, granularity, bucketCount),
-    windowConfirmedSales(match, comparison, granularity, bucketCount),
+    skipComparison ? Promise.resolve(emptySeriesWindow(comparison)) : windowConfirmedSales(match, comparison, granularity, bucketCount),
   ]);
   const totalCurrent = currentWindow.points.reduce((s, p) => s + p.value, 0);
   const totalComparison = comparisonWindow.points.reduce((s, p) => s + p.value, 0);
-  const series: AnalyticsSeriesDTO = { granularity, current: currentWindow, comparison: comparisonWindow, totalCurrent, totalComparison, trend: pctTrend(totalCurrent, totalComparison) };
+  const series: AnalyticsSeriesDTO = {
+    granularity,
+    current: currentWindow,
+    comparison: comparisonWindow,
+    totalCurrent,
+    totalComparison,
+    trend: skipComparison ? null : pctTrend(totalCurrent, totalComparison),
+  };
   res.json({ success: true, series });
 }
 

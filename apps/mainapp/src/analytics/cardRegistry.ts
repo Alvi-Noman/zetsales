@@ -57,6 +57,7 @@ import { productCourierHistoryCard } from './cards/productCourierHistory';
 import { dailyLeadQuantityCard } from './cards/dailyLeadQuantity';
 import { codChangeLogCard } from './cards/codChangeLog';
 import { handoverSalesCard } from './cards/handoverSales';
+import { spamOrdersCard } from './cards/spamOrders';
 
 // Every implemented card registers itself here — the entry page's default grid, the customize
 // drawer's card library, and the /analytics/:cardKey detail route all read from this single list.
@@ -87,6 +88,7 @@ export const ANALYTICS_CARDS: AnalyticsCardDefinition[] = [
   fulfillmentTimeCard,
   slaBreachCard,
   productPerformanceCard,
+  spamOrdersCard,
   // Delivery
   courierPerformanceCard,
   productCourierHistoryCard,

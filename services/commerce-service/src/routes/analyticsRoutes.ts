@@ -61,6 +61,7 @@ import {
   getDailyLeadQuantity,
   getCodChangeLog,
   getHandoverSales,
+  getSpamOrders,
 } from '../controllers/analyticsController.js';
 
 const router: Router = Router();
@@ -82,6 +83,7 @@ router.get('/analytics/fulfillment-time', ...guard, getFulfillmentTime);
 router.get('/analytics/courier-performance', ...guard, getCourierPerformance);
 router.get('/analytics/delivery-zones', ...guard, getDeliveryZones);
 router.get('/analytics/cancel-reasons', ...guard, getCancelReasons);
+router.get('/analytics/spam-orders', ...guard, getSpamOrders);
 router.get('/analytics/hold-reasons', ...guard, getHoldReasons);
 
 router.get('/analytics/new-vs-returning', ...guard, getNewVsReturning);

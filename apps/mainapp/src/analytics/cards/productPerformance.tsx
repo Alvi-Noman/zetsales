@@ -12,7 +12,7 @@ function useData(query: AnalyticsCardComponentProps['query'], limit: number) {
   useEffect(() => {
     setData(null);
     void getProductPerformance({ ...query, limit }).then(setData);
-  }, [query.range, query.from, query.to, query.storeId, limit]);
+  }, [query.range, query.from, query.to, query.storeId, query.comparisonMode, query.comparisonFrom, query.comparisonTo, limit]);
   return data;
 }
 
@@ -47,11 +47,13 @@ function Card({ query }: AnalyticsCardComponentProps) {
   );
 }
 
-type SortKey = 'orders' | 'cancelRate' | 'rtoRate' | 'deliveredRate' | 'revenue';
+type SortKey = 'orders' | 'cancelRate' | 'spamRate' | 'duplicateRate' | 'rtoRate' | 'deliveredRate' | 'revenue';
 
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: 'orders', label: 'Most ordered' },
   { key: 'cancelRate', label: 'Highest cancel rate' },
+  { key: 'spamRate', label: 'Highest spam rate' },
+  { key: 'duplicateRate', label: 'Highest duplicate rate' },
   { key: 'rtoRate', label: 'Highest RTO rate' },
   { key: 'deliveredRate', label: 'Highest delivered rate' },
   { key: 'revenue', label: 'Highest revenue' },
@@ -64,6 +66,10 @@ function sortRows(rows: ProductPerformanceRowDTO[], sortKey: SortKey): ProductPe
       // Products with zero cancellations sink to the bottom regardless of rate — a 1-order product
       // that happened to cancel would otherwise tie/beat a 50-order product with a lower rate.
       return sorted.sort((a, b) => (b.cancelRate ?? -1) - (a.cancelRate ?? -1) || b.cancelledOrders - a.cancelledOrders);
+    case 'spamRate':
+      return sorted.sort((a, b) => (b.spamRate ?? -1) - (a.spamRate ?? -1) || b.spamOrders - a.spamOrders);
+    case 'duplicateRate':
+      return sorted.sort((a, b) => (b.duplicateRate ?? -1) - (a.duplicateRate ?? -1) || b.duplicateOrders - a.duplicateOrders);
     case 'rtoRate':
       return sorted.sort((a, b) => (b.rtoRate ?? -1) - (a.rtoRate ?? -1) || b.rtoOrders - a.rtoOrders);
     case 'deliveredRate':
@@ -86,7 +92,8 @@ function Detail({ query }: AnalyticsCardComponentProps) {
     <div className="space-y-4">
       <p className="text-xs text-slate-400">
         Every product ordered in the selected period, broken down by what happened to those orders: cancelled before ever shipping, RTO'd/returned after shipping, or delivered. Cancel rate is
-        of every order placed for that product; RTO and delivered rate are of orders that actually shipped and reached a final outcome.
+        of every order placed for that product; RTO and delivered rate are of orders that actually shipped and reached a final outcome. Spam and Duplicate are the subsets of cancellations
+        specifically reasoned "Spam" or "Duplicate order" — a high rate on one product points at a pattern specific to that listing rather than a store-wide problem.
       </p>
       <div className="flex flex-wrap items-center gap-1.5">
         {SORT_OPTIONS.map((opt) => (
@@ -127,6 +134,28 @@ function Detail({ query }: AnalyticsCardComponentProps) {
               <span className={r.cancelledOrders > 0 ? 'font-semibold text-rose-600' : 'text-slate-400'}>
                 {formatCount(r.cancelledOrders)}
                 {r.cancelRate != null ? ` (${formatPercent(r.cancelRate)})` : ''}
+              </span>
+            ),
+          },
+          {
+            key: 'spam',
+            header: 'Spam',
+            align: 'right',
+            render: (r) => (
+              <span className={r.spamOrders > 0 ? 'font-semibold text-rose-600' : 'text-slate-400'}>
+                {formatCount(r.spamOrders)}
+                {r.spamRate != null ? ` (${formatPercent(r.spamRate)})` : ''}
+              </span>
+            ),
+          },
+          {
+            key: 'duplicate',
+            header: 'Duplicate',
+            align: 'right',
+            render: (r) => (
+              <span className={r.duplicateOrders > 0 ? 'font-semibold text-purple-600' : 'text-slate-400'}>
+                {formatCount(r.duplicateOrders)}
+                {r.duplicateRate != null ? ` (${formatPercent(r.duplicateRate)})` : ''}
               </span>
             ),
           },

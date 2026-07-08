@@ -1,6 +1,9 @@
 import { Router } from 'express';
 import { requireAuth, requireTenant, requireModule } from '../middleware/authMiddleware.js';
-import { importStoreOrdersStream, listOrders, getOrder, getOrderStats, getOrderTrends, updateOrder, bulkUpdateOrders, markPartialDelivered, blockCustomer, unblockCustomer, markPaymentCollected } from '../controllers/ordersController.js';
+import {
+  importStoreOrdersStream, listOrders, getOrder, getOrderStats, getOrderTrends, updateOrder, bulkUpdateOrders, markPartialDelivered,
+  blockCustomer, unblockCustomer, markPaymentCollected, bulkMarkPaymentCollected,
+} from '../controllers/ordersController.js';
 
 const router: Router = Router();
 const requireOrders = requireModule('orders');
@@ -10,6 +13,7 @@ const requireOrders = requireModule('orders');
 router.get('/orders/stats', requireAuth, requireTenant, requireOrders, getOrderStats);
 router.get('/orders/trends', requireAuth, requireTenant, requireOrders, getOrderTrends);
 router.patch('/orders/bulk', requireAuth, requireTenant, requireOrders, bulkUpdateOrders);
+router.post('/orders/bulk/mark-collected', requireAuth, requireTenant, requireOrders, bulkMarkPaymentCollected);
 
 router.get('/orders', requireAuth, requireTenant, requireOrders, listOrders);
 router.get('/orders/:id', requireAuth, requireTenant, requireOrders, getOrder);

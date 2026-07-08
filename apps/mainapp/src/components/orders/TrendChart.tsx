@@ -110,6 +110,11 @@ export function TrendChart({ current, comparison, color, formatValue, formatDate
   // Percentage across the *whole* container (axis margin + chart), since that's what the SVG's
   // viewBox actually spans — used for positioning the HTML overlay (tooltip/time label) in CSS.
   const hoverPct = hoverX !== null ? ((AXIS_WIDTH + hoverX) / TOTAL_WIDTH) * 100 : 0;
+  // As a % of the container width — the gridline value labels are plain HTML, not SVG <text>, and
+  // this is the CSS column width they sit in. SVG text gets stretched by the viewBox's non-uniform
+  // scaling (preserveAspectRatio="none") the instant the container's aspect ratio doesn't exactly
+  // match the viewBox's, which reads as blurry/warped at 8px — normal DOM text never has that problem.
+  const axisColumnPct = (AXIS_WIDTH / TOTAL_WIDTH) * 100;
   const hoverLabel = hoverCurrent?.label ?? hoverComparison?.label;
 
   if (current.length === 0 && comparison.length === 0) {
@@ -132,14 +137,10 @@ export function TrendChart({ current, comparison, color, formatValue, formatDate
           </linearGradient>
         </defs>
 
-        {/* Value scale: gridlines + labels, always visible — this is the ruler's cm marks. */}
+        {/* Gridlines only — pure geometry, so the viewBox's non-uniform scaling doesn't distort them
+            the way it does text. The actual value labels are the HTML overlay just below instead. */}
         {ticks.map((t, i) => (
-          <g key={i}>
-            <line x1={AXIS_WIDTH} y1={valueToY(t)} x2={TOTAL_WIDTH} y2={valueToY(t)} stroke="#f1f5f9" strokeWidth="1" />
-            <text x={AXIS_WIDTH - 5} y={valueToY(t)} textAnchor="end" dominantBaseline="middle" fontSize="8" fill="#94a3b8">
-              {formatValue(t)}
-            </text>
-          </g>
+          <line key={i} x1={AXIS_WIDTH} y1={valueToY(t)} x2={TOTAL_WIDTH} y2={valueToY(t)} stroke="#f1f5f9" strokeWidth="1" />
         ))}
 
         <g transform={`translate(${AXIS_WIDTH}, 0)`}>
@@ -155,6 +156,20 @@ export function TrendChart({ current, comparison, color, formatValue, formatDate
           )}
         </g>
       </svg>
+
+      {/* Value scale labels, as real DOM text (not SVG) so they stay crisp regardless of the SVG's
+          own scaling — each positioned by percentage to match its gridline's y in the chart above. */}
+      <div className="pointer-events-none absolute left-0 top-0" style={{ width: `${axisColumnPct}%`, height }}>
+        {ticks.map((t, i) => (
+          <span
+            key={i}
+            className="absolute right-1 whitespace-nowrap text-[9px] font-medium tabular-nums text-slate-400"
+            style={{ top: `${(valueToY(t) / height) * 100}%`, transform: 'translateY(-50%)' }}
+          >
+            {formatValue(t)}
+          </span>
+        ))}
+      </div>
 
       {/* Time scale — only appears on hover, anchored under the crosshair. */}
       {hoverIndex !== null && hoverLabel && (

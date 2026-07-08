@@ -1,7 +1,7 @@
 import express, { type Application, type Request, type Response, type NextFunction } from 'express';
 import cors from 'cors';
-import { createProxyMiddleware } from 'http-proxy-middleware';
-import type { ClientRequest, IncomingMessage } from 'http';
+import { createProxyMiddleware, fixRequestBody } from 'http-proxy-middleware';
+import type { IncomingMessage } from 'http';
 import logger from './utils/logger.js';
 
 type NodeErr = Error & { code?: string };
@@ -61,22 +61,7 @@ function makeProxy(target: string, label: string, reserializeJson: boolean) {
     changeOrigin: true,
     xfwd: true,
     ws: false,
-    onProxyReq: reserializeJson
-      ? (proxyReq: ClientRequest, req: Request & { body?: unknown }) => {
-          const method = (req.method || 'GET').toUpperCase();
-          if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) return;
-
-          const hasBody = req.body && Object.keys(req.body as Record<string, unknown>).length > 0;
-          if (!hasBody) return;
-
-          const ct = (proxyReq.getHeader('content-type') as string | undefined) || '';
-          if (!ct.includes('application/json')) return;
-
-          const body = JSON.stringify(req.body);
-          proxyReq.setHeader('content-length', Buffer.byteLength(body));
-          proxyReq.write(body);
-        }
-      : undefined,
+    onProxyReq: reserializeJson ? fixRequestBody : undefined,
     onProxyRes(proxyRes: IncomingMessage, _req: Request, res: Response) {
       try {
         if (proxyRes.headers) {
@@ -106,11 +91,9 @@ function makeProxy(target: string, label: string, reserializeJson: boolean) {
 app.use('/api/v1/commerce/webhooks', makeProxy(COMMERCE_TARGET, 'commerce-service-webhooks', false));
 app.use('/api/v1/messaging/webhooks', makeProxy(MESSAGING_TARGET, 'messaging-service-webhooks', false));
 
-app.use(express.json({ limit: '2mb' }));
-
-app.use('/api/v1/auth', makeProxy(AUTH_TARGET, 'auth-service', true));
-app.use('/api/v1/commerce', makeProxy(COMMERCE_TARGET, 'commerce-service', true));
-app.use('/api/v1/messaging', makeProxy(MESSAGING_TARGET, 'messaging-service', true));
+app.use('/api/v1/auth', makeProxy(AUTH_TARGET, 'auth-service', false));
+app.use('/api/v1/commerce', makeProxy(COMMERCE_TARGET, 'commerce-service', false));
+app.use('/api/v1/messaging', makeProxy(MESSAGING_TARGET, 'messaging-service', false));
 
 // 404 Tracer for unknown routes
 if (process.env.NODE_ENV !== 'production') {

@@ -7,6 +7,7 @@ import { AnalyticsFilterBar } from '../../components/analytics/AnalyticsFilterBa
 import { ANALYTICS_CARD_MAP } from '../../analytics/cardRegistry';
 import { toAnalyticsQuery } from '../../analytics/query';
 import type { CustomDateRange, DateRangeKey } from '../../components/orders/dateRange';
+import type { ComparisonMode, CustomComparisonRange } from '../../components/analytics/comparisonMode';
 
 // One route (`/analytics/:cardKey`) for every card — the header, filter bar, and page chrome are
 // identical across all of them; only the registry entry's DetailComponent (the chart + table for
@@ -18,13 +19,18 @@ export function AnalyticsDetailPage() {
   const [dateRange, setDateRange] = useState<DateRangeKey>('last30');
   const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
   const [storeId, setStoreId] = useState('all');
+  const [comparisonMode, setComparisonMode] = useState<ComparisonMode>('none');
+  const [comparisonRange, setComparisonRange] = useState<CustomComparisonRange | null>(null);
   const [stores, setStores] = useState<StoreDTO[]>([]);
 
   useEffect(() => {
     void listStores().then(setStores);
   }, []);
 
-  const query = useMemo(() => toAnalyticsQuery(dateRange, customRange, storeId), [dateRange, customRange, storeId]);
+  const query = useMemo(
+    () => toAnalyticsQuery(dateRange, customRange, storeId, comparisonMode, comparisonRange),
+    [dateRange, customRange, storeId, comparisonMode, comparisonRange]
+  );
   const def = ANALYTICS_CARD_MAP[cardKey as AnalyticsCardKey];
 
   if (!def) {
@@ -64,6 +70,10 @@ export function AnalyticsDetailPage() {
             storeId={storeId}
             onStoreIdChange={setStoreId}
             stores={stores}
+            comparisonMode={comparisonMode}
+            onComparisonModeChange={setComparisonMode}
+            comparisonRange={comparisonRange}
+            onComparisonRangeChange={setComparisonRange}
           />
         </div>
       </div>

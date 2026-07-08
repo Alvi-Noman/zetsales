@@ -33,6 +33,7 @@ import type {
   ProductPerformanceDTO,
   EmployeeActivityDTO,
   ProductCourierHistoryDTO,
+  SpamOrdersDTO,
 } from '@zetsales/shared';
 import { api } from './api';
 
@@ -41,6 +42,9 @@ export interface AnalyticsQueryParams {
   range: string;
   from?: string;
   to?: string;
+  comparisonMode?: string;
+  comparisonFrom?: string;
+  comparisonTo?: string;
 }
 
 // Every card on the analytics entry page fetches its own data on mount — and the whole page
@@ -135,6 +139,11 @@ export async function getDeliveryZones(params: AnalyticsQueryParams) {
 export async function getCancelReasons(params: AnalyticsQueryParams) {
   const data = await cachedGet<{ breakdown: AnalyticsBreakdownDTO }>('/commerce/analytics/cancel-reasons', params);
   return data.breakdown;
+}
+
+export async function getSpamOrders(params: AnalyticsQueryParams) {
+  const data = await cachedGet<{ spamOrders: SpamOrdersDTO }>('/commerce/analytics/spam-orders', params);
+  return data.spamOrders;
 }
 
 export async function getHoldReasons(params: AnalyticsQueryParams) {

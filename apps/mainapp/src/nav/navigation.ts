@@ -6,6 +6,7 @@ import {
   Users,
   Megaphone,
   Headset,
+  PhoneCall,
   Handshake,
   Landmark,
   Briefcase,
@@ -47,6 +48,7 @@ export const NAV_ITEMS: NavItem[] = [
       { label: 'Abandoned checkouts', path: '/orders/abandoned' },
     ],
   },
+  { label: 'Call Center', path: '/call-center', icon: PhoneCall, module: 'callCenter' },
   {
     label: 'Products',
     path: '/products',
@@ -55,7 +57,6 @@ export const NAV_ITEMS: NavItem[] = [
     children: [
       { label: 'All products', path: '/products' },
       { label: 'Collections', path: '/products/collections' },
-      { label: 'Inventory', path: '/products/inventory' },
     ],
   },
   { label: 'Inventory', path: '/inventory', icon: Boxes, module: 'inventory', badge: 'New' },

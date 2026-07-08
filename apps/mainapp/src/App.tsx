@@ -24,6 +24,7 @@ import { AcceptInvitePage } from './pages/auth/AcceptInvitePage';
 import { AnalyticsEntryPage } from './pages/analytics/AnalyticsEntryPage';
 import { AnalyticsDetailPage } from './pages/analytics/AnalyticsDetailPage';
 import { AdPerformancePage } from './pages/adPerformance/AdPerformancePage';
+import { CallCenterPage } from './pages/callCenter/CallCenterPage';
 import { NAV_ITEMS, NAV_FOOTER_ITEMS } from './nav/navigation';
 
 const routeEntries = new Map<string, string>();
@@ -35,7 +36,6 @@ routeEntries.delete('/home');
 routeEntries.delete('/orders');
 routeEntries.delete('/integrations');
 routeEntries.delete('/products');
-routeEntries.delete('/products/inventory');
 routeEntries.delete('/inventory');
 routeEntries.delete('/customer-service');
 routeEntries.delete('/team');
@@ -44,6 +44,7 @@ routeEntries.delete('/suppliers');
 routeEntries.delete('/customers');
 routeEntries.delete('/analytics');
 routeEntries.delete('/ad-performance');
+routeEntries.delete('/call-center');
 
 function FullScreenLoader() {
   return (
@@ -92,7 +93,6 @@ function AppRoutes() {
         <Route path="/products" element={<ProductsPage />} />
         <Route path="/products/new" element={<AddProductPage />} />
         <Route path="/products/:id/edit" element={<EditProductPage />} />
-        <Route path="/products/inventory" element={<InventoryPage />} />
         <Route path="/inventory" element={<InventoryPage />} />
         <Route path="/accounting" element={<AccountingPage />} />
         <Route path="/suppliers" element={<SuppliersPage />} />
@@ -102,6 +102,7 @@ function AppRoutes() {
         <Route path="/analytics" element={<AnalyticsEntryPage />} />
         <Route path="/analytics/:cardKey" element={<AnalyticsDetailPage />} />
         <Route path="/ad-performance" element={<AdPerformancePage />} />
+        <Route path="/call-center" element={<CallCenterPage />} />
         {[...routeEntries.entries()].map(([path, label]) => (
           <Route key={path} path={path} element={<PlaceholderPage title={label} />} />
         ))}

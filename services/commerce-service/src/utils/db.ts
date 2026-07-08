@@ -32,6 +32,7 @@ export async function connectDb() {
   await db.collection('inventoryMovements').createIndex({ tenantId: 1, supplierId: 1 });
   await db.collection('suppliers').createIndex({ tenantId: 1, name: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });
   await db.collection('warehouses').createIndex({ tenantId: 1 });
+  await db.collection('deliveryZones').createIndex({ tenantId: 1, name: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });
   await db.collection('inventorySettings').createIndex({ tenantId: 1 }, { unique: true });
   await db.collection('expenses').createIndex({ tenantId: 1, date: -1 });
   // The FIFO lookup allocateAgainstOpenShipments runs on every receive/write-off — one open

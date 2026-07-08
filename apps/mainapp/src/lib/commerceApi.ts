@@ -329,6 +329,30 @@ export async function removeWarehouseBin(id: string, name: string) {
   return res.data as { success: boolean; warehouse: WarehouseDTO };
 }
 
+export interface DeliveryZoneDTO {
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
+export async function listDeliveryZones() {
+  const res = await api.get('/commerce/delivery-zones');
+  return res.data as { success: boolean; zones: DeliveryZoneDTO[] };
+}
+
+// Reused for both "pick an existing zone" and "type a brand new one" — the backend quietly returns
+// the existing match instead of erroring on a case-insensitive collision, so calling this with a
+// name that already exists (just typed differently) is always safe.
+export async function createDeliveryZone(name: string) {
+  const res = await api.post('/commerce/delivery-zones', { name });
+  return res.data as { success: boolean; zone: DeliveryZoneDTO };
+}
+
+export async function deleteDeliveryZone(id: string) {
+  const res = await api.delete(`/commerce/delivery-zones/${id}`);
+  return res.data as { success: boolean; message?: string };
+}
+
 export async function setInventoryReorderPoint(levelId: string, reorderPoint: number | null) {
   const res = await api.patch(`/commerce/inventory/levels/${levelId}`, { reorderPoint });
   return res.data as { success: boolean; level: InventoryLevelDTO };
@@ -592,6 +616,8 @@ export interface ListOrdersParams {
   storeId?: string;
   tab?: OrderTabKey;
   paymentStatus?: string;
+  holdReason?: HoldReason;
+  cancelReason?: CancelReason;
   search?: string;
   dateFrom?: string;
   dateTo?: string;
@@ -643,6 +669,11 @@ export async function updateOrder(id: string, payload: UpdateOrderPayload) {
 export async function markPaymentCollected(id: string) {
   const res = await api.post(`/commerce/orders/${id}/mark-collected`, {});
   return res.data as { success: boolean; order: OrderDTO };
+}
+
+export async function bulkMarkPaymentCollected(orderIds: string[]) {
+  const res = await api.post('/commerce/orders/bulk/mark-collected', { orderIds });
+  return res.data as { success: boolean; matchedCount: number; modifiedCount: number };
 }
 
 export interface PartialDeliverSplit {

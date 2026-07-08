@@ -4,11 +4,14 @@ import {
   UserX, UserCheck, FileText, ClipboardList, Tag, ChevronDown, Lock, Scissors, Banknote,
 } from 'lucide-react';
 import clsx from 'clsx';
-import type { CourierAccountDTO, CourierProvider, OrderDTO, OrderRiskDTO, StoreDTO } from '@zetsales/shared';
-import { blockCustomer, getOrder, listInventory, markPaymentCollected, unblockCustomer, updateOrder } from '../../lib/commerceApi';
+import type { CallOutcome, CourierAccountDTO, CourierProvider, OrderDTO, OrderRiskDTO, OrderStage, StoreDTO } from '@zetsales/shared';
+import {
+  blockCustomer, createDeliveryZone, getOrder, listDeliveryZones, listInventory, markPaymentCollected, unblockCustomer, updateOrder,
+  type DeliveryZoneDTO,
+} from '../../lib/commerceApi';
 import { STAGE_TONE, STAGE_ICON, PAYMENT_TONE } from './orderTone';
 import { STAGE_ORDER, NEXT_ACTION, SECONDARY_ACTIONS } from './stageFlow';
-import { ALL_CANCEL_REASONS, canHold, canCancel, inferCancelReason, holdReasonsFor } from './reasons';
+import { ALL_CANCEL_REASONS, CALL_OUTCOMES, canHold, canCancel, inferCancelReason, holdReasonsFor } from './reasons';
 import { ReasonNoteMenu } from './ReasonNoteMenu';
 import { RiskBadge } from './RiskBadge';
 import { PartialDeliverModal } from './PartialDeliverModal';
@@ -38,6 +41,12 @@ function formatFullDate(iso: string) {
 }
 
 const TERMINAL_STAGES = ['Delivered', 'Partial Delivered', 'Returned', 'Cancelled'];
+
+// Stages an order only reaches after it's physically left the warehouse. Used to decide whether a
+// missing tracking code is actually a problem yet — an order can have a courier partner picked
+// early (Processing) with no code, and that's normal; the same gap once the parcel is Shipped means
+// either auto-dispatch failed or this courier isn't API-connected and staff need to key it in by hand.
+const SHIPPED_OR_LATER: OrderStage[] = ['Shipped', 'Out for Delivery', 'Delivered', 'Partial Delivered', 'RTO Initiated', 'QC Pending', 'Returned'];
 
 function StageStepper({ order }: { order: OrderDTO }) {
   const exception = ['Returned', 'Partial Delivered', 'Cancelled', 'On Hold', 'Flagged', 'RTO Initiated', 'QC Pending'].includes(order.stage);
@@ -129,7 +138,9 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
   const [editingDiscount, setEditingDiscount] = useState(false);
   const [discountInput, setDiscountInput] = useState('');
   const [trackingInput, setTrackingInput] = useState('');
-  const [zoneInput, setZoneInput] = useState('');
+  const [zones, setZones] = useState<DeliveryZoneDTO[]>([]);
+  const [addingZone, setAddingZone] = useState(false);
+  const [newZoneName, setNewZoneName] = useState('');
   const [printDocType, setPrintDocType] = useState<PrintDocType | null>(null);
   const [labelModalOpen, setLabelModalOpen] = useState(false);
   const [packModalOpen, setPackModalOpen] = useState(false);
@@ -153,6 +164,17 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
     }
   };
 
+  // The zone list is tenant-wide, not per-order, but reloading it whenever the drawer opens is
+  // cheap and means a zone added from another order shows up immediately without extra plumbing.
+  const loadZones = async () => {
+    try {
+      const res = await listDeliveryZones();
+      setZones(res.zones);
+    } catch {
+      // Non-critical: the picker just shows an empty list, and adding a new zone still works.
+    }
+  };
+
   const refresh = async (id: string, { silent }: { silent?: boolean } = {}) => {
     if (!silent) setLoading(true);
     try {
@@ -160,7 +182,6 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
       setDetail(res.order);
       setRisk(res.risk);
       setTrackingInput(res.order.courierTrackingId ?? '');
-      setZoneInput(res.order.deliveryZone ?? '');
     } catch {
       toast.push('Could not load order details.', 'info');
     } finally {
@@ -172,9 +193,12 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
     if (order) {
       void refresh(order.id);
       void loadInventorySnapshot();
+      void loadZones();
     } else {
       setDetail(null);
     }
+    setAddingZone(false);
+    setNewZoneName('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order?.id]);
 
@@ -242,6 +266,23 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
     setTimeout(() => setCopied(false), 1500);
   };
 
+  const saveNewZone = async () => {
+    const name = newZoneName.trim();
+    if (!name) {
+      setAddingZone(false);
+      return;
+    }
+    try {
+      const res = await createDeliveryZone(name);
+      setZones((prev) => (prev.some((z) => z.id === res.zone.id) ? prev : [...prev, res.zone].sort((a, b) => a.name.localeCompare(b.name))));
+      await apply({ deliveryZone: res.zone.name });
+    } catch {
+      toast.push('Could not save that zone.', 'info');
+    }
+    setAddingZone(false);
+    setNewZoneName('');
+  };
+
   const saveShippingFee = () => {
     const parsed = Number(shippingInput);
     if (Number.isFinite(parsed) && parsed >= 0) void apply({ shippingFee: parsed });
@@ -262,6 +303,12 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
   // on stage, since an order can sit in Shipped without ever actually having dispatched (see the
   // "Ship anyway" no-courier path) and that case should still be freely editable.
   const courierLocked = detail ? Boolean(detail.courierConsignmentId) : false;
+  // No consignment id means auto-dispatch never ran (courier not API-connected, or it soft-failed
+  // server-side) — once the parcel is actually shipped, that's the signal staff need to type in
+  // whatever tracking code the courier's own portal/app gave them at booking.
+  const needsTrackingCode = detail
+    ? Boolean(detail.courierPartner) && !detail.courierTrackingId && !detail.courierConsignmentId && SHIPPED_OR_LATER.includes(detail.stage)
+    : false;
   const primaryAction = detail ? NEXT_ACTION[detail.stage] : undefined;
   const secondaryActions = detail ? SECONDARY_ACTIONS[detail.stage] ?? [] : [];
 
@@ -352,6 +399,12 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                     <RiskBadge risk={risk} />
                   </div>
                 )}
+                {risk && risk.possibleDuplicateOrders.length > 0 && (
+                  <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
+                    Possible duplicate — this phone number also has {risk.possibleDuplicateOrders.length === 1 ? 'an active order' : `${risk.possibleDuplicateOrders.length} other active orders`} placed
+                    today: {risk.possibleDuplicateOrders.join(', ')}
+                  </div>
+                )}
                 <div className="mt-3 space-y-1.5 text-sm text-slate-600">
                   {detail.customerPhone && (
                     <div className="flex items-center gap-2">
@@ -361,12 +414,32 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                           ({detail.callAttempts} call{detail.callAttempts > 1 ? 's' : ''})
                         </span>
                       )}
-                      <button
-                        onClick={() => void apply({ incrementCallAttempt: true })}
-                        className="text-[11px] font-medium text-indigo-600 hover:text-indigo-700"
+                      <Popover
+                        align="left"
+                        widthClass="w-48"
+                        trigger={() => <button className="text-[11px] font-medium text-indigo-600 hover:text-indigo-700">Log call</button>}
                       >
-                        Log call
-                      </button>
+                        {(close) => (
+                          <div className="p-1.5">
+                            <p className="px-2 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Call outcome</p>
+                            {CALL_OUTCOMES.map((outcome) => (
+                              <button
+                                key={outcome}
+                                onClick={() => {
+                                  close();
+                                  void apply({ incrementCallAttempt: true, callOutcome: outcome as CallOutcome });
+                                }}
+                                className={clsx(
+                                  'block w-full rounded-md px-2 py-1.5 text-left text-[12.5px] font-medium hover:bg-slate-50',
+                                  outcome === 'Confirmed' ? 'text-emerald-700' : outcome === 'Rescheduled' ? 'text-sky-700' : 'text-slate-600'
+                                )}
+                              >
+                                {outcome}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </Popover>
                     </div>
                   )}
                   {detail.customerEmail && (
@@ -384,6 +457,11 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
 
               <section className="rounded-xl border border-slate-200 p-4">
                 <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Courier</h3>
+                {needsTrackingCode && (
+                  <div className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
+                    Shipped, but no tracking code yet — {detail.courierPartner} isn't connected via API for this order. Enter the code from your booking below.
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="mb-1 block text-[11px] font-semibold text-slate-500">Partner</label>
@@ -431,13 +509,62 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                   </div>
                   <div className="col-span-2">
                     <label className="mb-1 block text-[11px] font-semibold text-slate-500">Delivery zone</label>
-                    <input
-                      value={zoneInput}
-                      onChange={(e) => setZoneInput(e.target.value)}
-                      onBlur={() => zoneInput !== (detail.deliveryZone ?? '') && apply({ deliveryZone: zoneInput || null })}
-                      placeholder="Not set"
-                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-sm text-slate-800 placeholder-slate-400 outline-none focus:border-indigo-400 focus:bg-white"
-                    />
+                    {addingZone ? (
+                      <div className="flex items-center gap-1">
+                        <input
+                          autoFocus
+                          value={newZoneName}
+                          onChange={(e) => setNewZoneName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') void saveNewZone();
+                            if (e.key === 'Escape') {
+                              setAddingZone(false);
+                              setNewZoneName('');
+                            }
+                          }}
+                          placeholder="e.g. Mirpur-10"
+                          className="w-full rounded-lg border border-indigo-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 placeholder-slate-400 outline-none focus:border-indigo-400"
+                        />
+                        <button
+                          onClick={() => void saveNewZone()}
+                          className="shrink-0 rounded-md bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
+                        >
+                          Add
+                        </button>
+                        <button
+                          onClick={() => {
+                            setAddingZone(false);
+                            setNewZoneName('');
+                          }}
+                          className="shrink-0 rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      // A picker instead of free text — every value that's ever set here came from the
+                      // shared, case-insensitively-deduped zone list, so the Delivery Zones analytics
+                      // breakdown can't fragment into "Mirpur" vs "mirpur" vs "Mirpur-10" anymore.
+                      <Select
+                        value={detail.deliveryZone ?? ''}
+                        onChange={(value) => {
+                          if (value === '__add__') {
+                            setAddingZone(true);
+                            return;
+                          }
+                          void apply({ deliveryZone: value === '' ? null : value });
+                        }}
+                        options={[
+                          { value: '', label: 'Not set' },
+                          ...zones.map((z) => ({ value: z.name, label: z.name })),
+                          ...(detail.deliveryZone && !zones.some((z) => z.name === detail.deliveryZone)
+                            ? [{ value: detail.deliveryZone, label: `${detail.deliveryZone} (removed)` }]
+                            : []),
+                          { value: '__add__', label: '+ Add new zone...' },
+                        ]}
+                        className="bg-slate-50"
+                      />
+                    )}
                   </div>
                 </div>
               </section>
@@ -705,17 +832,19 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                           </button>
                         )
                       )}
-                      {detail.paymentMethod === 'Cash on Delivery' && detail.paymentStatus === 'COD Pending' && (
-                        <button
-                          onClick={() => {
-                            close();
-                            void handleMarkCollected();
-                          }}
-                          className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
-                        >
-                          <Banknote size={13} className="text-slate-400" /> Mark COD collected
-                        </button>
-                      )}
+                      {detail.paymentMethod === 'Cash on Delivery' &&
+                        detail.paymentStatus === 'COD Pending' &&
+                        ['Delivered', 'Partial Delivered'].includes(detail.stage) && (
+                          <button
+                            onClick={() => {
+                              close();
+                              void handleMarkCollected();
+                            }}
+                            className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                          >
+                            <Banknote size={13} className="text-slate-400" /> Mark COD collected
+                          </button>
+                        )}
                       {detail.customerPhone && (
                         detail.isCustomerBlocked ? (
                           <button
@@ -837,9 +966,9 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
         busy={packBusy}
         onClose={() => setPackModalOpen(false)}
         onConfirm={async () => {
-          // Shipping without a courier assigned means it never gets handed off automatically — not
-          // wrong (self-delivery, in-store pickup, or an unconnected courier are all legitimate),
-          // but easy to do by accident, so it's a confirmation, not a hard block.
+          // A courier partner is now required before an order can ship — without one there's no
+          // consignment to dispatch and, per the invoice/tracking-code gap, no way to ever surface
+          // a tracking code to the customer. Block instead of just warning.
           if (!detail?.courierPartner) {
             setPackModalOpen(false);
             setConfirmShipNoCourier(true);
@@ -854,33 +983,20 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
       <Modal
         open={confirmShipNoCourier}
         onClose={() => setConfirmShipNoCourier(false)}
-        title="No courier selected"
-        subtitle="This order won't be handed off to a courier automatically without one."
+        title="Courier required"
+        subtitle="Pick a courier partner before this order can ship."
         widthClass="max-w-sm"
       >
         <div className="space-y-4">
           <p className="text-sm text-slate-600">
-            You can still mark it shipped and track it manually, or go back and pick a courier under the Courier section first.
+            Go back to the Courier section above and choose a partner (Steadfast or Pathao) — that's what gets this order a tracking code and hands it off automatically once shipped.
           </p>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setConfirmShipNoCourier(false)}
-              className="flex-1 rounded-lg border border-slate-200 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              Go back
-            </button>
-            <button
-              onClick={async () => {
-                setConfirmShipNoCourier(false);
-                setPackBusy(true);
-                await apply({ stage: 'Shipped' });
-                setPackBusy(false);
-              }}
-              className="flex-1 rounded-lg bg-slate-900 py-2 text-sm font-semibold text-white hover:bg-slate-800"
-            >
-              Ship anyway
-            </button>
-          </div>
+          <button
+            onClick={() => setConfirmShipNoCourier(false)}
+            className="w-full rounded-lg bg-slate-900 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+          >
+            Go back
+          </button>
         </div>
       </Modal>
       <Modal open={priorityModalOpen} onClose={() => setPriorityModalOpen(false)} title="Mark as priority call" widthClass="max-w-sm">

@@ -1,4 +1,4 @@
-import { Ban, PhoneCall, PauseCircle, X, Printer, FileText, ClipboardList, Tag, Scissors } from 'lucide-react';
+import { Ban, PhoneCall, PauseCircle, X, Printer, FileText, ClipboardList, Tag, Scissors, Banknote } from 'lucide-react';
 import type { HoldReason } from '@zetsales/shared';
 import { ALL_CANCEL_REASONS } from './reasons';
 import { ReasonNoteMenu } from './ReasonNoteMenu';
@@ -14,6 +14,10 @@ interface BulkActionBarProps {
   onPrintPackingSlips: () => void;
   onPrintCombined: () => void;
   onPrintLabels: () => void;
+  // Undefined when nothing in the current selection is an eligible (COD, not-yet-collected) order —
+  // the button only renders when the caller gives us a handler, so there's nothing to click that
+  // would just no-op against the whole selection.
+  onMarkCollected?: () => void;
   // Which hold reasons make sense depends on the stage(s) of whatever's currently selected — the
   // caller resolves that (it's the one that knows the selection), this just renders whatever list
   // it's given.
@@ -21,7 +25,9 @@ interface BulkActionBarProps {
   busy?: boolean;
 }
 
-export function BulkActionBar({ count, onClear, onConfirm, onHold, onCancel, onPrintInvoices, onPrintPackingSlips, onPrintCombined, onPrintLabels, holdReasons, busy }: BulkActionBarProps) {
+export function BulkActionBar({
+  count, onClear, onConfirm, onHold, onCancel, onPrintInvoices, onPrintPackingSlips, onPrintCombined, onPrintLabels, onMarkCollected, holdReasons, busy,
+}: BulkActionBarProps) {
   if (count === 0) return null;
 
   return (
@@ -91,6 +97,15 @@ export function BulkActionBar({ count, onClear, onConfirm, onHold, onCancel, onP
             </div>
           )}
         </Popover>
+        {onMarkCollected && (
+          <button
+            onClick={onMarkCollected}
+            disabled={busy}
+            className="flex items-center gap-1.5 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20 disabled:opacity-60"
+          >
+            <Banknote size={13} /> Mark COD collected
+          </button>
+        )}
         <ReasonNoteMenu
           title="Put selected orders on hold"
           reasons={holdReasons}
