@@ -8,7 +8,7 @@ export interface UserDTO {
     role: TeamRole | null;
 }
 export type TeamRole = 'owner' | 'admin' | 'manager' | 'agent' | 'viewer';
-export declare const MODULE_KEYS: readonly ["home", "orders", "products", "inventory", "customers", "adPerformance", "customerService", "callCenter", "supplyChain", "accounting", "professionalServices", "hr", "analytics", "discounts", "content", "integrations", "team", "settings"];
+export declare const MODULE_KEYS: readonly ["home", "orders", "products", "inventory", "customers", "adPerformance", "customerService", "callCenter", "supplyChain", "accounting", "analytics", "integrations", "team", "settings"];
 export type ModuleKey = (typeof MODULE_KEYS)[number];
 export interface RoleDefinition {
     role: TeamRole;
@@ -171,11 +171,17 @@ export interface ProductDTO {
     description: string | null;
     category: string | null;
     images: string[];
+    weight: number | null;
+    weightUnit: ProductWeightUnit;
+    sourceUrl: string | null;
+    sourcePlatform: ProductSourcePlatform | null;
     options: ProductOptionDTO[];
     variants: ProductVariantDTO[];
     updatedAt: string;
     groupId: string | null;
 }
+export type ProductWeightUnit = 'kg' | 'g' | 'lb' | 'oz';
+export type ProductSourcePlatform = 'alibaba' | 'manual' | 'shopify' | 'woocommerce';
 export interface ProductVariantInputDTO {
     sku?: string;
     price: number;
@@ -188,8 +194,31 @@ export interface ProductWritePayload {
     description?: string;
     category?: string;
     images: string[];
+    weight?: number;
+    weightUnit?: ProductWeightUnit;
+    sourceUrl?: string;
+    sourcePlatform?: ProductSourcePlatform;
     options: ProductOptionDTO[];
     variants: ProductVariantInputDTO[];
+}
+export interface ProductPublishTargetDTO {
+    storeId: string;
+    collectionIds?: string[];
+}
+export interface ProductCollectionDTO {
+    id: string;
+    storeId: string;
+    platform: StorePlatform;
+    name: string;
+    handle?: string | null;
+}
+export interface SupplierProductDraftDTO extends ProductWritePayload {
+    sourcePlatform: 'alibaba';
+    sourceUrl: string;
+    supplierName?: string | null;
+    rawPriceText?: string | null;
+    confidence: 'high' | 'medium' | 'low';
+    warnings: string[];
 }
 export interface ProductListItemDTO {
     id: string;

@@ -37,7 +37,7 @@ routeEntries.delete('/orders');
 routeEntries.delete('/integrations');
 routeEntries.delete('/products');
 routeEntries.delete('/inventory');
-routeEntries.delete('/customer-service');
+routeEntries.delete('/messages');
 routeEntries.delete('/team');
 routeEntries.delete('/accounting');
 routeEntries.delete('/suppliers');
@@ -88,7 +88,8 @@ function AppRoutes() {
         <Route path="/home" element={<HomePage />} />
         <Route path="/orders" element={<OrdersPage />} />
         <Route path="/integrations" element={<IntegrationsPage />} />
-        <Route path="/customer-service" element={<CustomerServicePage />} />
+        <Route path="/messages" element={<CustomerServicePage />} />
+        <Route path="/customer-service" element={<Navigate to="/messages" replace />} />
         <Route path="/team" element={<TeamPage />} />
         <Route path="/products" element={<ProductsPage />} />
         <Route path="/products/new" element={<AddProductPage />} />

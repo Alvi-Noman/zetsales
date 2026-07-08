@@ -1,4 +1,4 @@
-import type { AdAccountDTO, AdCampaignDTO, AdCreativeAssetDTO, CreateAdCampaignPayload, AdChannel, AdCostEntryDTO, AdPerformanceReportDTO, BulkOrderResultDTO, CallOutcome, CancelReason, CourierAccountDTO, CourierSettlementDTO, CourierHandoverDTO, CourierHandoverDetailDTO, EligibleHandoverOrderDTO, CustomerListDTO, CustomerDetailDTO, CustomerOrderRowDTO, HoldReason, OrderDTO, OrderRiskDTO, OrderStage, OrderStatsDTO, OrderTabKey, OrderTrendsDTO, ProductDTO, ProductListItemDTO, ProductPushResultDTO, ProductWritePayload, StoreDTO } from '@zetsales/shared';
+import type { AdAccountDTO, AdCampaignDTO, AdCreativeAssetDTO, CreateAdCampaignPayload, AdChannel, AdCostEntryDTO, AdPerformanceReportDTO, BulkOrderResultDTO, CallOutcome, CancelReason, CourierAccountDTO, CourierSettlementDTO, CourierHandoverDTO, CourierHandoverDetailDTO, EligibleHandoverOrderDTO, CustomerListDTO, CustomerDetailDTO, CustomerOrderRowDTO, HoldReason, OrderDTO, OrderRiskDTO, OrderStage, OrderStatsDTO, OrderTabKey, OrderTrendsDTO, ProductCollectionDTO, ProductDTO, ProductListItemDTO, ProductPublishTargetDTO, ProductPushResultDTO, ProductWritePayload, StoreDTO, SupplierProductDraftDTO } from '@zetsales/shared';
 import { api } from './api';
 
 export async function getCapabilities() {
@@ -143,9 +143,19 @@ export async function listProducts(params: ListProductsParams = {}) {
   return res.data as { success: boolean; products: ProductListItemDTO[]; total: number; page: number; pageSize: number };
 }
 
-export async function createProduct(payload: ProductWritePayload & { storeIds: string[] }) {
+export async function createProduct(payload: ProductWritePayload & ({ storeIds: string[] } | { storeTargets: ProductPublishTargetDTO[] })) {
   const res = await api.post('/commerce/products', payload);
   return res.data as { success: boolean; results: ProductPushResultDTO[] };
+}
+
+export async function previewAlibabaProduct(url: string) {
+  const res = await api.post('/commerce/products/imports/alibaba/preview', { url });
+  return res.data as { success: boolean; draft: SupplierProductDraftDTO };
+}
+
+export async function listProductCollections(storeIds?: string[]) {
+  const res = await api.get('/commerce/products/collections', { params: storeIds?.length ? { storeIds: storeIds.join(',') } : undefined });
+  return res.data as { success: boolean; collections: ProductCollectionDTO[] };
 }
 
 export async function uploadProductImages(files: File[]) {

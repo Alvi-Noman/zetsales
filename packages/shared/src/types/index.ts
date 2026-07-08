@@ -21,11 +21,7 @@ export const MODULE_KEYS = [
   'callCenter',
   'supplyChain',
   'accounting',
-  'professionalServices',
-  'hr',
   'analytics',
-  'discounts',
-  'content',
   'integrations',
   'team',
   'settings',
@@ -74,8 +70,6 @@ export const ROLE_DEFINITIONS: Record<TeamRole, RoleDefinition> = {
       'callCenter',
       'supplyChain',
       'analytics',
-      'discounts',
-      'content',
     ],
     canManageTeam: false,
     canWrite: true,
@@ -289,11 +283,18 @@ export interface ProductDTO {
   description: string | null;
   category: string | null;
   images: string[];
+  weight: number | null;
+  weightUnit: ProductWeightUnit;
+  sourceUrl: string | null;
+  sourcePlatform: ProductSourcePlatform | null;
   options: ProductOptionDTO[];
   variants: ProductVariantDTO[];
   updatedAt: string;
   groupId: string | null;
 }
+
+export type ProductWeightUnit = 'kg' | 'g' | 'lb' | 'oz';
+export type ProductSourcePlatform = 'alibaba' | 'manual' | 'shopify' | 'woocommerce';
 
 export interface ProductVariantInputDTO {
   sku?: string;
@@ -308,8 +309,34 @@ export interface ProductWritePayload {
   description?: string;
   category?: string;
   images: string[];
+  weight?: number;
+  weightUnit?: ProductWeightUnit;
+  sourceUrl?: string;
+  sourcePlatform?: ProductSourcePlatform;
   options: ProductOptionDTO[];
   variants: ProductVariantInputDTO[];
+}
+
+export interface ProductPublishTargetDTO {
+  storeId: string;
+  collectionIds?: string[];
+}
+
+export interface ProductCollectionDTO {
+  id: string;
+  storeId: string;
+  platform: StorePlatform;
+  name: string;
+  handle?: string | null;
+}
+
+export interface SupplierProductDraftDTO extends ProductWritePayload {
+  sourcePlatform: 'alibaba';
+  sourceUrl: string;
+  supplierName?: string | null;
+  rawPriceText?: string | null;
+  confidence: 'high' | 'medium' | 'low';
+  warnings: string[];
 }
 
 // One row in the Products list: products sharing a groupId across stores collapse into a single

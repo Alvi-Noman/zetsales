@@ -56,6 +56,10 @@ export function AddProductPage() {
         description: form.description.trim() || undefined,
         category: form.category.trim() || undefined,
         images: form.images,
+        weight: form.weight.trim() ? Number(form.weight) : undefined,
+        weightUnit: form.weightUnit,
+        sourceUrl: form.sourceUrl,
+        sourcePlatform: form.sourcePlatform ?? 'manual',
         options: form.options,
         variants: form.variants.map((v) => ({
           sku: v.sku.trim() || undefined,

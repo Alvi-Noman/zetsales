@@ -9,11 +9,7 @@ import {
   PhoneCall,
   Handshake,
   Landmark,
-  Briefcase,
-  UsersRound,
   BarChart3,
-  Tag,
-  FileText,
   Puzzle,
   ShieldCheck,
   Settings,
@@ -49,6 +45,7 @@ export const NAV_ITEMS: NavItem[] = [
     ],
   },
   { label: 'Call Center', path: '/call-center', icon: PhoneCall, module: 'callCenter' },
+  { label: 'Messages', path: '/messages', icon: Headset, module: 'customerService' },
   {
     label: 'Products',
     path: '/products',
@@ -60,20 +57,15 @@ export const NAV_ITEMS: NavItem[] = [
     ],
   },
   { label: 'Inventory', path: '/inventory', icon: Boxes, module: 'inventory', badge: 'New' },
+  { label: 'Suppliers', path: '/suppliers', icon: Handshake, module: 'supplyChain' },
   { label: 'Customers', path: '/customers', icon: Users, module: 'customers' },
   { label: 'Ad Performance', path: '/ad-performance', icon: Megaphone, module: 'adPerformance' },
-  { label: 'Customer Service', path: '/customer-service', icon: Headset, module: 'customerService' },
-  { label: 'Suppliers', path: '/suppliers', icon: Handshake, module: 'supplyChain' },
   { label: 'Accounting & Finance', path: '/accounting', icon: Landmark, module: 'accounting' },
-  { label: 'Professional Services', path: '/professional-services', icon: Briefcase, module: 'professionalServices' },
-  { label: 'HR & People', path: '/hr', icon: UsersRound, module: 'hr' },
   { label: 'Analytics', path: '/analytics', icon: BarChart3, module: 'analytics' },
-  { label: 'Discounts', path: '/discounts', icon: Tag, module: 'discounts' },
-  { label: 'Content', path: '/content', icon: FileText, module: 'content' },
 ];
 
 export const NAV_FOOTER_ITEMS: NavItem[] = [
-  { label: 'Integrations', path: '/integrations', icon: Puzzle, module: 'integrations' },
   { label: 'Team', path: '/team', icon: ShieldCheck, module: 'team' },
+  { label: 'Integrations', path: '/integrations', icon: Puzzle, module: 'integrations' },
   { label: 'Settings', path: '/settings', icon: Settings, module: 'settings' },
 ];

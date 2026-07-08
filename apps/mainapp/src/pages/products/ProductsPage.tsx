@@ -18,6 +18,7 @@ import {
   Search,
   Store as StoreIcon,
   Trash2,
+  UploadCloud,
 } from 'lucide-react';
 import clsx from 'clsx';
 import type { ProductListItemDTO, StoreDTO } from '@zetsales/shared';
@@ -25,6 +26,7 @@ import { listProducts, listStores } from '../../lib/commerceApi';
 import { ProductDetailDrawer } from '../../components/products/ProductDetailDrawer';
 import { ImportProductsModal } from '../../components/integrations/ImportProductsModal';
 import { DeleteProductModal } from '../../components/products/DeleteProductModal';
+import { AlibabaImportModal } from '../../components/products/AlibabaImportModal';
 import { ShopifyLogo, WooCommerceLogo } from '../../components/orders/platformLogos';
 import { FilterMenu } from '../../components/orders/FilterMenu';
 import { Popover } from '../../components/ui/Popover';
@@ -142,6 +144,7 @@ export function ProductsPage() {
   const [importTarget, setImportTarget] = useState<StoreDTO | null>(null);
   const [autoImport, setAutoImport] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string; image: string | null } | null>(null);
+  const [alibabaImportOpen, setAlibabaImportOpen] = useState(false);
 
   const loadStores = async () => {
     setStoresLoading(true);
@@ -266,6 +269,13 @@ export function ProductsPage() {
             className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <RefreshCw size={14} className={productsLoading ? 'animate-spin' : undefined} /> Refresh
+          </button>
+          <button
+            onClick={() => setAlibabaImportOpen(true)}
+            disabled={storesLoading || stores.length === 0}
+            className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <UploadCloud size={14} /> Import from Alibaba
           </button>
           <button
             onClick={() => navigate('/products/new')}
@@ -574,6 +584,7 @@ export function ProductsPage() {
         onImported={handleImported}
       />
       <DeleteProductModal product={deleteTarget} onClose={() => setDeleteTarget(null)} onDeleted={handleImported} />
+      <AlibabaImportModal open={alibabaImportOpen} stores={stores} onClose={() => setAlibabaImportOpen(false)} onImported={handleImported} />
     </div>
   );
 }

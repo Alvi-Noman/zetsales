@@ -6,11 +6,20 @@ import { z } from 'zod';
 import { getDb } from '../utils/db.js';
 import { decryptSecret } from '../utils/crypto.js';
 import type { AuthenticatedRequest } from '../middleware/authMiddleware.js';
-import type { ProductDTO, ProductListItemDTO, ProductPushResultDTO, StorePlatform } from '@zetsales/shared';
-import { fetchShopifyProductCount, fetchShopifyProducts, createShopifyProduct, updateShopifyProduct, deleteShopifyProduct, type ShopifyProduct } from '../integrations/shopifyClient.js';
+import type { ProductCollectionDTO, ProductDTO, ProductListItemDTO, ProductPushResultDTO, StorePlatform } from '@zetsales/shared';
+import {
+  fetchShopifyProductCount,
+  fetchShopifyProducts,
+  createShopifyProduct,
+  updateShopifyProduct,
+  deleteShopifyProduct,
+  fetchShopifyCollections,
+  type ShopifyProduct,
+} from '../integrations/shopifyClient.js';
 import { getValidShopifyAccessToken } from '../integrations/shopifyAuth.js';
-import { fetchWooProducts, createWooProduct, updateWooProduct, deleteWooProduct } from '../integrations/wooClient.js';
+import { fetchWooProducts, createWooProduct, updateWooProduct, deleteWooProduct, fetchWooCategories } from '../integrations/wooClient.js';
 import { mapShopifyProduct, mapWooProduct, type NormalizedProduct } from '../integrations/productMapper.js';
+import { previewAlibabaProduct } from '../integrations/alibabaImporter.js';
 
 // Strips protocol/www/trailing slash/query string and lowercases, so a pasted URL that differs
 // from the stored one only cosmetically (https vs http, a tracking query param, a trailing slash)
@@ -42,6 +51,10 @@ function toProductDto(doc: any, ignoreInventory = false): ProductDTO {
     description: doc.description ?? null,
     category: doc.category ?? null,
     images: doc.images ?? (doc.image ? [doc.image] : []),
+    weight: doc.weight ?? null,
+    weightUnit: doc.weightUnit ?? 'kg',
+    sourceUrl: doc.sourceUrl ?? null,
+    sourcePlatform: doc.sourcePlatform ?? null,
     options: doc.options ?? [],
     variants: (doc.variants ?? []).map((v: any) => {
       const inventory = v.inventory == null ? null : Number(v.inventory);
@@ -109,6 +122,11 @@ async function upsertProduct(tenantId: string, storeId: string, p: NormalizedPro
         urlNormalized: p.url ? normalizeProductUrl(p.url) : null,
         images: p.images,
         image: p.images[0] ?? null,
+        weight: p.weight ?? null,
+        weightUnit: p.weightUnit ?? 'kg',
+        sourceUrl: p.sourceUrl ?? null,
+        sourcePlatform: p.sourcePlatform ?? null,
+        storeCollections: p.storeCollections ?? [],
         options: p.options,
         variants: p.variants,
         updatedAt: now,
@@ -340,6 +358,60 @@ export async function findProductByUrl(req: AuthenticatedRequest, res: Response)
   res.json({ success: true, product: product ? { id: product._id.toString(), title: product.title } : null });
 }
 
+export async function listStoreProductCollections(req: AuthenticatedRequest, res: Response) {
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const ids = typeof req.query.storeIds === 'string' ? req.query.storeIds.split(',').map((id) => id.trim()).filter(Boolean) : [];
+  const stores = await db
+    .collection('stores')
+    .find({ tenantId, ...(ids.length ? { _id: { $in: ids.map((id) => new ObjectId(id)) } } : {}) })
+    .toArray();
+
+  const collections: ProductCollectionDTO[] = [];
+  for (const store of stores) {
+    try {
+      if (store.platform === 'shopify') {
+        const accessToken = await getValidShopifyAccessToken(store);
+        const rows = await fetchShopifyCollections(store.shopDomain, accessToken);
+        collections.push(...rows.map((c) => ({ ...c, storeId: store._id.toString(), platform: 'shopify' as const })));
+      } else {
+        const consumerKey = decryptSecret(store.credentials.consumerKey);
+        const consumerSecret = decryptSecret(store.credentials.consumerSecret);
+        const rows = await fetchWooCategories(store.shopDomain, consumerKey, consumerSecret);
+        collections.push(...rows.map((c) => ({ ...c, storeId: store._id.toString(), platform: 'woocommerce' as const })));
+      }
+    } catch (err) {
+      collections.push({
+        id: `__error__:${store._id.toString()}`,
+        storeId: store._id.toString(),
+        platform: store.platform as StorePlatform,
+        name: `Could not load collections: ${(err as Error).message}`,
+        handle: null,
+      });
+    }
+  }
+
+  res.json({ success: true, collections });
+}
+
+const alibabaPreviewSchema = z.object({ url: z.string().trim().url() });
+
+export async function previewAlibabaImport(req: AuthenticatedRequest, res: Response) {
+  const parsed = alibabaPreviewSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, message: 'A valid Alibaba product URL is required' });
+    return;
+  }
+
+  try {
+    const draft = await previewAlibabaProduct(parsed.data.url);
+    const withSkus = await fillMissingSkus(req.user!.tenantId!, { ...draft, weightUnit: draft.weightUnit ?? 'kg' });
+    res.json({ success: true, draft: { ...draft, variants: withSkus.variants } });
+  } catch (err) {
+    res.status(400).json({ success: false, message: (err as Error).message });
+  }
+}
+
 const productOptionSchema = z.object({
   name: z.string().trim().min(1),
   values: z.array(z.string().trim().min(1)).min(1),
@@ -353,11 +425,20 @@ const productVariantInputSchema = z.object({
   continueSellingWhenOutOfStock: z.boolean().optional(),
 });
 
+const productPublishTargetSchema = z.object({
+  storeId: z.string().trim().min(1),
+  collectionIds: z.array(z.string().trim().min(1)).optional().default([]),
+});
+
 const productBaseFields = {
   title: z.string().trim().min(1),
   description: z.string().trim().optional().or(z.literal('')),
   category: z.string().trim().optional().or(z.literal('')),
   images: z.array(z.string().trim().url()).max(10).default([]),
+  weight: z.number().positive().optional(),
+  weightUnit: z.enum(['kg', 'g', 'lb', 'oz']).default('kg'),
+  sourceUrl: z.string().trim().url().optional(),
+  sourcePlatform: z.enum(['alibaba', 'manual', 'shopify', 'woocommerce']).optional(),
   options: z.array(productOptionSchema).max(3).default([]),
   variants: z.array(productVariantInputSchema).min(1),
 };
@@ -375,7 +456,8 @@ const variantCheckMessage = { message: 'Each variant must specify a unique value
 
 const productWriteSchema = z.object(productBaseFields).refine(variantsMatchOptions, variantCheckMessage);
 const createProductSchema = z
-  .object({ ...productBaseFields, storeIds: z.array(z.string()).min(1) })
+  .object({ ...productBaseFields, storeIds: z.array(z.string()).optional(), storeTargets: z.array(productPublishTargetSchema).optional() })
+  .refine((data) => Boolean(data.storeTargets?.length || data.storeIds?.length), { message: 'At least one store is required' })
   .refine(variantsMatchOptions, variantCheckMessage);
 
 type ProductWriteData = z.infer<z.ZodObject<typeof productBaseFields>>;
@@ -386,6 +468,8 @@ function toPushInput(data: ProductWriteData) {
     description: data.description || null,
     category: data.category || null,
     images: data.images,
+    weight: data.weight ?? null,
+    weightUnit: data.weightUnit ?? 'kg',
     options: data.options,
     variants: data.variants.map((v) => ({ sku: v.sku || null, price: v.price, compareAtPrice: v.compareAtPrice ?? null, optionValues: v.optionValues })),
   };
@@ -409,21 +493,73 @@ function reattachContinueSelling(normalized: NormalizedProduct, submittedVariant
   };
 }
 
-async function pushToStore(store: any, input: ProductPushInput, existing?: ExistingProductForPush) {
+async function pushToStore(store: any, input: ProductPushInput, collectionIds: string[] = [], existing?: ExistingProductForPush) {
   if (store.platform === 'shopify') {
     const accessToken = await getValidShopifyAccessToken(store);
     const product = existing
-      ? await updateShopifyProduct(store.shopDomain, accessToken, existing.externalId, input, existing.variants)
-      : await createShopifyProduct(store.shopDomain, accessToken, input);
+      ? await updateShopifyProduct(store.shopDomain, accessToken, existing.externalId, input, existing.variants, collectionIds)
+      : await createShopifyProduct(store.shopDomain, accessToken, input, collectionIds);
     return mapShopifyProduct(product, store.shopDomain);
   }
 
   const consumerKey = decryptSecret(store.credentials.consumerKey);
   const consumerSecret = decryptSecret(store.credentials.consumerSecret);
   const product = existing
-    ? await updateWooProduct(store.shopDomain, consumerKey, consumerSecret, existing.externalId, input)
-    : await createWooProduct(store.shopDomain, consumerKey, consumerSecret, input);
+    ? await updateWooProduct(store.shopDomain, consumerKey, consumerSecret, existing.externalId, input, collectionIds)
+    : await createWooProduct(store.shopDomain, consumerKey, consumerSecret, input, collectionIds);
   return mapWooProduct(product, store.shopDomain, consumerKey, consumerSecret);
+}
+
+function skuPart(value: string) {
+  return value
+    .normalize('NFKD')
+    .replace(/[^\w\s-]/g, '')
+    .trim()
+    .split(/\s+/)
+    .map((part) => part.slice(0, 4).toUpperCase())
+    .filter(Boolean)
+    .join('-');
+}
+
+async function fillMissingSkus(tenantId: string, data: ProductWriteData): Promise<ProductWriteData> {
+  const db = getDb();
+  const used = new Set<string>();
+  const existing = await db.collection('products').find({ tenantId, 'variants.sku': { $nin: [null, ''] } }).project({ 'variants.sku': 1 }).toArray();
+  for (const product of existing) {
+    for (const variant of product.variants ?? []) {
+      if (variant.sku) used.add(String(variant.sku).toUpperCase());
+    }
+  }
+
+  const base = skuPart(data.title).slice(0, 18) || 'ITEM';
+  let serial = 1;
+  const nextSku = (optionValues: string[]) => {
+    const optionPart = optionValues.map(skuPart).filter(Boolean).join('-').slice(0, 24);
+    let candidate = [base, optionPart, String(serial).padStart(3, '0')].filter(Boolean).join('-');
+    serial += 1;
+    while (used.has(candidate.toUpperCase())) {
+      candidate = [base, optionPart, String(serial).padStart(3, '0')].filter(Boolean).join('-');
+      serial += 1;
+    }
+    used.add(candidate.toUpperCase());
+    return candidate;
+  };
+
+  return {
+    ...data,
+    variants: data.variants.map((v) => ({ ...v, sku: v.sku?.trim() || nextSku(v.optionValues) })),
+  };
+}
+
+function withSubmittedMetadata(normalized: NormalizedProduct, data: ProductWriteData, sourcePlatform?: ProductWriteData['sourcePlatform'], sourceUrl?: string, collectionIds: string[] = []): NormalizedProduct {
+  return {
+    ...normalized,
+    weight: data.weight ?? null,
+    weightUnit: data.weightUnit ?? 'kg',
+    sourceUrl: sourceUrl ?? data.sourceUrl ?? normalized.sourceUrl ?? null,
+    sourcePlatform: sourcePlatform ?? data.sourcePlatform ?? normalized.sourcePlatform ?? 'manual',
+    storeCollections: collectionIds,
+  };
 }
 
 // Creating a product from ZetSales fans it out to every selected store at once (any mix of
@@ -438,9 +574,12 @@ export async function createProduct(req: AuthenticatedRequest, res: Response) {
 
   const db = getDb();
   const tenantId = req.user!.tenantId!;
-  const { storeIds, ...data } = parsed.data;
+  const { storeIds, storeTargets, ...rawData } = parsed.data;
+  const data = await fillMissingSkus(tenantId, rawData);
+  const targets = storeTargets?.length ? storeTargets : (storeIds ?? []).map((storeId) => ({ storeId, collectionIds: [] }));
+  const targetByStoreId = new Map(targets.map((target) => [target.storeId, target.collectionIds ?? []]));
   const input = toPushInput(data);
-  const stores = await db.collection('stores').find({ tenantId, _id: { $in: storeIds.map((id) => new ObjectId(id)) } }).toArray();
+  const stores = await db.collection('stores').find({ tenantId, _id: { $in: targets.map((target) => new ObjectId(target.storeId)) } }).toArray();
 
   if (stores.length === 0) {
     res.status(404).json({ success: false, message: 'No matching stores found' });
@@ -452,7 +591,8 @@ export async function createProduct(req: AuthenticatedRequest, res: Response) {
 
   for (const store of stores) {
     try {
-      const normalized = reattachContinueSelling(await pushToStore(store, input), data.variants);
+      const collectionIds = targetByStoreId.get(store._id.toString()) ?? [];
+      const normalized = withSubmittedMetadata(reattachContinueSelling(await pushToStore(store, input, collectionIds), data.variants), data, data.sourcePlatform, data.sourceUrl, collectionIds);
       const productId = await upsertProduct(tenantId, store._id.toString(), normalized, groupId);
       results.push({ storeId: store._id.toString(), displayName: store.displayName, platform: store.platform as StorePlatform, success: true, productId });
     } catch (err) {
@@ -519,6 +659,7 @@ export async function updateProduct(req: AuthenticatedRequest, res: Response) {
 
   const db = getDb();
   const tenantId = req.user!.tenantId!;
+  const data = await fillMissingSkus(tenantId, parsed.data);
   const doc = await db.collection('products').findOne({ _id: new ObjectId(req.params.id), tenantId });
   if (!doc) {
     res.status(404).json({ success: false, message: 'Product not found' });
@@ -526,7 +667,7 @@ export async function updateProduct(req: AuthenticatedRequest, res: Response) {
   }
 
   const targets = doc.groupId ? await db.collection('products').find({ tenantId, groupId: doc.groupId }).toArray() : [doc];
-  const input = toPushInput(parsed.data);
+  const input = toPushInput(data);
   const results: ProductPushResultDTO[] = [];
 
   for (const target of targets) {
@@ -540,7 +681,7 @@ export async function updateProduct(req: AuthenticatedRequest, res: Response) {
         externalId: target.externalId,
         variants: (target.variants ?? []).map((v: any) => ({ id: v.id, sku: v.sku ?? null, optionValues: v.optionValues ?? [] })),
       };
-      const normalized = reattachContinueSelling(await pushToStore(store, input, existing), parsed.data.variants);
+      const normalized = withSubmittedMetadata(reattachContinueSelling(await pushToStore(store, input, target.storeCollections ?? [], existing), data.variants), data, data.sourcePlatform ?? target.sourcePlatform, data.sourceUrl ?? target.sourceUrl, target.storeCollections ?? []);
       await db.collection('products').updateOne(
         { _id: target._id },
         {
@@ -550,6 +691,10 @@ export async function updateProduct(req: AuthenticatedRequest, res: Response) {
             category: normalized.category,
             images: normalized.images,
             image: normalized.images[0] ?? null,
+            weight: normalized.weight ?? null,
+            weightUnit: normalized.weightUnit ?? 'kg',
+            sourceUrl: normalized.sourceUrl ?? null,
+            sourcePlatform: normalized.sourcePlatform ?? null,
             options: normalized.options,
             variants: normalized.variants,
             updatedAt: new Date(),

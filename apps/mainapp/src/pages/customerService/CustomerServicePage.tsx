@@ -146,7 +146,7 @@ export function CustomerServicePage() {
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-slate-200 bg-white px-8 py-5">
-        <h1 className="text-xl font-bold text-slate-900">Customer Service</h1>
+        <h1 className="text-xl font-bold text-slate-900">Messages</h1>
         <p className="mt-1 text-sm text-slate-500">All your connected Facebook and Instagram conversations, in one inbox.</p>
       </div>
 

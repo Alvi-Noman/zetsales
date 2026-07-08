@@ -1,5 +1,5 @@
 import type { ChangeEvent } from 'react';
-import type { ProductOptionDTO } from '@zetsales/shared';
+import type { ProductOptionDTO, ProductSourcePlatform, ProductWeightUnit } from '@zetsales/shared';
 import { ImageGalleryUpload } from './ImageGalleryUpload';
 import { OptionsBuilder } from './OptionsBuilder';
 import { VariantTable, type VariantFormRow } from './VariantTable';
@@ -9,6 +9,10 @@ export interface ProductFormState {
   description: string;
   category: string;
   images: string[];
+  weight: string;
+  weightUnit: ProductWeightUnit;
+  sourceUrl?: string;
+  sourcePlatform?: ProductSourcePlatform;
   options: ProductOptionDTO[];
   variants: VariantFormRow[];
 }
@@ -20,6 +24,8 @@ export const EMPTY_PRODUCT_FORM: ProductFormState = {
   description: '',
   category: '',
   images: [],
+  weight: '',
+  weightUnit: 'kg',
   options: [],
   variants: [EMPTY_VARIANT],
 };
@@ -78,6 +84,34 @@ export function ProductFormFields({ value, onChange }: ProductFormFieldsProps) {
           placeholder="Optional, e.g. Jewelry"
           className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15"
         />
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-[1fr_120px]">
+        <div>
+          <label className="mb-1.5 block text-xs font-semibold text-slate-600">Weight</label>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={value.weight}
+            onChange={(e) => onChange({ ...value, weight: e.target.value })}
+            placeholder="Optional"
+            className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15"
+          />
+        </div>
+        <div>
+          <label className="mb-1.5 block text-xs font-semibold text-slate-600">Unit</label>
+          <select
+            value={value.weightUnit}
+            onChange={(e) => onChange({ ...value, weightUnit: e.target.value as ProductWeightUnit })}
+            className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15"
+          >
+            <option value="kg">kg</option>
+            <option value="g">g</option>
+            <option value="lb">lb</option>
+            <option value="oz">oz</option>
+          </select>
+        </div>
       </div>
 
       <ImageGalleryUpload images={value.images} onChange={(images) => onChange({ ...value, images })} />

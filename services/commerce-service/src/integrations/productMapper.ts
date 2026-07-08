@@ -9,6 +9,11 @@ export interface NormalizedProduct {
   category: string | null;
   url: string | null;
   images: string[];
+  weight?: number | null;
+  weightUnit?: 'kg' | 'g' | 'lb' | 'oz';
+  sourceUrl?: string | null;
+  sourcePlatform?: 'alibaba' | 'manual' | 'shopify' | 'woocommerce' | null;
+  storeCollections?: string[];
   options: { name: string; values: string[] }[];
   variants: {
     id: string;
@@ -41,6 +46,9 @@ export function mapShopifyProduct(p: ShopifyProduct, shopDomain: string): Normal
     category: p.product_type || null,
     url: p.handle ? `https://${shopDomain}/products/${p.handle}` : null,
     images,
+    weight: p.variants.find((v) => v.weight != null)?.weight ?? null,
+    weightUnit: p.variants.find((v) => v.weight_unit)?.weight_unit ?? 'kg',
+    sourcePlatform: 'shopify',
     options,
     variants: p.variants.map((v) => ({
       id: String(v.id),
@@ -72,8 +80,11 @@ export async function mapWooProduct(p: WooProduct, siteUrl: string, consumerKey:
       description,
       category,
       url: p.permalink || null,
-      images,
-      options,
+    images,
+    weight: p.weight ? Number(p.weight) || null : null,
+    weightUnit: 'kg',
+    sourcePlatform: 'woocommerce',
+    options,
       variants: variations.map((v) => {
         const attrByName = new Map(v.attributes.map((a) => [a.name, a.option]));
         const optionValues = options.map((o) => attrByName.get(o.name) ?? '');
@@ -102,6 +113,9 @@ export async function mapWooProduct(p: WooProduct, siteUrl: string, consumerKey:
     category,
     url: p.permalink || null,
     images,
+    weight: p.weight ? Number(p.weight) || null : null,
+    weightUnit: 'kg',
+    sourcePlatform: 'woocommerce',
     options: [],
     variants: [
       {

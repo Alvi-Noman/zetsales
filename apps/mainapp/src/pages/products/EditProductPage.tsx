@@ -36,6 +36,10 @@ export function EditProductPage() {
           description: p.description ?? '',
           category: p.category ?? '',
           images: p.images,
+          weight: p.weight != null ? String(p.weight) : '',
+          weightUnit: p.weightUnit,
+          sourceUrl: p.sourceUrl ?? undefined,
+          sourcePlatform: p.sourcePlatform ?? undefined,
           options: p.options,
           variants: p.variants.map((v) => ({
             sku: v.sku ?? '',
@@ -70,6 +74,10 @@ export function EditProductPage() {
         description: form.description.trim() || undefined,
         category: form.category.trim() || undefined,
         images: form.images,
+        weight: form.weight.trim() ? Number(form.weight) : undefined,
+        weightUnit: form.weightUnit,
+        sourceUrl: form.sourceUrl,
+        sourcePlatform: form.sourcePlatform,
         options: form.options,
         variants: form.variants.map((v) => ({
           sku: v.sku.trim() || undefined,
