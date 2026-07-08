@@ -1,17 +1,27 @@
-import { Ban, PhoneCall, PauseCircle, X } from 'lucide-react';
-import { ALL_HOLD_REASONS, ALL_CANCEL_REASONS } from './reasons';
+import { Ban, PhoneCall, PauseCircle, X, Printer, FileText, ClipboardList, Tag, Scissors } from 'lucide-react';
+import type { HoldReason } from '@zetsales/shared';
+import { ALL_CANCEL_REASONS } from './reasons';
 import { ReasonNoteMenu } from './ReasonNoteMenu';
+import { Popover } from '../ui/Popover';
 
 interface BulkActionBarProps {
   count: number;
   onClear: () => void;
   onConfirm: () => void;
-  onHold: (reason: string, note: string) => void;
+  onHold: (reason: string, note: string, rescheduledFor: string | null) => void;
   onCancel: (reason: string, note: string) => void;
+  onPrintInvoices: () => void;
+  onPrintPackingSlips: () => void;
+  onPrintCombined: () => void;
+  onPrintLabels: () => void;
+  // Which hold reasons make sense depends on the stage(s) of whatever's currently selected — the
+  // caller resolves that (it's the one that knows the selection), this just renders whatever list
+  // it's given.
+  holdReasons: HoldReason[];
   busy?: boolean;
 }
 
-export function BulkActionBar({ count, onClear, onConfirm, onHold, onCancel, busy }: BulkActionBarProps) {
+export function BulkActionBar({ count, onClear, onConfirm, onHold, onCancel, onPrintInvoices, onPrintPackingSlips, onPrintCombined, onPrintLabels, holdReasons, busy }: BulkActionBarProps) {
   if (count === 0) return null;
 
   return (
@@ -31,9 +41,59 @@ export function BulkActionBar({ count, onClear, onConfirm, onHold, onCancel, bus
         >
           <PhoneCall size={13} /> Confirm
         </button>
+        <Popover
+          align="right"
+          widthClass="w-44"
+          trigger={() => (
+            <div className="flex items-center gap-1.5 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20 cursor-pointer">
+              <Printer size={13} /> Print
+            </div>
+          )}
+        >
+          {(close) => (
+            <div className="py-1.5">
+              <button
+                onClick={() => {
+                  close();
+                  onPrintInvoices();
+                }}
+                className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
+              >
+                <FileText size={13} className="text-slate-400" /> Invoices
+              </button>
+              <button
+                onClick={() => {
+                  close();
+                  onPrintPackingSlips();
+                }}
+                className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
+              >
+                <ClipboardList size={13} className="text-slate-400" /> Packing slips
+              </button>
+              <button
+                onClick={() => {
+                  close();
+                  onPrintCombined();
+                }}
+                className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
+              >
+                <Scissors size={13} className="text-slate-400" /> Invoice + Slips
+              </button>
+              <button
+                onClick={() => {
+                  close();
+                  onPrintLabels();
+                }}
+                className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
+              >
+                <Tag size={13} className="text-slate-400" /> Courier labels
+              </button>
+            </div>
+          )}
+        </Popover>
         <ReasonNoteMenu
           title="Put selected orders on hold"
-          reasons={ALL_HOLD_REASONS}
+          reasons={holdReasons}
           confirmLabel="Put on hold"
           onApply={onHold}
           align="right"

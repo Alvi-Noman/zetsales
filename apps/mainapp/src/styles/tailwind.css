@@ -10,3 +10,24 @@
     width: 0%;
   }
 }
+
+/* Scopes window.print() to a single printable area (an invoice, packing slip, or courier label
+   preview) instead of printing the whole app shell (sidebar, topbar, modal overlay) behind it.
+   PrintOrderModal/CourierLabelModal render into a portal outside #root specifically so this can
+   just hide the entire app and let the print content sit in plain, un-positioned normal flow —
+   position: absolute/fixed here (tried first) both take content out of normal flow, and browsers
+   only fragment normal-flow content across multiple physical pages, so anything positioned always
+   collapsed onto a single page no matter how tall. Normal flow is the only layout that actually
+   paginates correctly with the break rule below. */
+@media print {
+  #root {
+    display: none;
+  }
+  /* break-BEFORE every print-page-break item except the first (via the adjacent-sibling
+     combinator, which only matches an item that has a preceding sibling with the same class) —
+     not break-after on all of them, which would force a break after the last document too and
+     print one extra blank trailing page every time. */
+  .print-page-break + .print-page-break {
+    break-before: page;
+  }
+}

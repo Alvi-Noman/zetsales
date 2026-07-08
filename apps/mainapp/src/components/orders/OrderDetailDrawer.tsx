@@ -1,21 +1,34 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  X, MapPin, Phone, Mail, Package, Ban, Printer, Loader2, Copy, Check, PauseCircle, PlayCircle, Pencil,
+  X, MapPin, Phone, Mail, Package, PackageX, Ban, Printer, Loader2, Copy, Check, PauseCircle, PlayCircle, Pencil, PhoneCall, PhoneOff, MoreVertical,
+  UserX, UserCheck, FileText, ClipboardList, Tag, ChevronDown, Lock, Scissors, Banknote,
 } from 'lucide-react';
 import clsx from 'clsx';
-import type { OrderDTO, OrderRiskDTO, StoreDTO } from '@zetsales/shared';
-import { getOrder, updateOrder } from '../../lib/commerceApi';
+import type { CourierAccountDTO, CourierProvider, OrderDTO, OrderRiskDTO, StoreDTO } from '@zetsales/shared';
+import { blockCustomer, getOrder, listInventory, markPaymentCollected, unblockCustomer, updateOrder } from '../../lib/commerceApi';
 import { STAGE_TONE, STAGE_ICON, PAYMENT_TONE } from './orderTone';
 import { STAGE_ORDER, NEXT_ACTION, SECONDARY_ACTIONS } from './stageFlow';
-import { ALL_HOLD_REASONS, ALL_CANCEL_REASONS, canHold, canCancel, inferCancelReason } from './reasons';
+import { ALL_CANCEL_REASONS, canHold, canCancel, inferCancelReason, holdReasonsFor } from './reasons';
 import { ReasonNoteMenu } from './ReasonNoteMenu';
 import { RiskBadge } from './RiskBadge';
+import { PartialDeliverModal } from './PartialDeliverModal';
+import { PrintOrderModal, type PrintDocType } from './PrintOrderModal';
+import { CourierLabelModal } from './CourierLabelModal';
+import { PackOrderModal } from './PackOrderModal';
+import { buildBinLookup, type BinLookup } from './binLookup';
+import { buildStockLookup, resolveFreeStock, type StockLookup } from './stockLookup';
+import { Popover } from '../ui/Popover';
+import { Modal } from '../ui/Modal';
+import { Select } from '../ui/Select';
 import { avatarFromName } from './avatar';
 import { useToast } from '../ui/ToastProvider';
+
+const PROVIDER_LABEL: Record<CourierProvider, 'Steadfast' | 'Pathao'> = { steadfast: 'Steadfast', pathao: 'Pathao' };
 
 interface OrderDetailDrawerProps {
   order: OrderDTO | null;
   store: StoreDTO | null;
+  couriers: CourierAccountDTO[];
   onClose: () => void;
   onUpdated: () => void;
 }
@@ -27,11 +40,11 @@ function formatFullDate(iso: string) {
 const TERMINAL_STAGES = ['Delivered', 'Partial Delivered', 'Returned', 'Cancelled'];
 
 function StageStepper({ order }: { order: OrderDTO }) {
-  const exception = ['Returned', 'Partial Delivered', 'Cancelled', 'On Hold', 'Flagged'].includes(order.stage);
+  const exception = ['Returned', 'Partial Delivered', 'Cancelled', 'On Hold', 'Flagged', 'RTO Initiated', 'QC Pending'].includes(order.stage);
   const activeIndex = (() => {
     if (order.stage === 'Flagged' || order.stage === 'Cancelled') return 0;
     if (order.stage === 'On Hold') return order.heldFromStage ? Math.max(0, STAGE_ORDER.indexOf(order.heldFromStage)) : 0;
-    if (order.stage === 'Returned' || order.stage === 'Partial Delivered') return STAGE_ORDER.indexOf('Out for Delivery');
+    if (['Returned', 'Partial Delivered', 'RTO Initiated', 'QC Pending'].includes(order.stage)) return STAGE_ORDER.indexOf('Out for Delivery');
     return STAGE_ORDER.indexOf(order.stage);
   })();
 
@@ -43,6 +56,10 @@ function StageStepper({ order }: { order: OrderDTO }) {
         return { tone: 'orange', text: `On hold: ${[order.holdReason ?? 'Manual review', order.note].filter(Boolean).join(' — ')}` };
       case 'Cancelled':
         return { tone: 'slate', text: `Cancelled: ${[order.cancelReason ?? 'Cancelled by staff', order.note].filter(Boolean).join(' — ')}` };
+      case 'RTO Initiated':
+        return { tone: 'orange', text: 'Delivery failed — the courier is bringing this order back to the warehouse. Stock stays held until it arrives.' };
+      case 'QC Pending':
+        return { tone: 'amber', text: 'Package is back at the warehouse, awaiting a quality check before it goes back into stock.' };
       case 'Returned':
         return { tone: 'rose', text: 'This order was returned to the warehouse.' };
       case 'Partial Delivered':
@@ -95,18 +112,46 @@ function StageStepper({ order }: { order: OrderDTO }) {
   );
 }
 
-export function OrderDetailDrawer({ order, store, onClose, onUpdated }: OrderDetailDrawerProps) {
+export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }: OrderDetailDrawerProps) {
   const toast = useToast();
   const [detail, setDetail] = useState<OrderDTO | null>(null);
   const [risk, setRisk] = useState<OrderRiskDTO | null>(null);
   const [loading, setLoading] = useState(true);
   const [checkingRisk, setCheckingRisk] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [partialModalOpen, setPartialModalOpen] = useState(false);
+  const [priorityModalOpen, setPriorityModalOpen] = useState(false);
+  const [priorityNoteInput, setPriorityNoteInput] = useState('');
+  const [blockModalOpen, setBlockModalOpen] = useState(false);
+  const [blockNoteInput, setBlockNoteInput] = useState('');
   const [editingShipping, setEditingShipping] = useState(false);
   const [shippingInput, setShippingInput] = useState('');
-  const [courierInput, setCourierInput] = useState('');
+  const [editingDiscount, setEditingDiscount] = useState(false);
+  const [discountInput, setDiscountInput] = useState('');
   const [trackingInput, setTrackingInput] = useState('');
   const [zoneInput, setZoneInput] = useState('');
+  const [printDocType, setPrintDocType] = useState<PrintDocType | null>(null);
+  const [labelModalOpen, setLabelModalOpen] = useState(false);
+  const [packModalOpen, setPackModalOpen] = useState(false);
+  const [packBusy, setPackBusy] = useState(false);
+  const [confirmShipNoCourier, setConfirmShipNoCourier] = useState(false);
+  const [binLookup, setBinLookup] = useState<BinLookup | undefined>(undefined);
+  const [stockLookup, setStockLookup] = useState<StockLookup | undefined>(undefined);
+
+  // Bin + free-stock lookup, from one shared fetch — bin numbers back the packing slip and the
+  // pick/pack checklist (resolved per-order against `fulfillmentWarehouseId`, see binLookup.ts for
+  // why that has to be warehouse-aware), and free stock backs the per-line-item stock display in
+  // the Items section below, so staff can see at a glance whether what was just confirmed is
+  // actually still in the building.
+  const loadInventorySnapshot = async () => {
+    try {
+      const res = await listInventory();
+      setBinLookup(buildBinLookup(res.levels));
+      setStockLookup(buildStockLookup(res.levels));
+    } catch {
+      // Both are supplementary context on top of the order itself; staff can still work without them.
+    }
+  };
 
   const refresh = async (id: string, { silent }: { silent?: boolean } = {}) => {
     if (!silent) setLoading(true);
@@ -114,7 +159,6 @@ export function OrderDetailDrawer({ order, store, onClose, onUpdated }: OrderDet
       const res = await getOrder(id);
       setDetail(res.order);
       setRisk(res.risk);
-      setCourierInput(res.order.courierPartner ?? '');
       setTrackingInput(res.order.courierTrackingId ?? '');
       setZoneInput(res.order.deliveryZone ?? '');
     } catch {
@@ -125,20 +169,63 @@ export function OrderDetailDrawer({ order, store, onClose, onUpdated }: OrderDet
   };
 
   useEffect(() => {
-    if (order) void refresh(order.id);
-    else setDetail(null);
+    if (order) {
+      void refresh(order.id);
+      void loadInventorySnapshot();
+    } else {
+      setDetail(null);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order?.id]);
 
-  if (!order) return null;
+  const holdReasons = useMemo(() => holdReasonsFor(detail?.stage ?? 'Pending'), [detail?.stage]);
 
   const apply = async (payload: Parameters<typeof updateOrder>[1]) => {
+    if (!order) return;
     try {
       await updateOrder(order.id, payload);
       await refresh(order.id, { silent: true });
       onUpdated();
     } catch {
       toast.push('Could not update this order.', 'info');
+    }
+  };
+
+  // Exactly one connected courier and nothing assigned yet -> assign it automatically, removing a
+  // redundant click for the common single-courier seller. Never guesses between two-plus couriers
+  // (stays Unassigned so a human picks deliberately), and only fires once per order view — keyed by
+  // order id — so manually clearing it back to Unassigned afterward isn't immediately undone.
+  const autoAssignedOrderIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!detail || detail.courierPartner != null || couriers.length !== 1) return;
+    if (autoAssignedOrderIdRef.current === detail.id) return;
+    autoAssignedOrderIdRef.current = detail.id;
+    void apply({ courierPartner: PROVIDER_LABEL[couriers[0].provider] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.id, detail?.courierPartner, couriers]);
+
+  if (!order) return null;
+
+  const toggleBlock = async (next: boolean, note: string | null) => {
+    try {
+      if (next) await blockCustomer(order.id, note);
+      else await unblockCustomer(order.id);
+      await refresh(order.id, { silent: true });
+      onUpdated();
+      toast.push(next ? 'Customer blocked — their future orders will be auto-cancelled.' : 'Customer unblocked.', 'success');
+    } catch {
+      toast.push('Could not update block status.', 'info');
+    }
+  };
+
+  const handleMarkCollected = async () => {
+    try {
+      await markPaymentCollected(order.id);
+      await refresh(order.id, { silent: true });
+      onUpdated();
+      toast.push('Marked as collected.', 'success');
+    } catch (err) {
+      toast.push(err instanceof Error ? err.message : 'Could not mark this as collected.', 'info');
     }
   };
 
@@ -161,15 +248,27 @@ export function OrderDetailDrawer({ order, store, onClose, onUpdated }: OrderDet
     setEditingShipping(false);
   };
 
+  const saveDiscount = () => {
+    const parsed = Number(discountInput);
+    if (Number.isFinite(parsed) && parsed >= 0) void apply({ discount: parsed });
+    setEditingDiscount(false);
+  };
+
   const avatar = detail ? avatarFromName(detail.customerName) : null;
   const feeLocked = detail ? TERMINAL_STAGES.includes(detail.stage) : false;
+  // Once a real consignment exists, the courier already has the parcel — changing "Partner" at that
+  // point wouldn't cancel or re-route anything, it would just make the order say one courier while
+  // the physical package (and its tracking/consignment id) belongs to another. Lock on dispatch, not
+  // on stage, since an order can sit in Shipped without ever actually having dispatched (see the
+  // "Ship anyway" no-courier path) and that case should still be freely editable.
+  const courierLocked = detail ? Boolean(detail.courierConsignmentId) : false;
   const primaryAction = detail ? NEXT_ACTION[detail.stage] : undefined;
   const secondaryActions = detail ? SECONDARY_ACTIONS[detail.stage] ?? [] : [];
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} />
-      <div className="relative flex h-full w-full max-w-lg flex-col bg-white shadow-2xl">
+      <div className="relative flex h-full w-full max-w-xl flex-col bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <div>
             <h2 className="text-lg font-bold text-slate-900">{order.number}</h2>
@@ -203,6 +302,19 @@ export function OrderDetailDrawer({ order, store, onClose, onUpdated }: OrderDet
                 <span className={clsx('inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset', PAYMENT_TONE[detail.paymentStatus])}>
                   {detail.paymentStatus}
                 </span>
+                {detail.isPriorityCall && (
+                  <span
+                    title={detail.priorityNote ?? undefined}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-orange-50 px-2.5 py-1 text-xs font-medium text-orange-700 ring-1 ring-inset ring-orange-600/20"
+                  >
+                    <PhoneCall size={11} /> Priority call{detail.priorityNote ? `: ${detail.priorityNote}` : ''}
+                  </span>
+                )}
+                {detail.isCustomerBlocked && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700 ring-1 ring-inset ring-rose-600/20">
+                    <UserX size={11} /> Blocked customer
+                  </span>
+                )}
                 {detail.tags.map((t) => (
                   <span key={t} className="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 ring-1 ring-inset ring-slate-500/10">
                     {t}
@@ -275,13 +387,30 @@ export function OrderDetailDrawer({ order, store, onClose, onUpdated }: OrderDet
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="mb-1 block text-[11px] font-semibold text-slate-500">Partner</label>
-                    <input
-                      value={courierInput}
-                      onChange={(e) => setCourierInput(e.target.value)}
-                      onBlur={() => courierInput !== (detail.courierPartner ?? '') && apply({ courierPartner: courierInput || null })}
-                      placeholder="Not assigned"
-                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-sm text-slate-800 placeholder-slate-400 outline-none focus:border-indigo-400 focus:bg-white"
-                    />
+                    {courierLocked ? (
+                      <div
+                        title="Already handed off to this courier — the consignment can't be moved to a different one from here."
+                        className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-100 px-2.5 py-1.5 text-sm text-slate-600"
+                      >
+                        {detail.courierPartner}
+                        <Lock size={12} className="shrink-0 text-slate-400" />
+                      </div>
+                    ) : (
+                      <Select
+                        value={detail.courierPartner ?? ''}
+                        onChange={(value) => void apply({ courierPartner: value === '' ? null : (value as 'Steadfast' | 'Pathao') })}
+                        options={[
+                          { value: '', label: 'Unassigned' },
+                          ...couriers.map((c) => ({ value: PROVIDER_LABEL[c.provider], label: PROVIDER_LABEL[c.provider] })),
+                          // Order references a courier that's since been disconnected — keep it selectable
+                          // and visibly labeled rather than have the dropdown silently show blank.
+                          ...(detail.courierPartner && !couriers.some((c) => PROVIDER_LABEL[c.provider] === detail.courierPartner)
+                            ? [{ value: detail.courierPartner, label: `${detail.courierPartner} (disconnected)` }]
+                            : []),
+                        ]}
+                        className="bg-slate-50"
+                      />
+                    )}
                   </div>
                   <div>
                     <label className="mb-1 block text-[11px] font-semibold text-slate-500">Tracking ID</label>
@@ -328,6 +457,16 @@ export function OrderDetailDrawer({ order, store, onClose, onUpdated }: OrderDet
                             {li.variant ? `${li.variant} · ` : ''}Qty {li.quantity}
                             {li.sku ? ` · ${li.sku}` : ''}
                           </p>
+                          {(() => {
+                            const free = resolveFreeStock(stockLookup, li.sku);
+                            if (free === null) return null;
+                            const short = free < li.quantity;
+                            return (
+                              <p className={clsx('mt-0.5 text-xs font-semibold', short ? 'text-rose-600' : 'text-emerald-600')}>
+                                {short ? `Out of stock · only ${free} free` : `${free} in stock`}
+                              </p>
+                            );
+                          })()}
                         </div>
                       </div>
                       <span className="tabular-nums text-slate-700">
@@ -383,6 +522,48 @@ export function OrderDetailDrawer({ order, store, onClose, onUpdated }: OrderDet
                       </button>
                     )}
                   </div>
+                  <div className="flex justify-between text-slate-500">
+                    <span>Discount</span>
+                    {feeLocked ? (
+                      <span className="tabular-nums">
+                        {detail.discount > 0 ? '- ' : ''}
+                        {detail.currency} {detail.discount.toLocaleString()}
+                      </span>
+                    ) : editingDiscount ? (
+                      <span className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min={0}
+                          autoFocus
+                          value={discountInput}
+                          onChange={(e) => setDiscountInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') saveDiscount();
+                            if (e.key === 'Escape') setEditingDiscount(false);
+                          }}
+                          className="w-20 rounded border border-slate-300 px-1.5 py-0.5 text-xs tabular-nums outline-none focus:border-indigo-400"
+                        />
+                        <button onClick={saveDiscount} className="text-emerald-600 hover:text-emerald-700">
+                          <Check size={13} />
+                        </button>
+                        <button onClick={() => setEditingDiscount(false)} className="text-slate-400 hover:text-slate-600">
+                          <X size={13} />
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setDiscountInput(String(detail.discount));
+                          setEditingDiscount(true);
+                        }}
+                        className={clsx('flex items-center gap-1 tabular-nums hover:text-indigo-600', detail.discount > 0 && 'text-emerald-600')}
+                      >
+                        {detail.discount > 0 ? '- ' : ''}
+                        {detail.currency} {detail.discount.toLocaleString()}
+                        <Pencil size={11} className="text-slate-300" />
+                      </button>
+                    )}
+                  </div>
                   <div className="flex justify-between font-semibold text-slate-900">
                     <span>Total</span>
                     <span className="tabular-nums">
@@ -412,7 +593,10 @@ export function OrderDetailDrawer({ order, store, onClose, onUpdated }: OrderDet
                       <div className="pb-1">
                         <p className="text-sm font-medium text-slate-700">{event.label}</p>
                         <p className="text-xs text-slate-400">{event.detail}</p>
-                        <p className="text-[11px] text-slate-300">{formatFullDate(event.at)}</p>
+                        <p className="text-[11px] text-slate-300">
+                          {formatFullDate(event.at)}
+                          {event.by ? ` · by ${event.by}` : ''}
+                        </p>
                       </div>
                     </div>
                   ))}
@@ -430,10 +614,28 @@ export function OrderDetailDrawer({ order, store, onClose, onUpdated }: OrderDet
             <div className="flex flex-wrap gap-2 border-t border-slate-200 px-6 py-4">
               {primaryAction && (
                 <button
-                  onClick={() => apply({ stage: primaryAction.nextStage })}
+                  onClick={() => {
+                    // Processing -> Shipped is the "hand it off" moment — gate it behind the
+                    // pick/pack checklist instead of advancing the stage on a single click, so
+                    // staff actually look at what's in the box before it leaves the building.
+                    if (detail.stage === 'Processing') {
+                      void loadInventorySnapshot();
+                      setPackModalOpen(true);
+                    } else {
+                      apply({ stage: primaryAction.nextStage });
+                    }
+                  }}
                   className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-slate-800 transition-colors"
                 >
                   <primaryAction.icon size={14} /> {primaryAction.label}
+                </button>
+              )}
+              {detail.stage === 'Out for Delivery' && (
+                <button
+                  onClick={() => setPartialModalOpen(true)}
+                  className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+                >
+                  <PackageX size={14} /> Partial
                 </button>
               )}
               {secondaryActions.map((action) => (
@@ -457,9 +659,9 @@ export function OrderDetailDrawer({ order, store, onClose, onUpdated }: OrderDet
                 <ReasonNoteMenu
                   align="left"
                   title="Put on hold"
-                  reasons={ALL_HOLD_REASONS}
+                  reasons={holdReasons}
                   confirmLabel="Put on hold"
-                  onApply={(reason, note) => void apply({ stage: 'On Hold', holdReason: reason, note: note || null })}
+                  onApply={(reason, note, rescheduledFor) => void apply({ stage: 'On Hold', holdReason: reason, note: note || null, rescheduledFor })}
                   trigger={() => (
                     <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer">
                       <PauseCircle size={14} /> Hold
@@ -467,14 +669,135 @@ export function OrderDetailDrawer({ order, store, onClose, onUpdated }: OrderDet
                   )}
                 />
               )}
-              {detail.courierPartner && (
-                <button
-                  onClick={() => window.print()}
-                  className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+              {(detail.isPriorityCall || !feeLocked || detail.customerPhone) && (
+                <Popover
+                  align="left"
+                  widthClass="w-48"
+                  trigger={() => (
+                    <div className="flex h-[38px] w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:bg-slate-50 hover:text-slate-600 transition-colors cursor-pointer">
+                      <MoreVertical size={15} />
+                    </div>
+                  )}
                 >
-                  <Printer size={14} /> Print label
-                </button>
+                  {(close) => (
+                    <div className="py-1.5">
+                      {detail.isPriorityCall ? (
+                        <button
+                          onClick={() => {
+                            close();
+                            void apply({ isPriorityCall: false });
+                          }}
+                          className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                        >
+                          <PhoneOff size={13} className="text-slate-400" /> Unmark priority
+                        </button>
+                      ) : (
+                        !feeLocked && (
+                          <button
+                            onClick={() => {
+                              close();
+                              setPriorityNoteInput('');
+                              setPriorityModalOpen(true);
+                            }}
+                            className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                          >
+                            <PhoneCall size={13} className="text-slate-400" /> Mark priority
+                          </button>
+                        )
+                      )}
+                      {detail.paymentMethod === 'Cash on Delivery' && detail.paymentStatus === 'COD Pending' && (
+                        <button
+                          onClick={() => {
+                            close();
+                            void handleMarkCollected();
+                          }}
+                          className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                        >
+                          <Banknote size={13} className="text-slate-400" /> Mark COD collected
+                        </button>
+                      )}
+                      {detail.customerPhone && (
+                        detail.isCustomerBlocked ? (
+                          <button
+                            onClick={() => {
+                              close();
+                              void toggleBlock(false, null);
+                            }}
+                            className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                          >
+                            <UserCheck size={13} className="text-slate-400" /> Unblock customer
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              close();
+                              setBlockNoteInput('');
+                              setBlockModalOpen(true);
+                            }}
+                            className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-rose-600 hover:bg-rose-50"
+                          >
+                            <UserX size={13} /> Block customer
+                          </button>
+                        )
+                      )}
+                    </div>
+                  )}
+                </Popover>
               )}
+              <Popover
+                align="left"
+                widthClass="w-48"
+                trigger={() => (
+                  <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer">
+                    <Printer size={14} /> Print <ChevronDown size={12} className="text-slate-400" />
+                  </div>
+                )}
+              >
+                {(close) => (
+                  <div className="py-1.5">
+                    <button
+                      onClick={() => {
+                        close();
+                        setPrintDocType('invoice');
+                      }}
+                      className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                    >
+                      <FileText size={13} className="text-slate-400" /> Invoice
+                    </button>
+                    <button
+                      onClick={() => {
+                        close();
+                        void loadInventorySnapshot();
+                        setPrintDocType('packingSlip');
+                      }}
+                      className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                    >
+                      <ClipboardList size={13} className="text-slate-400" /> Packing slip
+                    </button>
+                    <button
+                      onClick={() => {
+                        close();
+                        void loadInventorySnapshot();
+                        setPrintDocType('combined');
+                      }}
+                      className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                    >
+                      <Scissors size={13} className="text-slate-400" /> Invoice + Slip
+                    </button>
+                    {detail.courierPartner && (
+                      <button
+                        onClick={() => {
+                          close();
+                          setLabelModalOpen(true);
+                        }}
+                        className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                      >
+                        <Tag size={13} className="text-slate-400" /> Courier label
+                      </button>
+                    )}
+                  </div>
+                )}
+              </Popover>
               {canCancel(detail.stage) && (
                 <ReasonNoteMenu
                   align="right"
@@ -496,6 +819,120 @@ export function OrderDetailDrawer({ order, store, onClose, onUpdated }: OrderDet
           </>
         )}
       </div>
+      <PartialDeliverModal
+        open={partialModalOpen}
+        order={detail}
+        onClose={() => setPartialModalOpen(false)}
+        onApplied={() => {
+          void refresh(order.id, { silent: true });
+          onUpdated();
+        }}
+      />
+      <PrintOrderModal open={printDocType !== null} onClose={() => setPrintDocType(null)} orders={detail ? [detail] : []} docType={printDocType ?? 'invoice'} binLookup={binLookup} />
+      <CourierLabelModal open={labelModalOpen} onClose={() => setLabelModalOpen(false)} orders={detail ? [detail] : []} />
+      <PackOrderModal
+        open={packModalOpen}
+        order={detail}
+        binLookup={binLookup}
+        busy={packBusy}
+        onClose={() => setPackModalOpen(false)}
+        onConfirm={async () => {
+          // Shipping without a courier assigned means it never gets handed off automatically — not
+          // wrong (self-delivery, in-store pickup, or an unconnected courier are all legitimate),
+          // but easy to do by accident, so it's a confirmation, not a hard block.
+          if (!detail?.courierPartner) {
+            setPackModalOpen(false);
+            setConfirmShipNoCourier(true);
+            return;
+          }
+          setPackBusy(true);
+          await apply({ stage: 'Shipped' });
+          setPackBusy(false);
+          setPackModalOpen(false);
+        }}
+      />
+      <Modal
+        open={confirmShipNoCourier}
+        onClose={() => setConfirmShipNoCourier(false)}
+        title="No courier selected"
+        subtitle="This order won't be handed off to a courier automatically without one."
+        widthClass="max-w-sm"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">
+            You can still mark it shipped and track it manually, or go back and pick a courier under the Courier section first.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setConfirmShipNoCourier(false)}
+              className="flex-1 rounded-lg border border-slate-200 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Go back
+            </button>
+            <button
+              onClick={async () => {
+                setConfirmShipNoCourier(false);
+                setPackBusy(true);
+                await apply({ stage: 'Shipped' });
+                setPackBusy(false);
+              }}
+              className="flex-1 rounded-lg bg-slate-900 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+            >
+              Ship anyway
+            </button>
+          </div>
+        </div>
+      </Modal>
+      <Modal open={priorityModalOpen} onClose={() => setPriorityModalOpen(false)} title="Mark as priority call" widthClass="max-w-sm">
+        <div className="space-y-3">
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-600">Why? (optional)</label>
+            <textarea
+              value={priorityNoteInput}
+              onChange={(e) => setPriorityNoteInput(e.target.value)}
+              rows={2}
+              placeholder="e.g. customer messaged on Facebook asking for a callback"
+              className="w-full resize-none rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-700 placeholder-slate-400 outline-none focus:border-indigo-400"
+            />
+          </div>
+          <button
+            onClick={() => {
+              void apply({ isPriorityCall: true, priorityNote: priorityNoteInput.trim() || null });
+              setPriorityModalOpen(false);
+            }}
+            className="w-full rounded-lg bg-orange-600 py-1.5 text-sm font-semibold text-white hover:bg-orange-700"
+          >
+            Mark priority
+          </button>
+        </div>
+      </Modal>
+      <Modal open={blockModalOpen} onClose={() => setBlockModalOpen(false)} title="Block this customer" widthClass="max-w-sm">
+        <div className="space-y-3">
+          <p className="text-sm text-slate-500">
+            Any future order synced from {detail?.customerPhone ?? 'this phone number'} will be automatically cancelled instead of entering your
+            normal workflow.
+          </p>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-600">Why? (optional)</label>
+            <textarea
+              value={blockNoteInput}
+              onChange={(e) => setBlockNoteInput(e.target.value)}
+              rows={2}
+              placeholder="e.g. repeated fake orders, abusive on the phone"
+              className="w-full resize-none rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-700 placeholder-slate-400 outline-none focus:border-indigo-400"
+            />
+          </div>
+          <button
+            onClick={() => {
+              void toggleBlock(true, blockNoteInput.trim() || null);
+              setBlockModalOpen(false);
+            }}
+            className="w-full rounded-lg bg-rose-600 py-1.5 text-sm font-semibold text-white hover:bg-rose-700"
+          >
+            Block customer
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 }

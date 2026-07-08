@@ -3,12 +3,14 @@ import jwt from 'jsonwebtoken';
 import { env } from '@zetsales/config/validateEnv';
 import { getDb } from '../utils/db.js';
 import { ObjectId } from 'mongodb';
+import type { TeamRole } from '@zetsales/shared';
 
 export interface AuthenticatedRequest extends Request {
   user?: {
     id: string;
     email: string;
     tenantId: string | null;
+    role: TeamRole | null;
   };
 }
 
@@ -47,10 +49,31 @@ export async function requireAuth(
       id: user._id.toString(),
       email: user.email,
       tenantId: user.tenantId || null,
+      role: (user.role as TeamRole | undefined) || null,
     };
 
     next();
   } catch (error) {
     res.status(401).json({ success: false, message: 'Unauthorized: Invalid token' });
   }
+}
+
+// Team/invite management is scoped to a business, which only exists once onboarding is
+// complete — this guards routes that need a real tenantId.
+export function requireTenant(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  if (!req.user?.tenantId) {
+    res.status(403).json({ success: false, message: 'Finish onboarding before managing your team.' });
+    return;
+  }
+  next();
+}
+
+export function requireRole(...roles: TeamRole[]) {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    if (!req.user?.role || !roles.includes(req.user.role)) {
+      res.status(403).json({ success: false, message: 'You do not have permission to do this.' });
+      return;
+    }
+    next();
+  };
 }

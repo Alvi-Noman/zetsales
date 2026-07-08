@@ -103,7 +103,7 @@ export function OnboardingPage() {
     setFinishing(true);
     try {
       await completeOnboarding({ businessName, businessType, phone, channels, monthlyOrders, teamSize: finalTeamSize });
-      navigate('/orders', { replace: true });
+      navigate('/home', { replace: true });
     } catch (err) {
       setFinishing(false);
       setError(err instanceof Error ? err.message : 'Could not finish onboarding.');

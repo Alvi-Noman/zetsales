@@ -1,4 +1,4 @@
-import { PhoneCall, Package, Truck, Navigation, PackageCheck, PackageX, RotateCcw } from 'lucide-react';
+import { PhoneCall, Package, Truck, Navigation, PackageCheck, RotateCcw } from 'lucide-react';
 import type { OrderStage } from '@zetsales/shared';
 
 // The "normal path" a COD order walks through, left to right, for the stepper visual. Exception
@@ -14,7 +14,10 @@ export interface StageAction {
 
 // The single "move it forward" action for each stage — what a seller would click next in a
 // normal COD flow. Hold/Cancel are separate, always-available side actions handled elsewhere.
-// Terminal stages (Delivered, Cancelled, Returned) have no forward action.
+// Terminal stages (Delivered, Cancelled, Returned) have no forward action. RTO Initiated and QC
+// Pending deliberately have no order-team action here — moving a package out of those two stages
+// is inventory's job (see the Inventory page's Returns queue), not order management's, and once a
+// courier integration is live those two transitions are driven automatically by webhook anyway.
 export const NEXT_ACTION: Partial<Record<OrderStage, StageAction>> = {
   Pending: { label: 'Confirm order', icon: PhoneCall, nextStage: 'Confirmed' },
   Flagged: { label: 'Clear flag & confirm', icon: PhoneCall, nextStage: 'Confirmed' },
@@ -24,9 +27,9 @@ export const NEXT_ACTION: Partial<Record<OrderStage, StageAction>> = {
   'Out for Delivery': { label: 'Mark delivered', icon: PackageCheck, nextStage: 'Delivered' },
 };
 
+// "Partial" isn't listed here — unlike the others, it can't be a single stage transition, since it
+// needs a real kept/returned split per line item first. See PartialDeliverModal + the dedicated
+// "Partial" button rendered alongside these in OrderDetailDrawer.
 export const SECONDARY_ACTIONS: Partial<Record<OrderStage, StageAction[]>> = {
-  'Out for Delivery': [
-    { label: 'Partial', icon: PackageX, nextStage: 'Partial Delivered' },
-    { label: 'Returned', icon: RotateCcw, nextStage: 'Returned' },
-  ],
+  'Out for Delivery': [{ label: 'Delivery failed', icon: RotateCcw, nextStage: 'RTO Initiated' }],
 };

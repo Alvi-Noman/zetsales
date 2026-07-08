@@ -23,8 +23,8 @@ const ENTITY_COPY: Record<'products' | 'orders', EntityCopy> = {
     subtitle: 'Bring your catalog into ZetSales.',
     steps: [
       'Connect to your store’s product catalog',
-      'Pull every product and variant (price, SKU, stock)',
-      'Match them into ZetSales so orders can reference real inventory',
+      'Pull every product and variant (title, image, price and SKU)',
+      'Match them into ZetSales so orders can reference the right catalog item',
     ],
     noun: 'products',
     connectingLabel: 'Connecting...',

@@ -133,8 +133,8 @@ export function TrendChart({ current, comparison, color, formatValue, formatDate
         </defs>
 
         {/* Value scale: gridlines + labels, always visible — this is the ruler's cm marks. */}
-        {ticks.map((t) => (
-          <g key={t}>
+        {ticks.map((t, i) => (
+          <g key={i}>
             <line x1={AXIS_WIDTH} y1={valueToY(t)} x2={TOTAL_WIDTH} y2={valueToY(t)} stroke="#f1f5f9" strokeWidth="1" />
             <text x={AXIS_WIDTH - 5} y={valueToY(t)} textAnchor="end" dominantBaseline="middle" fontSize="8" fill="#94a3b8">
               {formatValue(t)}

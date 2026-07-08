@@ -139,7 +139,7 @@ export function ConnectShopifyModal({ open, onClose, oauthEnabled, onConnected }
               </div>
               <p className="text-xs text-slate-400">
                 In that store's admin: Settings → Apps and sales channels → Develop apps → Build apps → create a custom app, set scopes
-                (read_products, read_orders, read_inventory, read_customers) → Install. Use the Client ID/Secret shown there — we handle
+                (read_products, write_products, read_orders, read_customers) → Install. Use the Client ID/Secret shown there — we handle
                 getting the actual access token, and refresh it automatically (it expires every 24h on Shopify's side).
               </p>
             </div>

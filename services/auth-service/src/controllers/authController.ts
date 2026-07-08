@@ -6,13 +6,13 @@ import { z } from 'zod';
 import { env } from '@zetsales/config/validateEnv';
 import { getDb } from '../utils/db.js';
 import type { AuthenticatedRequest } from '../middleware/authMiddleware.js';
-import type { UserDTO } from '@zetsales/shared';
+import type { TeamRole, UserDTO } from '@zetsales/shared';
 
-function signToken(id: string, email: string, tenantId: string | null) {
-  return jwt.sign({ id, email, tenantId }, env.JWT_SECRET, { expiresIn: '7d' });
+export function signToken(id: string, email: string, tenantId: string | null, role: TeamRole | null) {
+  return jwt.sign({ id, email, tenantId, role }, env.JWT_SECRET, { expiresIn: '7d' });
 }
 
-function setAuthCookie(res: Response, token: string) {
+export function setAuthCookie(res: Response, token: string) {
   res.cookie('token', token, {
     httpOnly: true,
     secure: env.NODE_ENV === 'production',
@@ -21,12 +21,13 @@ function setAuthCookie(res: Response, token: string) {
   });
 }
 
-async function toUserDto(user: {
+export async function toUserDto(user: {
   _id: ObjectId;
   email: string;
   isVerified?: boolean;
   tenantId?: string | null;
   isOnboarded?: boolean;
+  role?: TeamRole | null;
 }): Promise<UserDTO> {
   let businessName: string | null = null;
   if (user.tenantId) {
@@ -41,6 +42,7 @@ async function toUserDto(user: {
     tenantId: user.tenantId ?? null,
     isOnboarded: user.isOnboarded ?? false,
     businessName,
+    role: user.role ?? null,
   };
 }
 
@@ -73,10 +75,11 @@ export async function signup(req: Request, res: Response) {
       isVerified: true,
       tenantId: null,
       isOnboarded: false,
+      role: null,
       createdAt: new Date(),
     });
 
-    const token = signToken(result.insertedId.toString(), email.toLowerCase(), null);
+    const token = signToken(result.insertedId.toString(), email.toLowerCase(), null, null);
     setAuthCookie(res, token);
 
     const userDto: UserDTO = {
@@ -86,6 +89,7 @@ export async function signup(req: Request, res: Response) {
       tenantId: null,
       isOnboarded: false,
       businessName: null,
+      role: null,
     };
 
     res.status(201).json({ success: true, user: userDto, token });
@@ -116,7 +120,12 @@ export async function login(req: Request, res: Response) {
       return;
     }
 
-    const token = signToken(user._id.toString(), user.email, user.tenantId ? user.tenantId.toString() : null);
+    const token = signToken(
+      user._id.toString(),
+      user.email,
+      user.tenantId ? user.tenantId.toString() : null,
+      (user.role as TeamRole | undefined) || null
+    );
     setAuthCookie(res, token);
 
     const userDto = await toUserDto(user as any);
@@ -196,10 +205,10 @@ export async function completeOnboarding(req: AuthenticatedRequest, res: Respons
 
     await db.collection('users').updateOne(
       { _id: new ObjectId(authUser.id) },
-      { $set: { tenantId, isOnboarded: true, updatedAt: new Date() } }
+      { $set: { tenantId, isOnboarded: true, role: 'owner', updatedAt: new Date() } }
     );
 
-    const token = signToken(authUser.id, authUser.email, tenantId);
+    const token = signToken(authUser.id, authUser.email, tenantId, 'owner');
     setAuthCookie(res, token);
 
     const userDto: UserDTO = {
@@ -209,6 +218,7 @@ export async function completeOnboarding(req: AuthenticatedRequest, res: Respons
       tenantId,
       isOnboarded: true,
       businessName: payload.businessName,
+      role: 'owner',
     };
 
     res.status(200).json({ success: true, user: userDto, token });

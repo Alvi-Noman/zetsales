@@ -18,7 +18,7 @@ export function LoginPage() {
     setSubmitting(true);
     try {
       const user = await login(email, password);
-      navigate(user.isOnboarded ? '/orders' : '/onboarding', { replace: true });
+      navigate(user.isOnboarded ? '/home' : '/onboarding', { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not sign in.');
     } finally {

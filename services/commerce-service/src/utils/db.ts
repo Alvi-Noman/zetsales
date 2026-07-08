@@ -16,7 +16,32 @@ export async function connectDb() {
   await db.collection('products').createIndex({ tenantId: 1, storeId: 1, externalId: 1 }, { unique: true, sparse: true });
   await db.collection('orders').createIndex({ tenantId: 1, storeId: 1 });
   await db.collection('orders').createIndex({ tenantId: 1, storeId: 1, externalId: 1 }, { unique: true, sparse: true });
+  // Inventory is keyed by productId+variantId, not sku — confirmed against live data that most
+  // multi-variant products (664 of 666) have two or more variants sharing an identical SKU, so raw
+  // SKU can't be trusted as a unique key. sku is still stored and searched, just not unique.
+  // Drop indexes from earlier iterations of this schema rather than leaving them dangling.
+  await db.collection('inventoryLevels').dropIndex('tenantId_1_productId_1').catch(() => {});
+  await db.collection('inventoryLevels').dropIndex('tenantId_1_productId_1_warehouseId_1_bin_1').catch(() => {});
+  await db.collection('inventoryLevels').dropIndex('tenantId_1_sku_1').catch(() => {});
+  await db.collection('inventoryLevels').dropIndex('tenantId_1_sku_1_warehouseId_1_bin_1').catch(() => {});
+  await db.collection('inventoryLevels').createIndex({ tenantId: 1, productId: 1, variantId: 1 });
+  await db.collection('inventoryLevels').createIndex({ tenantId: 1, productId: 1, variantId: 1, warehouseId: 1, bin: 1 }, { unique: true });
+  await db.collection('inventoryLevels').createIndex({ tenantId: 1, sku: 1 });
+  await db.collection('inventoryMovements').createIndex({ tenantId: 1, createdAt: -1 });
+  await db.collection('inventoryMovements').createIndex({ tenantId: 1, variantId: 1 });
+  await db.collection('inventoryMovements').createIndex({ tenantId: 1, supplierId: 1 });
+  await db.collection('suppliers').createIndex({ tenantId: 1, name: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });
+  await db.collection('warehouses').createIndex({ tenantId: 1 });
+  await db.collection('inventorySettings').createIndex({ tenantId: 1 }, { unique: true });
+  await db.collection('expenses').createIndex({ tenantId: 1, date: -1 });
+  // The FIFO lookup allocateAgainstOpenShipments runs on every receive/write-off — one open
+  // shipment resolved oldest-first per exact product+variant+warehouse+bin.
+  await db.collection('shipments').createIndex({ tenantId: 1, productId: 1, variantId: 1, warehouseId: 1, bin: 1, status: 1, createdAt: 1 });
+  await db.collection('shipments').createIndex({ tenantId: 1, supplierId: 1, createdAt: -1 });
   await db.collection('woo_auth_sessions').createIndex({ createdAt: 1 }, { expireAfterSeconds: 60 * 30 });
+  await db.collection('analyticsLayouts').createIndex({ tenantId: 1, userId: 1 }, { unique: true });
+  await db.collection('courierSettlements').createIndex({ tenantId: 1, courierId: 1, settledAt: -1 });
+  await db.collection('courierHandovers').createIndex({ tenantId: 1, courierId: 1, handoverDate: -1 });
   logger.info('Indexes ensured on MongoDB.');
 }
 

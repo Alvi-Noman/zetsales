@@ -1,9 +1,14 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { ChevronDown, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import clsx from 'clsx';
+import { ROLE_DEFINITIONS, type ModuleKey } from '@zetsales/shared';
 import { NAV_ITEMS, NAV_FOOTER_ITEMS, type NavItem } from '../../nav/navigation';
 import { useAuth } from '../../context/AuthContext';
+
+// Settings/Home are account-level, not business-data modules, so every team member sees them
+// regardless of role — everything else follows the signed-in member's role permissions.
+const ALWAYS_VISIBLE_MODULES: ModuleKey[] = ['home', 'settings'];
 
 function NavRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
   const location = useLocation();
@@ -75,6 +80,13 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const { user } = useAuth();
 
+  // A missing role only happens for accounts created before team roles existed — fail open as
+  // owner rather than locking a pre-existing user out of their own workspace.
+  const allowedModules = useMemo(() => (user?.role ? ROLE_DEFINITIONS[user.role].modules : ROLE_DEFINITIONS.owner.modules), [user?.role]);
+  const isVisible = (item: NavItem) => ALWAYS_VISIBLE_MODULES.includes(item.module) || allowedModules.includes(item.module);
+  const visibleNavItems = NAV_ITEMS.filter(isVisible);
+  const visibleFooterItems = NAV_FOOTER_ITEMS.filter(isVisible);
+
   return (
     <aside
       className={clsx(
@@ -95,13 +107,13 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
-        {NAV_ITEMS.map((item) => (
+        {visibleNavItems.map((item) => (
           <NavRow key={item.path} item={item} collapsed={collapsed} />
         ))}
       </nav>
 
       <div className="border-t border-slate-200 px-3 py-3 space-y-0.5">
-        {NAV_FOOTER_ITEMS.map((item) => (
+        {visibleFooterItems.map((item) => (
           <NavRow key={item.path} item={item} collapsed={collapsed} />
         ))}
         <button

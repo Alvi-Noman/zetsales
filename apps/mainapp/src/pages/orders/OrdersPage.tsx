@@ -10,17 +10,23 @@ import {
   MessageCircle,
   Package,
   Phone,
+  PhoneCall,
   Plug,
   Plus,
   Search,
   Store as StoreIcon,
+  UserX,
 } from 'lucide-react';
 import clsx from 'clsx';
-import type { CancelReason, HoldReason, OrderDTO, OrderPaymentStatus, OrderStatsDTO, OrderTabKey, OrderTrendsDTO, StoreDTO } from '@zetsales/shared';
-import { bulkUpdateOrders, getOrderStats, getOrderTrends, listOrders, listStores } from '../../lib/commerceApi';
+import type { CancelReason, CourierAccountDTO, HoldReason, OrderDTO, OrderPaymentStatus, OrderStatsDTO, OrderTabKey, OrderTrendsDTO, StoreDTO } from '@zetsales/shared';
+import { blockCustomer, bulkUpdateOrders, getOrderStats, getOrderTrends, listCouriers, listInventory, listOrders, listStores, unblockCustomer } from '../../lib/commerceApi';
 import { OrderDetailDrawer } from '../../components/orders/OrderDetailDrawer';
+import { PrintOrderModal, type PrintDocType } from '../../components/orders/PrintOrderModal';
+import { CourierLabelModal } from '../../components/orders/CourierLabelModal';
+import { buildBinLookup, type BinLookup } from '../../components/orders/binLookup';
 import { ShopifyLogo, WooCommerceLogo } from '../../components/orders/platformLogos';
 import { STAGE_TONE, PAYMENT_METHOD_SHORT } from '../../components/orders/orderTone';
+import { holdReasonsForMany } from '../../components/orders/reasons';
 import { ImportOrdersModal } from '../../components/integrations/ImportOrdersModal';
 import { StatsRow } from '../../components/orders/StatsRow';
 import { ORDER_TABS } from '../../components/orders/tabs';
@@ -30,8 +36,10 @@ import { MoreFiltersMenu, EMPTY_ADVANCED_FILTERS, activeAdvancedFilterCount, typ
 import { ExportOrdersModal, type ExportScope, type ExportFormat } from '../../components/orders/ExportOrdersModal';
 import { BulkActionBar } from '../../components/orders/BulkActionBar';
 import { FastTrackBanner } from '../../components/orders/FastTrackBanner';
+import { PriorityCallsBanner } from '../../components/orders/PriorityCallsBanner';
 import { CommandPalette } from '../../components/orders/CommandPalette';
 import { RowActionsMenu } from '../../components/orders/RowActionsMenu';
+import { OrderProductsCell } from '../../components/orders/OrderProductsCell';
 import { Pagination } from '../../components/orders/Pagination';
 import { Popover } from '../../components/ui/Popover';
 import { getRangeBounds, type CustomDateRange, type DateRangeKey } from '../../components/orders/dateRange';
@@ -58,7 +66,7 @@ const SORT_OPTIONS: { label: string; key: SortKey; dir: 'asc' | 'desc' }[] = [
 ];
 
 function defaultSortForTab(tab: OrderTabKey): { key: SortKey; dir: 'asc' | 'desc' } {
-  return { key: 'date', dir: tab === 'pending' || tab === 'hold' ? 'asc' : 'desc' };
+  return { key: 'date', dir: tab === 'pending' || tab === 'hold' || tab === 'priority' ? 'asc' : 'desc' };
 }
 
 function TableSkeleton() {
@@ -80,6 +88,7 @@ export function OrdersPage() {
   const [pageSize, setPageSize] = useState(25);
   const [stores, setStores] = useState<StoreDTO[]>([]);
   const [storesLoading, setStoresLoading] = useState(true);
+  const [couriers, setCouriers] = useState<CourierAccountDTO[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(true);
   const [stats, setStats] = useState<OrderStatsDTO | null>(null);
   const [trends, setTrends] = useState<OrderTrendsDTO | null>(null);
@@ -102,6 +111,9 @@ export function OrdersPage() {
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [printDocType, setPrintDocType] = useState<PrintDocType | null>(null);
+  const [labelModalOpen, setLabelModalOpen] = useState(false);
+  const [binLookup, setBinLookup] = useState<BinLookup | undefined>(undefined);
   const searchRef = useRef<HTMLInputElement>(null);
   const knownTabCountRef = useRef<number | null>(null);
 
@@ -113,6 +125,15 @@ export function OrdersPage() {
       toast.push('Could not load stores.', 'info');
     } finally {
       setStoresLoading(false);
+    }
+  };
+
+  const loadCouriers = async () => {
+    try {
+      const { couriers: list } = await listCouriers();
+      setCouriers(list);
+    } catch {
+      // Non-fatal — the courier dropdown just falls back to showing no connected options.
     }
   };
 
@@ -181,6 +202,7 @@ export function OrdersPage() {
 
   useEffect(() => {
     void loadStores();
+    void loadCouriers();
     void loadStats();
     void loadTrends();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -302,6 +324,20 @@ export function OrdersPage() {
     }
   };
 
+  // Block/unblock aren't part of the order patch schema — blocking is a customer-level fact (by
+  // phone), not a field on this one order — so they go through their own dedicated endpoints rather
+  // than runBulk/bulkUpdateOrders.
+  const handleToggleBlock = async (order: OrderDTO, next: boolean) => {
+    try {
+      if (next) await blockCustomer(order.id, null);
+      else await unblockCustomer(order.id);
+      refreshAll();
+      toast.push(next ? 'Customer blocked — their future orders will be auto-cancelled.' : 'Customer unblocked.', 'success');
+    } catch {
+      toast.push('Could not update block status.', 'info');
+    }
+  };
+
   const downloadCsv = (ordersToExport: OrderDTO[], format: ExportFormat) => {
     const headers = ['Order ID', 'Customer', 'Phone', 'Product', 'Amount', 'Currency', 'Stage', 'Payment Method', 'Payment Status', 'Placed'];
     const rows = ordersToExport.map((o) => [
@@ -375,6 +411,19 @@ export function OrdersPage() {
     }
   };
 
+  // Bin lookup for bulk packing slips — fetched lazily since most bulk actions never need it.
+  // Resolved per-order against each order's own fulfillmentWarehouseId (see binLookup.ts).
+  const loadBinLookup = async () => {
+    try {
+      const res = await listInventory();
+      setBinLookup(buildBinLookup(res.levels));
+    } catch {
+      // Bin numbers are a nice-to-have on the packing slip; staff can still work without them.
+    }
+  };
+
+  const selectedOrders = orders.filter((o) => selected.has(o.id));
+
   const copyOrderId = (order: OrderDTO, e: MouseEvent) => {
     e.stopPropagation();
     navigator.clipboard.writeText(order.number);
@@ -410,8 +459,8 @@ export function OrdersPage() {
   };
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-slate-200 bg-white px-8 py-5">
+    <div className="flex min-h-full flex-col">
+      <div className="flex flex-wrap items-center justify-between gap-y-3 border-b border-slate-200 bg-white px-4 py-4 lg:px-8 lg:py-5">
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-bold text-slate-900">Orders</h1>
@@ -421,7 +470,7 @@ export function OrdersPage() {
           </div>
           <p className="mt-1 text-sm text-slate-500">Track, manage and fulfill all your COD orders in one place.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setExportModalOpen(true)}
             className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
@@ -545,6 +594,10 @@ export function OrdersPage() {
                 </div>
               </div>
 
+              {tab !== 'priority' && (
+                <PriorityCallsBanner count={stats?.tabCounts.priority ?? 0} onView={() => handleTabChange('priority')} />
+              )}
+
               {newOrdersCount > 0 && (
                 <button
                   onClick={refreshAll}
@@ -556,7 +609,7 @@ export function OrdersPage() {
 
               <FastTrackBanner count={fastTrackIds.length} loading={bulkBusy} onConfirmAll={() => void runBulk(fastTrackIds, { stage: 'Confirmed' })} />
 
-              <div className={clsx('transition-opacity', ordersLoading && 'opacity-50')}>
+              <div className={clsx('overflow-x-auto transition-opacity', ordersLoading && 'opacity-50')}>
                 {ordersLoading && orders.length === 0 ? (
                   <TableSkeleton />
                 ) : (
@@ -587,7 +640,6 @@ export function OrdersPage() {
                         const store = storeById.get(order.storeId);
                         const meta = store ? PLATFORM_META[store.platform] : null;
                         const isSelected = selected.has(order.id);
-                        const firstItem = order.lineItems[0];
                         const urgency =
                           order.stage === 'Pending' || order.stage === 'Flagged' ? pendingUrgency(ageMinutes(order.createdAt)) : 'normal';
                         return (
@@ -606,6 +658,16 @@ export function OrdersPage() {
                             </td>
                             <td className="px-3 py-3 font-medium text-slate-800 whitespace-nowrap">
                               <div className="flex items-center gap-1.5">
+                                {order.isPriorityCall && (
+                                  <span title={order.priorityNote ?? 'Marked as priority call'} className="text-orange-500">
+                                    <PhoneCall size={13} />
+                                  </span>
+                                )}
+                                {order.isCustomerBlocked && (
+                                  <span title="This customer is blocked" className="text-rose-500">
+                                    <UserX size={13} />
+                                  </span>
+                                )}
                                 {order.number}
                                 <button onClick={(e) => copyOrderId(order, e)} title="Copy order ID" className="text-slate-300 hover:text-slate-500">
                                   {copiedOrderId === order.id ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
@@ -616,23 +678,8 @@ export function OrdersPage() {
                               <p className="font-medium text-slate-700">{order.customerName || 'No name'}</p>
                               {order.customerPhone && <p className="text-xs text-slate-400">{order.customerPhone}</p>}
                             </td>
-                            <td className="px-3 py-3 whitespace-nowrap">
-                              <div className="flex items-center gap-2.5">
-                                <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-100">
-                                  {firstItem?.image ? (
-                                    <img src={firstItem.image} alt="" className="h-full w-full object-cover" />
-                                  ) : (
-                                    <Package size={15} className="text-slate-400" />
-                                  )}
-                                </div>
-                                <div className="min-w-0">
-                                  <p className="max-w-[190px] truncate font-medium text-slate-700">{firstItem?.title ?? 'No product'}</p>
-                                  <p className="text-xs text-slate-400">
-                                    {firstItem?.variant ?? (firstItem ? `Qty ${firstItem.quantity}` : '')}
-                                    {order.lineItems.length > 1 ? ` · +${order.lineItems.length - 1} more` : ''}
-                                  </p>
-                                </div>
-                              </div>
+                            <td className="px-3 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                              <OrderProductsCell lineItems={order.lineItems} currency={order.currency} />
                             </td>
                             <td className="px-3 py-3 whitespace-nowrap">
                               {meta && store && (
@@ -689,6 +736,14 @@ export function OrdersPage() {
                                 onCancel={(reason: CancelReason) =>
                                   void runBulk([order.id], { stage: 'Cancelled', cancelReason: reason, note: null }, { stage: order.stage })
                                 }
+                                onTogglePriority={(next) =>
+                                  void runBulk(
+                                    [order.id],
+                                    { isPriorityCall: next, priorityNote: null },
+                                    { isPriorityCall: order.isPriorityCall, priorityNote: order.priorityNote }
+                                  )
+                                }
+                                onToggleBlock={(next) => void handleToggleBlock(order, next)}
                               />
                             </td>
                           </tr>
@@ -723,8 +778,19 @@ export function OrdersPage() {
         busy={bulkBusy}
         onClear={() => setSelected(new Set())}
         onConfirm={() => void runBulk([...selected], { stage: 'Confirmed' })}
-        onHold={(reason, note) => void runBulk([...selected], { stage: 'On Hold', holdReason: reason as HoldReason, note: note || null })}
+        onHold={(reason, note, rescheduledFor) => void runBulk([...selected], { stage: 'On Hold', holdReason: reason as HoldReason, note: note || null, rescheduledFor })}
         onCancel={(reason, note) => void runBulk([...selected], { stage: 'Cancelled', cancelReason: reason as CancelReason, note: note || null })}
+        holdReasons={holdReasonsForMany(selectedOrders.map((o) => o.stage))}
+        onPrintInvoices={() => setPrintDocType('invoice')}
+        onPrintPackingSlips={() => {
+          void loadBinLookup();
+          setPrintDocType('packingSlip');
+        }}
+        onPrintCombined={() => {
+          void loadBinLookup();
+          setPrintDocType('combined');
+        }}
+        onPrintLabels={() => setLabelModalOpen(true)}
       />
 
       <CommandPalette
@@ -738,7 +804,15 @@ export function OrdersPage() {
         onBulkConfirmSelected={() => void runBulk([...selected], { stage: 'Confirmed' })}
       />
 
-      <OrderDetailDrawer order={activeOrder} store={activeOrder ? storeById.get(activeOrder.storeId) ?? null : null} onClose={() => setActiveOrder(null)} onUpdated={refreshAll} />
+      <OrderDetailDrawer
+        order={activeOrder}
+        store={activeOrder ? storeById.get(activeOrder.storeId) ?? null : null}
+        couriers={couriers}
+        onClose={() => setActiveOrder(null)}
+        onUpdated={refreshAll}
+      />
+      <PrintOrderModal open={printDocType !== null} onClose={() => setPrintDocType(null)} orders={selectedOrders} docType={printDocType ?? 'invoice'} binLookup={binLookup} />
+      <CourierLabelModal open={labelModalOpen} onClose={() => setLabelModalOpen(false)} orders={selectedOrders} />
       <ImportOrdersModal store={importTarget} onClose={() => setImportTarget(null)} onImported={handleImported} />
       <ExportOrdersModal
         open={exportModalOpen}

@@ -40,12 +40,49 @@ services:
       SHOPIFY_CLIENT_SECRET: ${SHOPIFY_CLIENT_SECRET:-}
       SHOPIFY_WEBHOOK_SECRET: ${SHOPIFY_WEBHOOK_SECRET:-dev-shopify-webhook-secret}
       WOOCOMMERCE_WEBHOOK_SECRET: ${WOOCOMMERCE_WEBHOOK_SECRET:-dev-woocommerce-webhook-secret}
+      PATHAO_SANDBOX: ${PATHAO_SANDBOX:-true}
+      META_APP_ID: ${META_APP_ID:-}
+      META_APP_SECRET: ${META_APP_SECRET:-}
+      TIKTOK_APP_ID: ${TIKTOK_APP_ID:-}
+      TIKTOK_APP_SECRET: ${TIKTOK_APP_SECRET:-}
+      GOOGLE_ADS_CLIENT_ID: ${GOOGLE_ADS_CLIENT_ID:-}
+      GOOGLE_ADS_CLIENT_SECRET: ${GOOGLE_ADS_CLIENT_SECRET:-}
+      GOOGLE_ADS_DEVELOPER_TOKEN: ${GOOGLE_ADS_DEVELOPER_TOKEN:-}
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:3000}
       PUBLIC_COMMERCE_URL: ${PUBLIC_COMMERCE_URL:-http://localhost:8081/api/v1/commerce}
       CORS_ORIGIN: http://localhost:3000,http://localhost:8081,http://127.0.0.1:3000
+      UPLOAD_DIR: /app/uploads
     working_dir: /app/services/commerce-service
     ports:
       - "3012:3002"
+    volumes:
+      - commerce_uploads:/app/uploads
+    depends_on:
+      - mongo
+    restart: unless-stopped
+
+  messaging-service:
+    build:
+      context: .
+      dockerfile: services/messaging-service/Dockerfile
+    environment:
+      NODE_ENV: development
+      PORT: "3003"
+      MONGODB_URI: mongodb://mongo:27017/zetsales
+      JWT_SECRET: ${JWT_SECRET:-super-secret-key-change-me}
+      MESSAGING_CREDENTIALS_SECRET: ${MESSAGING_CREDENTIALS_SECRET:-dev-messaging-credentials-secret-change-me}
+      META_APP_ID: ${META_APP_ID:-}
+      META_APP_SECRET: ${META_APP_SECRET:-}
+      META_WEBHOOK_VERIFY_TOKEN: ${META_WEBHOOK_VERIFY_TOKEN:-dev-meta-webhook-verify-token}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:3000}
+      PUBLIC_MESSAGING_URL: ${PUBLIC_MESSAGING_URL:-http://localhost:8081/api/v1/messaging}
+      CORS_ORIGIN: http://localhost:3000,http://localhost:8081,http://127.0.0.1:3000
+      MESSAGING_UPLOAD_DIR: /app/uploads
+    working_dir: /app/services/messaging-service
+    ports:
+      - "3013:3003"
+    volumes:
+      - messaging_uploads:/app/uploads
     depends_on:
       - mongo
     restart: unless-stopped
@@ -59,12 +96,14 @@ services:
       PORT: "8080"
       AUTH_SERVICE_URL: http://auth-service:3001
       COMMERCE_SERVICE_URL: http://commerce-service:3002
+      MESSAGING_SERVICE_URL: http://messaging-service:3003
       CORS_ORIGIN: http://localhost:3000,http://127.0.0.1:3000
     ports:
       - "8081:8080"
     depends_on:
       - auth-service
       - commerce-service
+      - messaging-service
     restart: unless-stopped
 
   mainapp:
@@ -74,6 +113,7 @@ services:
     environment:
       NODE_ENV: development
       PORT: "3000"
+      API_GATEWAY_URL: http://api-gateway:8080
     working_dir: /app/apps/mainapp
     ports:
       - "3000:3000"
@@ -83,3 +123,5 @@ services:
 
 volumes:
   mongo_data:
+  commerce_uploads:
+  messaging_uploads:

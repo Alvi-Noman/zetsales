@@ -1,14 +1,32 @@
 import type { ChangeEvent } from 'react';
+import type { ProductOptionDTO } from '@zetsales/shared';
+import { ImageGalleryUpload } from './ImageGalleryUpload';
+import { OptionsBuilder } from './OptionsBuilder';
+import { VariantTable, type VariantFormRow } from './VariantTable';
 
 export interface ProductFormState {
   title: string;
-  image: string;
-  price: string;
-  sku: string;
-  inventory: string;
+  description: string;
+  category: string;
+  images: string[];
+  options: ProductOptionDTO[];
+  variants: VariantFormRow[];
 }
 
-export const EMPTY_PRODUCT_FORM: ProductFormState = { title: '', image: '', price: '', sku: '', inventory: '' };
+const EMPTY_VARIANT: VariantFormRow = { sku: '', price: '', compareAtPrice: '', optionValues: [], continueSellingWhenOutOfStock: true, title: '' };
+
+export const EMPTY_PRODUCT_FORM: ProductFormState = {
+  title: '',
+  description: '',
+  category: '',
+  images: [],
+  options: [],
+  variants: [EMPTY_VARIANT],
+};
+
+function cartesianProduct(arrays: string[][]): string[][] {
+  return arrays.reduce<string[][]>((acc, curr) => acc.flatMap((combo) => curr.map((value) => [...combo, value])), [[]]);
+}
 
 interface ProductFormFieldsProps {
   value: ProductFormState;
@@ -16,64 +34,57 @@ interface ProductFormFieldsProps {
 }
 
 export function ProductFormFields({ value, onChange }: ProductFormFieldsProps) {
-  const set = (key: keyof ProductFormState) => (e: ChangeEvent<HTMLInputElement>) => onChange({ ...value, [key]: e.target.value });
+  const setText = (key: 'title' | 'description' | 'category') => (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+    onChange({ ...value, [key]: e.target.value });
+
+  // Regenerates the variant matrix whenever options change, preserving price/SKU for combinations
+  // that still exist (matched by their option-value tuple) so editing one option's values doesn't
+  // wipe data already entered for the combinations that survive.
+  const handleOptionsChange = (options: ProductOptionDTO[]) => {
+    const combos = options.length > 0 && options.every((o) => o.values.length > 0) ? cartesianProduct(options.map((o) => o.values)) : [];
+    const existingByKey = new Map(value.variants.map((v) => [v.optionValues.join('|'), v]));
+    const variants = combos.length > 0 ? combos.map((combo) => existingByKey.get(combo.join('|')) ?? { ...EMPTY_VARIANT, optionValues: combo }) : [value.variants[0] ?? EMPTY_VARIANT];
+    onChange({ ...value, options, variants });
+  };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div>
         <label className="mb-1.5 block text-xs font-semibold text-slate-600">Product title</label>
         <input
           value={value.title}
-          onChange={set('title')}
+          onChange={setText('title')}
           placeholder="e.g. 18K Gold Plated Necklace"
           className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15"
         />
       </div>
 
       <div>
-        <label className="mb-1.5 block text-xs font-semibold text-slate-600">Image URL</label>
-        <input
-          value={value.image}
-          onChange={set('image')}
-          placeholder="https://..."
+        <label className="mb-1.5 block text-xs font-semibold text-slate-600">Description</label>
+        <textarea
+          value={value.description}
+          onChange={setText('description')}
+          rows={3}
+          placeholder="Optional"
           className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15"
         />
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
-        <div>
-          <label className="mb-1.5 block text-xs font-semibold text-slate-600">Price (৳)</label>
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            value={value.price}
-            onChange={set('price')}
-            placeholder="0.00"
-            className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15"
-          />
-        </div>
-        <div>
-          <label className="mb-1.5 block text-xs font-semibold text-slate-600">SKU</label>
-          <input
-            value={value.sku}
-            onChange={set('sku')}
-            placeholder="Optional"
-            className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15"
-          />
-        </div>
-        <div>
-          <label className="mb-1.5 block text-xs font-semibold text-slate-600">Stock</label>
-          <input
-            type="number"
-            min="0"
-            value={value.inventory}
-            onChange={set('inventory')}
-            placeholder="0"
-            className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15"
-          />
-        </div>
+      <div>
+        <label className="mb-1.5 block text-xs font-semibold text-slate-600">Category</label>
+        <input
+          value={value.category}
+          onChange={setText('category')}
+          placeholder="Optional, e.g. Jewelry"
+          className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15"
+        />
       </div>
+
+      <ImageGalleryUpload images={value.images} onChange={(images) => onChange({ ...value, images })} />
+
+      <OptionsBuilder options={value.options} onChange={handleOptionsChange} />
+
+      <VariantTable options={value.options} variants={value.variants} onChange={(variants) => onChange({ ...value, variants })} />
     </div>
   );
 }

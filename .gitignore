@@ -5,6 +5,7 @@ node_modules/
 dist/
 build/
 .turbo/
+services/commerce-service/uploads/
 .env
 .env.*
 .env*.local

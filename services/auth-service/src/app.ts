@@ -5,6 +5,7 @@ import morgan from 'morgan';
 import cors from 'cors';
 
 import authRoutes from './routes/authRoutes.js';
+import teamRoutes from './routes/teamRoutes.js';
 import logger from './utils/logger.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -84,6 +85,7 @@ app.use('/api/v1', apiLimiter);
 
 // Mount routes
 app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/auth/team', teamRoutes);
 
 if (!isProd) {
   app.use('/api/v1', (req: Request, res: Response) => {

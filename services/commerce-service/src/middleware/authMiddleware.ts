@@ -1,12 +1,14 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { env } from '@zetsales/config/validateEnv';
+import { ROLE_DEFINITIONS, type ModuleKey, type TeamRole } from '@zetsales/shared';
 
 export interface AuthenticatedRequest extends Request {
   user?: {
     id: string;
     email: string;
     tenantId: string | null;
+    role: TeamRole | null;
   };
 }
 
@@ -21,8 +23,13 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
       return;
     }
 
-    const payload = jwt.verify(token, env.JWT_SECRET) as { id: string; email: string; tenantId: string | null };
-    req.user = { id: payload.id, email: payload.email, tenantId: payload.tenantId ?? null };
+    const payload = jwt.verify(token, env.JWT_SECRET) as {
+      id: string;
+      email: string;
+      tenantId: string | null;
+      role?: TeamRole | null;
+    };
+    req.user = { id: payload.id, email: payload.email, tenantId: payload.tenantId ?? null, role: payload.role ?? null };
     next();
   } catch {
     res.status(401).json({ success: false, message: 'Unauthorized: Invalid token' });
@@ -37,4 +44,22 @@ export function requireTenant(req: AuthenticatedRequest, res: Response, next: Ne
     return;
   }
   next();
+}
+
+// Gates a route behind a sidebar module the team member's role must include; a null/legacy role
+// (accounts created before roles existed) fails open as owner-equivalent access.
+export function requireModule(module: ModuleKey) {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    const role = req.user?.role;
+    const definition = role ? ROLE_DEFINITIONS[role] : ROLE_DEFINITIONS.owner;
+    if (!definition.modules.includes(module)) {
+      res.status(403).json({ success: false, message: 'You do not have access to this section.' });
+      return;
+    }
+    if (req.method !== 'GET' && !definition.canWrite) {
+      res.status(403).json({ success: false, message: 'Your role has read-only access.' });
+      return;
+    }
+    next();
+  };
 }

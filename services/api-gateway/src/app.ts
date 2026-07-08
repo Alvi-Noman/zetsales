@@ -50,8 +50,10 @@ app.options('*', cors(corsOptions));
 // Proxy Targets
 const AUTH_TARGET = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
 const COMMERCE_TARGET = process.env.COMMERCE_SERVICE_URL || 'http://localhost:3002';
+const MESSAGING_TARGET = process.env.MESSAGING_SERVICE_URL || 'http://localhost:3003';
 logger.info(`[GATEWAY] AUTH_SERVICE_URL=${AUTH_TARGET}`);
 logger.info(`[GATEWAY] COMMERCE_SERVICE_URL=${COMMERCE_TARGET}`);
+logger.info(`[GATEWAY] MESSAGING_SERVICE_URL=${MESSAGING_TARGET}`);
 
 function makeProxy(target: string, label: string, reserializeJson: boolean) {
   return createProxyMiddleware({
@@ -98,15 +100,17 @@ function makeProxy(target: string, label: string, reserializeJson: boolean) {
   });
 }
 
-// Webhook routes are signed over the exact raw bytes the platform sent (Shopify/WooCommerce
+// Webhook routes are signed over the exact raw bytes the platform sent (Shopify/WooCommerce/Meta
 // HMAC verification) — this must be registered *before* express.json() below so the request
-// body streams straight through to commerce-service unparsed and unmodified.
+// body streams straight through to the downstream service unparsed and unmodified.
 app.use('/api/v1/commerce/webhooks', makeProxy(COMMERCE_TARGET, 'commerce-service-webhooks', false));
+app.use('/api/v1/messaging/webhooks', makeProxy(MESSAGING_TARGET, 'messaging-service-webhooks', false));
 
 app.use(express.json({ limit: '2mb' }));
 
 app.use('/api/v1/auth', makeProxy(AUTH_TARGET, 'auth-service', true));
 app.use('/api/v1/commerce', makeProxy(COMMERCE_TARGET, 'commerce-service', true));
+app.use('/api/v1/messaging', makeProxy(MESSAGING_TARGET, 'messaging-service', true));
 
 // 404 Tracer for unknown routes
 if (process.env.NODE_ENV !== 'production') {

@@ -1,10 +1,12 @@
 import type { Response } from 'express';
 import { ObjectId } from 'mongodb';
 import { z } from 'zod';
+import axios from 'axios';
 import jwt from 'jsonwebtoken';
 import { env } from '@zetsales/config/validateEnv';
 import { getDb } from '../utils/db.js';
 import { encryptSecret, decryptSecret } from '../utils/crypto.js';
+import logger from '../utils/logger.js';
 import type { AuthenticatedRequest } from '../middleware/authMiddleware.js';
 import type { StoreDTO } from '@zetsales/shared';
 import {
@@ -13,10 +15,29 @@ import {
   buildShopifyOAuthUrl,
   exchangeShopifyCode,
   exchangeShopifyClientCredentials,
+  registerShopifyWebhook,
 } from '../integrations/shopifyClient.js';
 import { normalizeSiteUrl, verifyWooKeys, buildWooAuthUrl } from '../integrations/wooClient.js';
 
 const APP_NAME = 'ZetSales';
+
+// Best-effort: registers the product webhooks that let newly added/edited products flow in
+// automatically after the initial import. Never blocks store connection on failure (e.g. a
+// localhost PUBLIC_COMMERCE_URL that Shopify can't reach) — the merchant can still import
+// manually, they just won't get live updates until this succeeds on a reachable address.
+async function registerShopifyProductWebhooks(shopDomain: string, accessToken: string, storeId: string) {
+  const base = process.env.PUBLIC_COMMERCE_URL || 'http://localhost:8081/api/v1/commerce';
+  const address = `${base}/webhooks/shopify/${storeId}/products`;
+  try {
+    await Promise.all([
+      registerShopifyWebhook(shopDomain, accessToken, 'products/create', address),
+      registerShopifyWebhook(shopDomain, accessToken, 'products/update', address),
+      registerShopifyWebhook(shopDomain, accessToken, 'products/delete', `${address}/delete`),
+    ]);
+  } catch (err) {
+    logger.warn(`[shopify] Could not register product webhooks for ${shopDomain}: ${(err as Error).message}`);
+  }
+}
 
 function toStoreDto(doc: any, orderCount = 0): StoreDTO {
   return {
@@ -52,6 +73,9 @@ export async function capabilities(_req: AuthenticatedRequest, res: Response) {
   res.json({
     success: true,
     shopifyOAuthEnabled: Boolean(process.env.SHOPIFY_CLIENT_ID && process.env.SHOPIFY_CLIENT_SECRET),
+    metaAdsOAuthEnabled: Boolean(process.env.META_APP_ID && process.env.META_APP_SECRET),
+    tiktokAdsOAuthEnabled: Boolean(process.env.TIKTOK_APP_ID && process.env.TIKTOK_APP_SECRET),
+    googleAdsOAuthEnabled: Boolean(process.env.GOOGLE_ADS_CLIENT_ID && process.env.GOOGLE_ADS_CLIENT_SECRET && process.env.GOOGLE_ADS_DEVELOPER_TOKEN),
   });
 }
 
@@ -135,8 +159,15 @@ export async function connectShopifyToken(req: AuthenticatedRequest, res: Respon
       { upsert: true, returnDocument: 'after' }
     );
 
+    await registerShopifyProductWebhooks(shopDomain, accessToken, result!._id.toString());
+
     res.json({ success: true, store: toStoreDto(result) });
   } catch (err) {
+    if (axios.isAxiosError(err)) {
+      console.error('[shopify connect] request failed:', err.response?.status, err.response?.data, err.config?.url);
+    } else {
+      console.error('[shopify connect] request failed:', err);
+    }
     res.status(400).json({ success: false, message: 'Could not verify this Shopify store. Check the domain and credentials.' });
   }
 }
@@ -181,7 +212,7 @@ export async function shopifyOAuthCallback(req: AuthenticatedRequest, res: Respo
 
     const db = getDb();
     const now = new Date();
-    await db.collection('stores').findOneAndUpdate(
+    const result = await db.collection('stores').findOneAndUpdate(
       { tenantId: decoded.tenantId, platform: 'shopify', shopDomain },
       {
         $set: {
@@ -193,8 +224,10 @@ export async function shopifyOAuthCallback(req: AuthenticatedRequest, res: Respo
         },
         $setOnInsert: { tenantId: decoded.tenantId, platform: 'shopify', shopDomain, productCount: 0, lastSyncedAt: null, createdAt: now },
       },
-      { upsert: true }
+      { upsert: true, returnDocument: 'after' }
     );
+
+    await registerShopifyProductWebhooks(shopDomain, accessToken, result!._id.toString());
 
     res.redirect(`${process.env.PUBLIC_APP_URL || 'http://localhost:3000'}/integrations?connected=shopify`);
   } catch (err) {

@@ -12,6 +12,9 @@ export async function connectDb() {
   
   // Ensure basic user index on email
   await db.collection('users').createIndex({ email: 1 }, { unique: true });
+  await db.collection('users').createIndex({ tenantId: 1 });
+  await db.collection('teamInvites').createIndex({ token: 1 }, { unique: true });
+  await db.collection('teamInvites').createIndex({ tenantId: 1, email: 1 });
   logger.info('Indexes ensured on MongoDB.');
 }
 

@@ -45,7 +45,7 @@ export function AddProductPage() {
     });
   };
 
-  const canSubmit = form.title.trim().length > 0 && form.price.trim().length > 0 && selected.size > 0 && !submitting;
+  const canSubmit = form.title.trim().length > 0 && form.variants.length > 0 && form.variants.every((v) => v.price.trim().length > 0) && selected.size > 0 && !submitting;
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
@@ -53,10 +53,17 @@ export function AddProductPage() {
     try {
       const res = await createProduct({
         title: form.title.trim(),
-        image: form.image.trim() || undefined,
-        price: Number(form.price),
-        sku: form.sku.trim() || undefined,
-        inventory: form.inventory.trim() ? Number(form.inventory) : undefined,
+        description: form.description.trim() || undefined,
+        category: form.category.trim() || undefined,
+        images: form.images,
+        options: form.options,
+        variants: form.variants.map((v) => ({
+          sku: v.sku.trim() || undefined,
+          price: Number(v.price) || 0,
+          compareAtPrice: v.compareAtPrice.trim() ? Number(v.compareAtPrice) : undefined,
+          optionValues: v.optionValues,
+          continueSellingWhenOutOfStock: v.continueSellingWhenOutOfStock,
+        })),
         storeIds: [...selected],
       });
       const firstSuccess = res.results.find((r) => r.success && r.productId);
@@ -87,7 +94,7 @@ export function AddProductPage() {
         </div>
       </div>
 
-      <div className="mx-auto w-full max-w-xl px-8 py-6">
+      <div className="mx-auto w-full max-w-3xl px-8 py-6">
         {loading ? (
           <div className="py-16 text-center text-sm text-slate-400">Loading...</div>
         ) : stores.length === 0 ? (

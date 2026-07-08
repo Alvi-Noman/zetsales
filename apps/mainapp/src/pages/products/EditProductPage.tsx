@@ -22,7 +22,6 @@ export function EditProductPage() {
   const [initialForm, setInitialForm] = useState<ProductFormState>(EMPTY_PRODUCT_FORM);
   const [ownStore, setOwnStore] = useState<ProductStoreRef | null>(null);
   const [siblings, setSiblings] = useState<ProductStoreRef[]>([]);
-  const [variantCount, setVariantCount] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState<ProductPushResultDTO[] | null>(null);
 
@@ -32,17 +31,23 @@ export function EditProductPage() {
       try {
         const res = await getProduct(id);
         const p = res.product;
-        const firstVariant = p.variants[0];
         const loaded: ProductFormState = {
           title: p.title,
-          image: p.image ?? '',
-          price: firstVariant ? String(firstVariant.price) : '',
-          sku: firstVariant?.sku ?? '',
-          inventory: firstVariant?.inventory != null ? String(firstVariant.inventory) : '',
+          description: p.description ?? '',
+          category: p.category ?? '',
+          images: p.images,
+          options: p.options,
+          variants: p.variants.map((v) => ({
+            sku: v.sku ?? '',
+            price: String(v.price),
+            compareAtPrice: v.compareAtPrice != null ? String(v.compareAtPrice) : '',
+            optionValues: v.optionValues,
+            continueSellingWhenOutOfStock: v.continueSellingWhenOutOfStock,
+            title: v.title,
+          })),
         };
         setForm(loaded);
         setInitialForm(loaded);
-        setVariantCount(p.variants.length);
         setOwnStore(res.ownStore);
         setSiblings(res.siblings);
       } catch {
@@ -54,7 +59,7 @@ export function EditProductPage() {
   }, [id]);
 
   const isDirty = JSON.stringify(form) !== JSON.stringify(initialForm);
-  const canSubmit = isDirty && form.title.trim().length > 0 && form.price.trim().length > 0 && !submitting;
+  const canSubmit = isDirty && form.title.trim().length > 0 && form.variants.every((v) => v.price.trim().length > 0) && !submitting;
 
   const handleSubmit = async () => {
     if (!id || !canSubmit) return;
@@ -62,10 +67,17 @@ export function EditProductPage() {
     try {
       const res = await updateProduct(id, {
         title: form.title.trim(),
-        image: form.image.trim() || undefined,
-        price: Number(form.price),
-        sku: form.sku.trim() || undefined,
-        inventory: form.inventory.trim() ? Number(form.inventory) : undefined,
+        description: form.description.trim() || undefined,
+        category: form.category.trim() || undefined,
+        images: form.images,
+        options: form.options,
+        variants: form.variants.map((v) => ({
+          sku: v.sku.trim() || undefined,
+          price: Number(v.price) || 0,
+          compareAtPrice: v.compareAtPrice.trim() ? Number(v.compareAtPrice) : undefined,
+          optionValues: v.optionValues,
+          continueSellingWhenOutOfStock: v.continueSellingWhenOutOfStock,
+        })),
       });
       setResults(res.results);
       const successCount = res.results.filter((r) => r.success).length;
@@ -91,14 +103,14 @@ export function EditProductPage() {
         </div>
       </div>
 
-      <div className="mx-auto w-full max-w-xl px-8 py-6">
+      <div className="mx-auto w-full max-w-3xl px-8 py-6">
         {loading ? (
           <div className="py-16 text-center text-sm text-slate-400">Loading...</div>
         ) : notFound ? (
           <div className="py-16 text-center text-sm text-slate-400">Product not found.</div>
         ) : results ? (
           <div className="space-y-5">
-            <ProductPushSummary title={form.title.trim()} image={form.image.trim() || null} results={results} />
+            <ProductPushSummary title={form.title.trim()} image={form.images[0] ?? null} results={results} />
             <button
               onClick={() => navigate('/products')}
               className="w-full rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
@@ -108,12 +120,6 @@ export function EditProductPage() {
           </div>
         ) : (
           <div className="space-y-6">
-            {variantCount > 1 && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-700">
-                This product has {variantCount} variants — editing here only updates the primary variant's price, SKU and stock.
-              </div>
-            )}
-
             <ProductFormFields value={form} onChange={setForm} />
 
             {siblings.length > 0 && (
