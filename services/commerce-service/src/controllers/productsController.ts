@@ -105,6 +105,81 @@ async function findAutoGroupId(db: ReturnType<typeof getDb>, tenantId: string, s
   return newGroupId;
 }
 
+// Every tenant's oldest warehouse is treated as their default landing spot for auto-tracked stock
+// — created on the fly as "Main Warehouse" the first time a tenant has none at all, so a brand-new
+// business never has to set one up before it can push its first product. Renaming it or adding a
+// second warehouse and transferring stock over both already work through the normal Inventory UI.
+interface WarehouseDoc {
+  _id: string;
+  tenantId: string;
+  name: string;
+  bins: string[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+async function getOrCreateDefaultWarehouse(db: ReturnType<typeof getDb>, tenantId: string): Promise<{ id: string; name: string }> {
+  const warehouses = db.collection<WarehouseDoc>('warehouses');
+  const existing = await warehouses.findOne({ tenantId }, { sort: { createdAt: 1 } });
+  if (existing) return { id: existing._id, name: existing.name };
+  const now = new Date();
+  const doc: WarehouseDoc = { _id: new ObjectId().toString(), tenantId, name: 'Main Warehouse', bins: [], createdAt: now, updatedAt: now };
+  await warehouses.insertOne(doc);
+  return { id: doc._id, name: doc.name };
+}
+
+// "Not tracked" and "tracked at 0" are deliberately treated differently everywhere else in the
+// system (Stock Shortfall, the packing fulfillment gate, the per-line-item stock badge) — a
+// variant with no inventoryLevels row at all silently bypasses all of them, since there's no number
+// to check against. Giving every variant a real (if empty) record the moment it's synced closes
+// that gap: a genuinely-out-of-stock item now reads as "0 free", not invisible. Only variants that
+// aren't tracked *anywhere* yet get a new record — an edit to an already-tracked product never
+// touches its existing stock numbers.
+async function ensureVariantsTracked(
+  db: ReturnType<typeof getDb>,
+  tenantId: string,
+  productId: string,
+  productTitle: string,
+  productImage: string | null,
+  variants: { id: string; sku: string | null; title: string; optionValues: string[] }[]
+) {
+  if (variants.length === 0) return;
+  const variantIds = variants.map((v) => v.id);
+  const existingLevels = await db
+    .collection('inventoryLevels')
+    .find({ tenantId, productId, variantId: { $in: variantIds } })
+    .project({ variantId: 1 })
+    .toArray();
+  const tracked = new Set(existingLevels.map((l) => l.variantId));
+  const untracked = variants.filter((v) => !tracked.has(v.id));
+  if (untracked.length === 0) return;
+
+  const warehouse = await getOrCreateDefaultWarehouse(db, tenantId);
+  const now = new Date();
+  await db.collection('inventoryLevels').insertMany(
+    untracked.map((v) => ({
+      tenantId,
+      productId,
+      variantId: v.id,
+      sku: v.sku,
+      productTitle,
+      productImage,
+      variantLabel: v.optionValues?.length ? v.optionValues.join(' / ') : v.title,
+      warehouseId: warehouse.id,
+      warehouseName: warehouse.name,
+      bin: 'Unassigned',
+      onHand: 0,
+      reserved: 0,
+      inbound: 0,
+      unitCost: null,
+      pendingUnitCost: null,
+      reorderPoint: null,
+      createdAt: now,
+      updatedAt: now,
+    }))
+  );
+}
+
 async function upsertProduct(tenantId: string, storeId: string, p: NormalizedProduct, groupId?: string) {
   const db = getDb();
   const now = new Date();
@@ -136,7 +211,9 @@ async function upsertProduct(tenantId: string, storeId: string, p: NormalizedPro
     },
     { upsert: true, returnDocument: 'after' }
   );
-  return result!._id.toString();
+  const productId = result!._id.toString();
+  await ensureVariantsTracked(db, tenantId, productId, p.title, p.images[0] ?? null, p.variants);
+  return productId;
 }
 
 // Called from the Shopify products/create and products/update webhooks so newly added or edited
@@ -423,6 +500,7 @@ const productVariantInputSchema = z.object({
   compareAtPrice: z.number().nonnegative().optional(),
   optionValues: z.array(z.string()),
   continueSellingWhenOutOfStock: z.boolean().optional(),
+  image: z.string().trim().url().optional().nullable(),
 });
 
 const productPublishTargetSchema = z.object({
@@ -526,7 +604,7 @@ function toPushInput(data: ProductWriteData) {
     weight: data.weight ?? null,
     weightUnit: data.weightUnit ?? 'kg',
     options: data.options,
-    variants: data.variants.map((v) => ({ sku: v.sku || null, price: v.price, compareAtPrice: v.compareAtPrice ?? null, optionValues: v.optionValues })),
+    variants: data.variants.map((v) => ({ sku: v.sku || null, price: v.price, compareAtPrice: v.compareAtPrice ?? null, optionValues: v.optionValues, image: v.image ?? null })),
   };
 }
 
