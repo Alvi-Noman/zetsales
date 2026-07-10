@@ -17,7 +17,7 @@ import {
   exchangeShopifyClientCredentials,
   registerShopifyWebhook,
 } from '../integrations/shopifyClient.js';
-import { normalizeSiteUrl, verifyWooKeys, buildWooAuthUrl } from '../integrations/wooClient.js';
+import { normalizeSiteUrl, verifyWooKeys, buildWooAuthUrl, registerWooWebhook } from '../integrations/wooClient.js';
 
 const APP_NAME = 'ZetSales';
 
@@ -36,6 +36,44 @@ async function registerShopifyProductWebhooks(shopDomain: string, accessToken: s
     ]);
   } catch (err) {
     logger.warn(`[shopify] Could not register product webhooks for ${shopDomain}: ${(err as Error).message}`);
+  }
+}
+
+// Same as above but for orders — without this, new orders placed after connecting never reach
+// ZetSales at all (the receiving endpoint in webhooksController.ts has nothing to call it). Both
+// topics point at the same handler: 'updated' fires on essentially any change (payment, fulfillment,
+// cancellation), so a single upsertShopifyOrder path covers create and every later status change.
+async function registerShopifyOrderWebhooks(shopDomain: string, accessToken: string, storeId: string) {
+  const base = process.env.PUBLIC_COMMERCE_URL || 'http://localhost:8081/api/v1/commerce';
+  const address = `${base}/webhooks/shopify/${storeId}/orders`;
+  try {
+    await Promise.all([
+      registerShopifyWebhook(shopDomain, accessToken, 'orders/create', address),
+      registerShopifyWebhook(shopDomain, accessToken, 'orders/updated', address),
+    ]);
+  } catch (err) {
+    logger.warn(`[shopify] Could not register order webhooks for ${shopDomain}: ${(err as Error).message}`);
+  }
+}
+
+// WooCommerce order webhooks need PUBLIC_COMMERCE_URL to be a real public HTTPS address the
+// merchant's site can reach — same constraint as image fetching in wooClient.ts. Best-effort like
+// the Shopify registrations above: never blocks the connection on failure.
+async function registerWooOrderWebhooks(siteUrl: string, consumerKey: string, consumerSecret: string, storeId: string) {
+  const base = process.env.PUBLIC_COMMERCE_URL || 'http://localhost:8081/api/v1/commerce';
+  const address = `${base}/webhooks/woocommerce/${storeId}/orders`;
+  const secret = process.env.WOOCOMMERCE_WEBHOOK_SECRET;
+  if (!secret) {
+    logger.warn(`[woocommerce] WOOCOMMERCE_WEBHOOK_SECRET not set — skipping order webhook registration for ${siteUrl}`);
+    return;
+  }
+  try {
+    await Promise.all([
+      registerWooWebhook(siteUrl, consumerKey, consumerSecret, 'order.created', address, secret),
+      registerWooWebhook(siteUrl, consumerKey, consumerSecret, 'order.updated', address, secret),
+    ]);
+  } catch (err) {
+    logger.warn(`[woocommerce] Could not register order webhooks for ${siteUrl}: ${(err as Error).message}`);
   }
 }
 
@@ -165,6 +203,7 @@ export async function connectShopifyToken(req: AuthenticatedRequest, res: Respon
     );
 
     await registerShopifyProductWebhooks(shopDomain, accessToken, result!._id.toString());
+    await registerShopifyOrderWebhooks(shopDomain, accessToken, result!._id.toString());
 
     res.json({ success: true, store: toStoreDto(result) });
   } catch (err) {
@@ -233,6 +272,7 @@ export async function shopifyOAuthCallback(req: AuthenticatedRequest, res: Respo
     );
 
     await registerShopifyProductWebhooks(shopDomain, accessToken, result!._id.toString());
+    await registerShopifyOrderWebhooks(shopDomain, accessToken, result!._id.toString());
 
     res.redirect(`${process.env.PUBLIC_APP_URL || 'http://localhost:3000'}/integrations?connected=shopify`);
   } catch (err) {
@@ -280,6 +320,8 @@ export async function connectWooKeys(req: AuthenticatedRequest, res: Response) {
       },
       { upsert: true, returnDocument: 'after' }
     );
+
+    await registerWooOrderWebhooks(siteUrl, parsed.data.consumerKey, parsed.data.consumerSecret, result!._id.toString());
 
     res.json({ success: true, store: toStoreDto(result) });
   } catch (err) {
@@ -379,6 +421,7 @@ export async function wooAuthStatus(req: AuthenticatedRequest, res: Response) {
   );
 
   await db.collection('woo_auth_sessions').deleteOne({ _id: session._id });
+  await registerWooOrderWebhooks(session.siteUrl, consumerKey, consumerSecret, result!._id.toString());
 
   res.json({ success: true, status: 'connected', store: toStoreDto(result) });
 }
