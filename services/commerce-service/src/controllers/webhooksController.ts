@@ -117,7 +117,10 @@ export async function wooOrderWebhook(req: Request, res: Response) {
   const signature = req.header('X-WC-Webhook-Signature');
 
   if (!secret || !verifyHmac(raw, signature, secret)) {
-    logger.warn('[webhook] WooCommerce signature verification failed');
+    const expected = secret ? crypto.createHmac('sha256', secret).update(raw).digest('base64') : null;
+    logger.warn(
+      `[webhook] WooCommerce signature verification failed — hasSecret=${Boolean(secret)} hasSignatureHeader=${Boolean(signature)} bodyBytes=${raw?.length ?? 0} received=${signature ?? 'none'} expected=${expected ?? 'n/a'}`
+    );
     res.status(401).send('Invalid signature');
     return;
   }
