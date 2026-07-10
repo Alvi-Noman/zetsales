@@ -12,11 +12,16 @@ import { mapSteadfastStatus, mapPathaoStatus } from '../integrations/courierStat
 import { findCourierByWebhookSecret } from './couriersController.js';
 
 // Webhook bodies arrive as a raw Buffer (see routes/webhooksRoutes.ts) so we can verify the
-// signature over the exact bytes sent, before trusting/parsing the JSON.
-function verifyHmac(rawBody: Buffer, signature: string | undefined, secret: string): boolean {
-  if (!signature) return false;
-  const digest = crypto.createHmac('sha256', secret).update(rawBody).digest('base64');
+// signature over the exact bytes sent, before trusting/parsing the JSON. express.raw() only
+// parses into a Buffer when Content-Type matches 'application/json' exactly — a delivery sent
+// with a different/missing content type (WooCommerce's automatic webhook ping test, a malformed
+// retry, etc.) leaves req.body as `{}` instead, which crypto.createHmac.update() can't hash and
+// throws on. That throw was previously uncaught, crashing the whole service via an unhandled
+// rejection — treat a non-Buffer body as simply an invalid signature instead.
+function verifyHmac(rawBody: unknown, signature: string | undefined, secret: string): boolean {
+  if (!signature || !Buffer.isBuffer(rawBody)) return false;
   try {
+    const digest = crypto.createHmac('sha256', secret).update(rawBody).digest('base64');
     return crypto.timingSafeEqual(Buffer.from(digest), Buffer.from(signature));
   } catch {
     return false;
@@ -112,14 +117,14 @@ export async function shopifyProductDeleteWebhook(req: Request, res: Response) {
 }
 
 export async function wooOrderWebhook(req: Request, res: Response) {
-  const raw = req.body as Buffer;
+  const raw = req.body;
   const secret = process.env.WOOCOMMERCE_WEBHOOK_SECRET || '';
   const signature = req.header('X-WC-Webhook-Signature');
 
   if (!secret || !verifyHmac(raw, signature, secret)) {
-    const expected = secret ? crypto.createHmac('sha256', secret).update(raw).digest('base64') : null;
+    const expected = secret && Buffer.isBuffer(raw) ? crypto.createHmac('sha256', secret).update(raw).digest('base64') : null;
     logger.warn(
-      `[webhook] WooCommerce signature verification failed — hasSecret=${Boolean(secret)} hasSignatureHeader=${Boolean(signature)} bodyBytes=${raw?.length ?? 0} received=${signature ?? 'none'} expected=${expected ?? 'n/a'}`
+      `[webhook] WooCommerce signature verification failed — hasSecret=${Boolean(secret)} hasSignatureHeader=${Boolean(signature)} isBuffer=${Buffer.isBuffer(raw)} bodyBytes=${Buffer.isBuffer(raw) ? raw.length : 'n/a'} received=${signature ?? 'none'} expected=${expected ?? 'n/a'}`
     );
     res.status(401).send('Invalid signature');
     return;
