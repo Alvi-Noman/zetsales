@@ -13,6 +13,17 @@ export interface PushProgressItem {
   error?: string;
 }
 
+// Drives the submit button's own label from the same live events as the checklist below it, e.g.
+// "Pushing to Shopify... (1/2)" — so the button reflects real progress too, not a generic "Pushing...".
+export function pushProgressLabel(items: PushProgressItem[] | null, fallback: string): string {
+  if (!items || items.length === 0) return fallback;
+  const settledCount = items.filter((i) => i.status === 'done' || i.status === 'error').length;
+  const current = items.find((i) => i.status === 'pushing');
+  if (current) return items.length > 1 ? `Pushing to ${current.displayName}... (${settledCount + 1}/${items.length})` : `Pushing to ${current.displayName}...`;
+  if (settledCount === items.length) return 'Finishing up...';
+  return fallback;
+}
+
 // Live per-store status while a product create/update is streaming (see streamProductPush in
 // commerceApi.ts) — pushing to a store is several sequential API round-trips, so this shows which
 // store is being worked on right now instead of a single opaque "Pushing..." wait.

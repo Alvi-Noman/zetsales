@@ -5,7 +5,7 @@ import type { ProductPushResultDTO } from '@zetsales/shared';
 import { getProduct, updateProduct, type ProductStoreRef } from '../../lib/commerceApi';
 import { ProductFormFields, EMPTY_PRODUCT_FORM, type ProductFormState } from '../../components/products/ProductFormFields';
 import { ProductPushSummary } from '../../components/products/ProductPushSummary';
-import { ProductPushProgress, type PushProgressItem } from '../../components/products/ProductPushProgress';
+import { ProductPushProgress, pushProgressLabel, type PushProgressItem } from '../../components/products/ProductPushProgress';
 import { useToast } from '../../components/ui/ToastProvider';
 
 const PLATFORM_META = {
@@ -180,7 +180,7 @@ export function EditProductPage() {
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {submitting && <Loader2 size={15} className="animate-spin" />}
-              {submitting ? 'Saving...' : 'Save changes'}
+              {submitting ? pushProgressLabel(pushItems, 'Saving...') : 'Save changes'}
             </button>
           </div>
         )}

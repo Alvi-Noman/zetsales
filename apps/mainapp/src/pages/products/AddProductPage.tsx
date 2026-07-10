@@ -5,7 +5,7 @@ import clsx from 'clsx';
 import type { StoreDTO } from '@zetsales/shared';
 import { createProduct, listStores } from '../../lib/commerceApi';
 import { ProductFormFields, EMPTY_PRODUCT_FORM, type ProductFormState } from '../../components/products/ProductFormFields';
-import { ProductPushProgress, type PushProgressItem } from '../../components/products/ProductPushProgress';
+import { ProductPushProgress, pushProgressLabel, type PushProgressItem } from '../../components/products/ProductPushProgress';
 import { useToast } from '../../components/ui/ToastProvider';
 
 const PLATFORM_META = {
@@ -171,7 +171,7 @@ export function AddProductPage() {
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {submitting && <Loader2 size={15} className="animate-spin" />}
-              {submitting ? 'Pushing...' : `Create & push to ${selected.size} store${selected.size === 1 ? '' : 's'}`}
+              {submitting ? pushProgressLabel(pushItems, 'Pushing...') : `Create & push to ${selected.size} store${selected.size === 1 ? '' : 's'}`}
             </button>
           </div>
         )}
