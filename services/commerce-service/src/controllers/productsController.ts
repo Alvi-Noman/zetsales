@@ -460,6 +460,61 @@ const createProductSchema = z
   .refine((data) => Boolean(data.storeTargets?.length || data.storeIds?.length), { message: 'At least one store is required' })
   .refine(variantsMatchOptions, variantCheckMessage);
 
+// Short-lived handoff used by the browser extension: it extracts a draft from the live Alibaba
+// page DOM (bypassing the server-side scraper entirely, since that's what gets CAPTCHA'd) and
+// hands it to the web app via this pending-draft pointer instead of duplicating the review/publish
+// UI inside the extension itself.
+const pendingImportDraftSchema = z
+  .object({
+    ...productBaseFields,
+    supplierName: z.string().trim().optional().nullable(),
+    rawPriceText: z.string().trim().optional().nullable(),
+    confidence: z.enum(['high', 'medium', 'low']).default('low'),
+    warnings: z.array(z.string()).default([]),
+  })
+  .refine(variantsMatchOptions, variantCheckMessage);
+
+export async function createPendingImportDraft(req: AuthenticatedRequest, res: Response) {
+  const parsed = pendingImportDraftSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, message: parsed.error.issues[0]?.message ?? 'Invalid product draft' });
+    return;
+  }
+
+  const tenantId = req.user!.tenantId!;
+  const withSkus = await fillMissingSkus(tenantId, parsed.data);
+  const db = getDb();
+  const { insertedId } = await db.collection('pendingImportDrafts').insertOne({
+    ...withSkus,
+    supplierName: parsed.data.supplierName ?? null,
+    rawPriceText: parsed.data.rawPriceText ?? null,
+    confidence: parsed.data.confidence,
+    warnings: parsed.data.warnings,
+    tenantId,
+    createdAt: new Date(),
+  });
+  res.json({ success: true, id: insertedId.toString() });
+}
+
+export async function getPendingImportDraft(req: AuthenticatedRequest, res: Response) {
+  const tenantId = req.user!.tenantId!;
+  const { id } = req.params;
+  if (!ObjectId.isValid(id)) {
+    res.status(404).json({ success: false, message: 'Import draft not found or expired' });
+    return;
+  }
+
+  const db = getDb();
+  const doc = await db.collection('pendingImportDrafts').findOneAndDelete({ _id: new ObjectId(id), tenantId });
+  if (!doc) {
+    res.status(404).json({ success: false, message: 'Import draft not found or expired' });
+    return;
+  }
+
+  const { _id, tenantId: _tenantId, createdAt, ...draft } = doc;
+  res.json({ success: true, draft });
+}
+
 type ProductWriteData = z.infer<z.ZodObject<typeof productBaseFields>>;
 
 function toPushInput(data: ProductWriteData) {
@@ -577,7 +632,10 @@ function withSubmittedMetadata(normalized: NormalizedProduct, data: ProductWrite
 
 // Creating a product from ZetSales fans it out to every selected store at once (any mix of
 // Shopify/WooCommerce). Each store gets its own product document tied together by a shared
-// groupId, so editing later can find and update every copy in one action.
+// groupId, so editing later can find and update every copy in one action. Streamed via SSE (like
+// importStoreProductsStream) rather than one blocking response: each store push is several
+// sequential round-trips to that store's API, so a multi-store product can take tens of seconds —
+// the client needs per-store events to show real progress instead of a single opaque wait.
 export async function createProduct(req: AuthenticatedRequest, res: Response) {
   const parsed = createProductSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -599,23 +657,34 @@ export async function createProduct(req: AuthenticatedRequest, res: Response) {
     return;
   }
 
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  const send = (payload: unknown) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  send({ type: 'start', total: stores.length });
+
   const groupId = randomUUID();
   const results: ProductPushResultDTO[] = [];
 
   for (const store of stores) {
+    const storeId = store._id.toString();
+    const displayName = store.displayName;
+    const platform = store.platform as StorePlatform;
+    send({ type: 'store:start', storeId, displayName, platform });
     try {
-      const collectionIds = targetByStoreId.get(store._id.toString()) ?? [];
+      const collectionIds = targetByStoreId.get(storeId) ?? [];
       const normalized = withSubmittedMetadata(reattachContinueSelling(await pushToStore(store, input, collectionIds), data.variants), data, data.sourcePlatform, data.sourceUrl, collectionIds);
-      const productId = await upsertProduct(tenantId, store._id.toString(), normalized, groupId);
-      results.push({ storeId: store._id.toString(), displayName: store.displayName, platform: store.platform as StorePlatform, success: true, productId });
+      const productId = await upsertProduct(tenantId, storeId, normalized, groupId);
+      const result: ProductPushResultDTO = { storeId, displayName, platform, success: true, productId };
+      results.push(result);
+      send({ type: 'store:done', ...result });
     } catch (err) {
-      results.push({
-        storeId: store._id.toString(),
-        displayName: store.displayName,
-        platform: store.platform as StorePlatform,
-        success: false,
-        error: describeStoreError(err),
-      });
+      const result: ProductPushResultDTO = { storeId, displayName, platform, success: false, error: describeStoreError(err) };
+      results.push(result);
+      send({ type: 'store:done', ...result });
     }
   }
 
@@ -625,7 +694,8 @@ export async function createProduct(req: AuthenticatedRequest, res: Response) {
     { $inc: { productCount: 1 } }
   );
 
-  res.json({ success: successCount > 0, results });
+  send({ type: 'done', success: successCount > 0, results });
+  res.end();
 }
 
 export async function getProduct(req: AuthenticatedRequest, res: Response) {
@@ -681,14 +751,30 @@ export async function updateProduct(req: AuthenticatedRequest, res: Response) {
 
   const targets = doc.groupId ? await db.collection('products').find({ tenantId, groupId: doc.groupId }).toArray() : [doc];
   const input = toPushInput(data);
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  const send = (payload: unknown) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  send({ type: 'start', total: targets.length });
+
   const results: ProductPushResultDTO[] = [];
 
   for (const target of targets) {
     const store = await db.collection('stores').findOne({ _id: new ObjectId(target.storeId), tenantId });
     if (!store) {
-      results.push({ storeId: target.storeId, displayName: 'Unknown store', platform: 'shopify', success: false, error: 'Store no longer connected' });
+      const result: ProductPushResultDTO = { storeId: target.storeId, displayName: 'Unknown store', platform: 'shopify', success: false, error: 'Store no longer connected' };
+      results.push(result);
+      send({ type: 'store:done', ...result });
       continue;
     }
+    const storeId = store._id.toString();
+    const displayName = store.displayName;
+    const platform = store.platform as StorePlatform;
+    send({ type: 'store:start', storeId, displayName, platform });
     try {
       const existing = {
         externalId: target.externalId,
@@ -714,14 +800,19 @@ export async function updateProduct(req: AuthenticatedRequest, res: Response) {
           },
         }
       );
-      results.push({ storeId: store._id.toString(), displayName: store.displayName, platform: store.platform as StorePlatform, success: true });
+      const result: ProductPushResultDTO = { storeId, displayName, platform, success: true };
+      results.push(result);
+      send({ type: 'store:done', ...result });
     } catch (err) {
-      results.push({ storeId: store._id.toString(), displayName: store.displayName, platform: store.platform as StorePlatform, success: false, error: describeStoreError(err) });
+      const result: ProductPushResultDTO = { storeId, displayName, platform, success: false, error: describeStoreError(err) };
+      results.push(result);
+      send({ type: 'store:done', ...result });
     }
   }
 
   const successCount = results.filter((r) => r.success).length;
-  res.json({ success: successCount > 0, results });
+  send({ type: 'done', success: successCount > 0, results });
+  res.end();
 }
 
 const deleteProductSchema = z.object({ storeIds: z.array(z.string()).min(1) });

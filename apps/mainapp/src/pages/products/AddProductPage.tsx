@@ -5,10 +5,8 @@ import clsx from 'clsx';
 import type { StoreDTO } from '@zetsales/shared';
 import { createProduct, listStores } from '../../lib/commerceApi';
 import { ProductFormFields, EMPTY_PRODUCT_FORM, type ProductFormState } from '../../components/products/ProductFormFields';
+import { ProductPushProgress, type PushProgressItem } from '../../components/products/ProductPushProgress';
 import { useToast } from '../../components/ui/ToastProvider';
-import { useRotatingMessages } from '../../hooks/useRotatingMessages';
-
-const PUSH_MESSAGES = ['Creating product...', 'Pushing to your stores...', 'Uploading images...', 'Still working — this can take a moment...'];
 
 const PLATFORM_META = {
   shopify: { label: 'Shopify', color: 'bg-[#95BF47]', icon: ShoppingBag },
@@ -23,7 +21,7 @@ export function AddProductPage() {
   const [form, setForm] = useState<ProductFormState>(EMPTY_PRODUCT_FORM);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
-  const pushMessage = useRotatingMessages(PUSH_MESSAGES, submitting);
+  const [pushItems, setPushItems] = useState<PushProgressItem[] | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -54,26 +52,42 @@ export function AddProductPage() {
   const handleSubmit = async () => {
     if (!canSubmit) return;
     setSubmitting(true);
+    const targetStores = stores.filter((s) => selected.has(s.id));
+    setPushItems(targetStores.map((s) => ({ storeId: s.id, displayName: s.displayName, platform: s.platform, status: 'pending' })));
     try {
-      const res = await createProduct({
-        title: form.title.trim(),
-        description: form.description.trim() || undefined,
-        category: form.category.trim() || undefined,
-        images: form.images,
-        weight: form.weight.trim() ? Number(form.weight) : undefined,
-        weightUnit: form.weightUnit,
-        sourceUrl: form.sourceUrl,
-        sourcePlatform: form.sourcePlatform ?? 'manual',
-        options: form.options,
-        variants: form.variants.map((v) => ({
-          sku: v.sku.trim() || undefined,
-          price: Number(v.price) || 0,
-          compareAtPrice: v.compareAtPrice.trim() ? Number(v.compareAtPrice) : undefined,
-          optionValues: v.optionValues,
-          continueSellingWhenOutOfStock: v.continueSellingWhenOutOfStock,
-        })),
-        storeIds: [...selected],
-      });
+      const res = await createProduct(
+        {
+          title: form.title.trim(),
+          description: form.description.trim() || undefined,
+          category: form.category.trim() || undefined,
+          images: form.images,
+          weight: form.weight.trim() ? Number(form.weight) : undefined,
+          weightUnit: form.weightUnit,
+          sourceUrl: form.sourceUrl,
+          sourcePlatform: form.sourcePlatform ?? 'manual',
+          options: form.options,
+          variants: form.variants.map((v) => ({
+            sku: v.sku.trim() || undefined,
+            price: Number(v.price) || 0,
+            compareAtPrice: v.compareAtPrice.trim() ? Number(v.compareAtPrice) : undefined,
+            optionValues: v.optionValues,
+            continueSellingWhenOutOfStock: v.continueSellingWhenOutOfStock,
+          })),
+          storeIds: [...selected],
+        },
+        (event) => {
+          if (event.type === 'store:start') {
+            setPushItems((prev) => prev?.map((item) => (item.storeId === event.storeId ? { ...item, status: 'pushing' } : item)) ?? prev);
+          } else if (event.type === 'store:done') {
+            setPushItems(
+              (prev) =>
+                prev?.map((item) =>
+                  item.storeId === event.storeId ? { ...item, status: event.success ? 'done' : 'error', error: event.error } : item
+                ) ?? prev
+            );
+          }
+        }
+      );
       const firstSuccess = res.results.find((r) => r.success && r.productId);
       const successCount = res.results.filter((r) => r.success).length;
 
@@ -81,10 +95,11 @@ export function AddProductPage() {
         toast.push(`Pushed "${form.title.trim()}" to ${successCount} store${successCount === 1 ? '' : 's'}.`);
         navigate(`/products/${firstSuccess.productId}/edit`);
       } else {
-        toast.push(res.results[0]?.error || 'Could not push this product to any store.', 'info');
+        toast.push('Could not push this product to any store — see details below.', 'info');
       }
-    } catch {
-      toast.push('Could not create this product.', 'info');
+    } catch (err) {
+      setPushItems(null);
+      toast.push(err instanceof Error ? err.message : 'Could not create this product.', 'info');
     } finally {
       setSubmitting(false);
     }
@@ -123,27 +138,31 @@ export function AddProductPage() {
 
             <div>
               <label className="mb-1.5 block text-xs font-semibold text-slate-600">Push to</label>
-              <div className="space-y-2">
-                {stores.map((store) => {
-                  const meta = PLATFORM_META[store.platform];
-                  const checked = selected.has(store.id);
-                  return (
-                    <label
-                      key={store.id}
-                      className={clsx(
-                        'flex cursor-pointer items-center gap-3 rounded-lg border px-3.5 py-2.5 transition',
-                        checked ? 'border-indigo-300 bg-indigo-50/50' : 'border-slate-200 bg-white hover:bg-slate-50'
-                      )}
-                    >
-                      <input type="checkbox" checked={checked} onChange={() => toggleStore(store.id)} className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
-                      <span className={clsx('flex h-7 w-7 items-center justify-center rounded-lg text-white', meta.color)}>
-                        <meta.icon size={14} />
-                      </span>
-                      <span className="text-sm font-medium text-slate-800">{store.displayName}</span>
-                    </label>
-                  );
-                })}
-              </div>
+              {pushItems ? (
+                <ProductPushProgress items={pushItems} />
+              ) : (
+                <div className="space-y-2">
+                  {stores.map((store) => {
+                    const meta = PLATFORM_META[store.platform];
+                    const checked = selected.has(store.id);
+                    return (
+                      <label
+                        key={store.id}
+                        className={clsx(
+                          'flex cursor-pointer items-center gap-3 rounded-lg border px-3.5 py-2.5 transition',
+                          checked ? 'border-indigo-300 bg-indigo-50/50' : 'border-slate-200 bg-white hover:bg-slate-50'
+                        )}
+                      >
+                        <input type="checkbox" checked={checked} onChange={() => toggleStore(store.id)} className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                        <span className={clsx('flex h-7 w-7 items-center justify-center rounded-lg text-white', meta.color)}>
+                          <meta.icon size={14} />
+                        </span>
+                        <span className="text-sm font-medium text-slate-800">{store.displayName}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <button
@@ -152,7 +171,7 @@ export function AddProductPage() {
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {submitting && <Loader2 size={15} className="animate-spin" />}
-              {submitting ? pushMessage : `Create & push to ${selected.size} store${selected.size === 1 ? '' : 's'}`}
+              {submitting ? 'Pushing...' : `Create & push to ${selected.size} store${selected.size === 1 ? '' : 's'}`}
             </button>
           </div>
         )}

@@ -5,10 +5,8 @@ import type { ProductPushResultDTO } from '@zetsales/shared';
 import { getProduct, updateProduct, type ProductStoreRef } from '../../lib/commerceApi';
 import { ProductFormFields, EMPTY_PRODUCT_FORM, type ProductFormState } from '../../components/products/ProductFormFields';
 import { ProductPushSummary } from '../../components/products/ProductPushSummary';
+import { ProductPushProgress, type PushProgressItem } from '../../components/products/ProductPushProgress';
 import { useToast } from '../../components/ui/ToastProvider';
-import { useRotatingMessages } from '../../hooks/useRotatingMessages';
-
-const PUSH_MESSAGES = ['Saving changes...', 'Pushing to your stores...', 'Uploading images...', 'Still working — this can take a moment...'];
 
 const PLATFORM_META = {
   shopify: { label: 'Shopify', color: 'bg-[#95BF47]', icon: ShoppingBag },
@@ -27,7 +25,7 @@ export function EditProductPage() {
   const [siblings, setSiblings] = useState<ProductStoreRef[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState<ProductPushResultDTO[] | null>(null);
-  const pushMessage = useRotatingMessages(PUSH_MESSAGES, submitting);
+  const [pushItems, setPushItems] = useState<PushProgressItem[] | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -68,40 +66,56 @@ export function EditProductPage() {
 
   const isDirty = JSON.stringify(form) !== JSON.stringify(initialForm);
   const canSubmit = isDirty && form.title.trim().length > 0 && form.variants.every((v) => v.price.trim().length > 0) && !submitting;
+  const affectedStores = ownStore ? [ownStore, ...siblings] : siblings;
 
   const handleSubmit = async () => {
     if (!id || !canSubmit) return;
     setSubmitting(true);
+    setPushItems(affectedStores.map((s) => ({ storeId: s.storeId, displayName: s.displayName, platform: s.platform, status: 'pending' })));
     try {
-      const res = await updateProduct(id, {
-        title: form.title.trim(),
-        description: form.description.trim() || undefined,
-        category: form.category.trim() || undefined,
-        images: form.images,
-        weight: form.weight.trim() ? Number(form.weight) : undefined,
-        weightUnit: form.weightUnit,
-        sourceUrl: form.sourceUrl,
-        sourcePlatform: form.sourcePlatform,
-        options: form.options,
-        variants: form.variants.map((v) => ({
-          sku: v.sku.trim() || undefined,
-          price: Number(v.price) || 0,
-          compareAtPrice: v.compareAtPrice.trim() ? Number(v.compareAtPrice) : undefined,
-          optionValues: v.optionValues,
-          continueSellingWhenOutOfStock: v.continueSellingWhenOutOfStock,
-        })),
-      });
+      const res = await updateProduct(
+        id,
+        {
+          title: form.title.trim(),
+          description: form.description.trim() || undefined,
+          category: form.category.trim() || undefined,
+          images: form.images,
+          weight: form.weight.trim() ? Number(form.weight) : undefined,
+          weightUnit: form.weightUnit,
+          sourceUrl: form.sourceUrl,
+          sourcePlatform: form.sourcePlatform,
+          options: form.options,
+          variants: form.variants.map((v) => ({
+            sku: v.sku.trim() || undefined,
+            price: Number(v.price) || 0,
+            compareAtPrice: v.compareAtPrice.trim() ? Number(v.compareAtPrice) : undefined,
+            optionValues: v.optionValues,
+            continueSellingWhenOutOfStock: v.continueSellingWhenOutOfStock,
+          })),
+        },
+        (event) => {
+          if (event.type === 'store:start') {
+            setPushItems((prev) => prev?.map((item) => (item.storeId === event.storeId ? { ...item, status: 'pushing' } : item)) ?? prev);
+          } else if (event.type === 'store:done') {
+            setPushItems(
+              (prev) =>
+                prev?.map((item) =>
+                  item.storeId === event.storeId ? { ...item, status: event.success ? 'done' : 'error', error: event.error } : item
+                ) ?? prev
+            );
+          }
+        }
+      );
       setResults(res.results);
       const successCount = res.results.filter((r) => r.success).length;
       if (successCount > 0) toast.push(`Updated "${form.title.trim()}" on ${successCount} store${successCount === 1 ? '' : 's'}.`);
-    } catch {
-      toast.push('Could not update this product.', 'info');
+    } catch (err) {
+      setPushItems(null);
+      toast.push(err instanceof Error ? err.message : 'Could not update this product.', 'info');
     } finally {
       setSubmitting(false);
     }
   };
-
-  const affectedStores = ownStore ? [ownStore, ...siblings] : siblings;
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
@@ -134,23 +148,30 @@ export function EditProductPage() {
           <div className="space-y-6">
             <ProductFormFields value={form} onChange={setForm} />
 
-            {siblings.length > 0 && (
+            {pushItems ? (
               <div>
-                <label className="mb-1.5 block text-xs font-semibold text-slate-600">This will update</label>
-                <div className="space-y-2">
-                  {affectedStores.map((s) => {
-                    const meta = PLATFORM_META[s.platform];
-                    return (
-                      <div key={s.storeId} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3.5 py-2.5">
-                        <span className={`flex h-7 w-7 items-center justify-center rounded-lg text-white ${meta.color}`}>
-                          <meta.icon size={14} />
-                        </span>
-                        <span className="text-sm font-medium text-slate-800">{s.displayName}</span>
-                      </div>
-                    );
-                  })}
-                </div>
+                <label className="mb-1.5 block text-xs font-semibold text-slate-600">Pushing to</label>
+                <ProductPushProgress items={pushItems} />
               </div>
+            ) : (
+              siblings.length > 0 && (
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold text-slate-600">This will update</label>
+                  <div className="space-y-2">
+                    {affectedStores.map((s) => {
+                      const meta = PLATFORM_META[s.platform];
+                      return (
+                        <div key={s.storeId} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3.5 py-2.5">
+                          <span className={`flex h-7 w-7 items-center justify-center rounded-lg text-white ${meta.color}`}>
+                            <meta.icon size={14} />
+                          </span>
+                          <span className="text-sm font-medium text-slate-800">{s.displayName}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )
             )}
 
             <button
@@ -159,7 +180,7 @@ export function EditProductPage() {
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {submitting && <Loader2 size={15} className="animate-spin" />}
-              {submitting ? pushMessage : 'Save changes'}
+              {submitting ? 'Saving...' : 'Save changes'}
             </button>
           </div>
         )}

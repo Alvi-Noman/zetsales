@@ -143,13 +143,76 @@ export async function listProducts(params: ListProductsParams = {}) {
   return res.data as { success: boolean; products: ProductListItemDTO[]; total: number; page: number; pageSize: number };
 }
 
-export async function createProduct(payload: ProductWritePayload & ({ storeIds: string[] } | { storeTargets: ProductPublishTargetDTO[] })) {
-  const res = await api.post('/commerce/products', payload);
-  return res.data as { success: boolean; results: ProductPushResultDTO[] };
+// Emitted while a product create/update streams its per-store push progress (see
+// createProduct/updateProduct in productsController.ts) — pushing to a store is several
+// sequential API round-trips, so the UI shows each store's own status rather than one long wait.
+export type ProductPushEvent =
+  | { type: 'start'; total: number }
+  | { type: 'store:start'; storeId: string; displayName: string; platform: ProductStoreRef['platform'] }
+  | ({ type: 'store:done' } & ProductPushResultDTO)
+  | { type: 'done'; success: boolean; results: ProductPushResultDTO[] };
+
+async function streamProductPush(
+  method: 'POST' | 'PATCH',
+  path: string,
+  payload: unknown,
+  onEvent: (event: ProductPushEvent) => void
+): Promise<{ success: boolean; results: ProductPushResultDTO[] }> {
+  const res = await fetch(`/api/v1${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(payload),
+  });
+
+  // Validation/lookup failures (400/404) respond with plain JSON before the controller switches
+  // to a stream — only a successful push actually carries text/event-stream.
+  if (!res.headers.get('content-type')?.includes('text/event-stream')) {
+    const data = await res.json().catch(() => null);
+    throw new Error(data?.message || 'Request failed');
+  }
+
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let final: { success: boolean; results: ProductPushResultDTO[] } | null = null;
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const chunks = buffer.split('\n\n');
+    buffer = chunks.pop() ?? '';
+    for (const chunk of chunks) {
+      const line = chunk.trim();
+      if (!line.startsWith('data:')) continue;
+      const event = JSON.parse(line.slice(5).trim()) as ProductPushEvent;
+      onEvent(event);
+      if (event.type === 'done') final = event;
+    }
+  }
+
+  if (!final) throw new Error('Connection closed before the push finished');
+  return final;
+}
+
+export async function createProduct(
+  payload: ProductWritePayload & ({ storeIds: string[] } | { storeTargets: ProductPublishTargetDTO[] }),
+  onEvent?: (event: ProductPushEvent) => void
+) {
+  return streamProductPush('POST', '/commerce/products', payload, onEvent ?? (() => {}));
 }
 
 export async function previewAlibabaProduct(url: string) {
   const res = await api.post('/commerce/products/imports/alibaba/preview', { url });
+  return res.data as { success: boolean; draft: SupplierProductDraftDTO };
+}
+
+// Fetches a draft the browser extension extracted client-side and handed off via a pending-draft
+// id (see ProductsPage's importDraftId query-param handling). Single-use — the backend deletes it
+// once read, so calling this twice for the same id will 404 the second time.
+export async function fetchPendingImportDraft(id: string) {
+  const res = await api.get(`/commerce/products/imports/draft/${id}`);
   return res.data as { success: boolean; draft: SupplierProductDraftDTO };
 }
 
@@ -181,9 +244,8 @@ export async function findProductByUrl(url: string) {
   return res.data as { success: boolean; product: { id: string; title: string } | null };
 }
 
-export async function updateProduct(id: string, payload: ProductWritePayload) {
-  const res = await api.patch(`/commerce/products/${id}`, payload);
-  return res.data as { success: boolean; results: ProductPushResultDTO[] };
+export async function updateProduct(id: string, payload: ProductWritePayload, onEvent?: (event: ProductPushEvent) => void) {
+  return streamProductPush('PATCH', `/commerce/products/${id}`, payload, onEvent ?? (() => {}));
 }
 
 export async function deleteProduct(id: string, storeIds: string[]) {
