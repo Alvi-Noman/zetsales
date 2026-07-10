@@ -418,29 +418,35 @@ function tabMatch(tab: string | undefined): Record<string, unknown> {
 // Order line items never carry an image (Shopify/WooCommerce order webhooks don't include one) —
 // but we already sync a product catalog with images separately, keyed by the same SKU. Matching
 // on SKU within each order's own store lets the table show a real product thumbnail instead of a
-// fabricated one, for the common case where the SKU still resolves to a synced product.
+// fabricated one, for the common case where the SKU still resolves to a synced product. Falls back
+// to matching by title when a line item has no SKU — some WooCommerce products are never given one
+// (the SKU field is optional there), and an empty SKU can never look up an image by definition.
 async function attachLineItemImages(db: ReturnType<typeof getDb>, tenantId: string, orders: any[]) {
   const storeIds = [...new Set(orders.map((o) => o.storeId))];
-  const skusPresent = orders.some((o) => (o.lineItems ?? []).some((li: any) => li.sku));
-  if (storeIds.length === 0 || !skusPresent) return;
+  const hasLineItems = orders.some((o) => (o.lineItems ?? []).length > 0);
+  if (storeIds.length === 0 || !hasLineItems) return;
 
   const products = await db
     .collection('products')
-    .find({ tenantId, storeId: { $in: storeIds }, 'variants.sku': { $ne: null } })
-    .project({ storeId: 1, image: 1, 'variants.sku': 1 })
+    .find({ tenantId, storeId: { $in: storeIds }, image: { $ne: null } })
+    .project({ storeId: 1, title: 1, image: 1, 'variants.sku': 1 })
     .toArray();
 
   const imageBySkuKey = new Map<string, string>();
+  const imageByTitleKey = new Map<string, string>();
   for (const p of products) {
     if (!p.image) continue;
     for (const v of p.variants ?? []) {
       if (v.sku) imageBySkuKey.set(`${p.storeId}::${v.sku}`, p.image);
     }
+    if (p.title) imageByTitleKey.set(`${p.storeId}::${p.title.trim().toLowerCase()}`, p.image);
   }
 
   for (const order of orders) {
     for (const li of order.lineItems ?? []) {
-      li.image = li.sku ? imageBySkuKey.get(`${order.storeId}::${li.sku}`) ?? null : null;
+      const bySku = li.sku ? imageBySkuKey.get(`${order.storeId}::${li.sku}`) : undefined;
+      const byTitle = li.title ? imageByTitleKey.get(`${order.storeId}::${String(li.title).trim().toLowerCase()}`) : undefined;
+      li.image = bySku ?? byTitle ?? null;
     }
   }
 }
