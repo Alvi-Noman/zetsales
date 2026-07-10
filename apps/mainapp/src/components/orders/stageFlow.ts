@@ -21,8 +21,8 @@ export interface StageAction {
 export const NEXT_ACTION: Partial<Record<OrderStage, StageAction>> = {
   Pending: { label: 'Confirm order', icon: PhoneCall, nextStage: 'Confirmed' },
   Flagged: { label: 'Clear flag & confirm', icon: PhoneCall, nextStage: 'Confirmed' },
-  Confirmed: { label: 'Process order', icon: Package, nextStage: 'Processing' },
-  Processing: { label: 'Mark shipped', icon: Truck, nextStage: 'Shipped' },
+  Confirmed: { label: 'Send to packing', icon: Package, nextStage: 'Processing' },
+  Processing: { label: 'Hand over to courier', icon: Truck, nextStage: 'Shipped' },
   Shipped: { label: 'Mark out for delivery', icon: Truck, nextStage: 'Out for Delivery' },
   'Out for Delivery': { label: 'Mark delivered', icon: PackageCheck, nextStage: 'Delivered' },
 };

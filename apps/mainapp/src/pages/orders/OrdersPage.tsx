@@ -8,6 +8,7 @@ import {
   CreditCard,
   Download,
   Layers,
+  Lock,
   MessageCircle,
   Package,
   Phone,
@@ -20,14 +21,17 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import type { CancelReason, CourierAccountDTO, HoldReason, OrderDTO, OrderPaymentStatus, OrderStatsDTO, OrderTabKey, OrderTrendsDTO, StoreDTO } from '@zetsales/shared';
+import { useAuth } from '../../context/AuthContext';
 import { blockCustomer, bulkMarkPaymentCollected, bulkUpdateOrders, getOrderStats, getOrderTrends, listCouriers, listInventory, listOrders, listStores, unblockCustomer } from '../../lib/commerceApi';
 import { OrderDetailDrawer } from '../../components/orders/OrderDetailDrawer';
+import { CreateOrderModal } from '../../components/orders/CreateOrderModal';
 import { PrintOrderModal, type PrintDocType } from '../../components/orders/PrintOrderModal';
 import { CourierLabelModal } from '../../components/orders/CourierLabelModal';
+import { BulkShipModal, type HandoverDetails } from '../../components/orders/BulkShipModal';
 import { buildBinLookup, type BinLookup } from '../../components/orders/binLookup';
 import { ShopifyLogo, WooCommerceLogo } from '../../components/orders/platformLogos';
-import { STAGE_TONE, PAYMENT_METHOD_SHORT } from '../../components/orders/orderTone';
-import { ALL_HOLD_REASONS, CANCEL_REASONS_FOR_FILTER, holdReasonsForMany } from '../../components/orders/reasons';
+import { STAGE_TONE, STAGE_LABEL, PAYMENT_METHOD_SHORT, CLAIM_TONE } from '../../components/orders/orderTone';
+import { ALL_HOLD_REASONS, CANCEL_REASONS_FOR_FILTER, canCancel, canHold, holdReasonsForMany } from '../../components/orders/reasons';
 import { ImportOrdersModal } from '../../components/integrations/ImportOrdersModal';
 import { StatsRow } from '../../components/orders/StatsRow';
 import { ORDER_TABS } from '../../components/orders/tabs';
@@ -83,6 +87,7 @@ function TableSkeleton() {
 export function OrdersPage() {
   const toast = useToast();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [orders, setOrders] = useState<OrderDTO[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -113,9 +118,11 @@ export function OrdersPage() {
   const [newOrdersCount, setNewOrdersCount] = useState(0);
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
   const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [createOrderOpen, setCreateOrderOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [printDocType, setPrintDocType] = useState<PrintDocType | null>(null);
   const [labelModalOpen, setLabelModalOpen] = useState(false);
+  const [shipModalOpen, setShipModalOpen] = useState(false);
   const [binLookup, setBinLookup] = useState<BinLookup | undefined>(undefined);
   const searchRef = useRef<HTMLInputElement>(null);
   const knownTabCountRef = useRef<number | null>(null);
@@ -329,6 +336,24 @@ export function OrdersPage() {
     }
   };
 
+  // Folded into the order's own `note` field rather than a new dedicated field — no schema change,
+  // and it shows up wherever an order's note already does (drawer, history). Only the parts staff
+  // actually filled in appear; a rider pickup with no paperwork just logs the date.
+  function composeHandoverNote(details: HandoverDetails): string {
+    const parts = [`Handed to courier ${new Date(details.handoverAt).toLocaleString()}`];
+    if (details.pickupPersonName) parts.push(`by ${details.pickupPersonName}`);
+    if (details.pickupPersonPhone) parts.push(`(${details.pickupPersonPhone})`);
+    let note = parts.join(' ');
+    if (details.hvCode) note += ` — HV Code: ${details.hvCode}`;
+    if (details.remark) note += ` — ${details.remark}`;
+    return note;
+  }
+
+  const handleBulkMarkShipped = (details: HandoverDetails) => {
+    setShipModalOpen(false);
+    void runBulk(shippableSelectedIds, { stage: 'Shipped', note: composeHandoverNote(details) });
+  };
+
   // Not part of the order patch schema either — a courier COD settlement is a batch payout that
   // doesn't map onto the normal stage/hold/cancel patch shape, so this goes through its own
   // dedicated bulk endpoint (bulkMarkPaymentCollected) rather than runBulk/bulkUpdateOrders.
@@ -463,6 +488,27 @@ export function OrdersPage() {
     .filter((o) => o.paymentMethod === 'Cash on Delivery' && o.paymentStatus !== 'Collected' && ['Delivered', 'Partial Delivered'].includes(o.stage))
     .map((o) => o.id);
 
+  // Same reasoning as collectibleSelectedIds above — an action shouldn't be offered (or silently
+  // applied) for orders it doesn't make sense for. Confirm only ever applies to Pending/Flagged;
+  // Hold/Cancel already have their own per-stage eligibility rules (canHold/canCancel), same ones
+  // the single-order drawer already gates its own buttons with.
+  const confirmableSelectedOrders = selectedOrders.filter((o) => o.stage === 'Pending' || o.stage === 'Flagged');
+  const confirmableSelectedIds = confirmableSelectedOrders.map((o) => o.id);
+  const holdableSelectedOrders = selectedOrders.filter((o) => canHold(o.stage));
+  const holdableSelectedIds = holdableSelectedOrders.map((o) => o.id);
+  const cancellableSelectedIds = selectedOrders.filter((o) => canCancel(o.stage)).map((o) => o.id);
+  // Only orders actually in Processing can be marked Shipped — the fulfillment stock gate itself
+  // is still enforced per-order by bulkUpdateOrders regardless, this just keeps the button from
+  // offering itself at all when nothing selected is even at the right stage for it.
+  const shippableSelectedOrders = selectedOrders.filter((o) => o.stage === 'Processing');
+  const shippableSelectedIds = shippableSelectedOrders.map((o) => o.id);
+  const shippableCourierSummary = (() => {
+    const couriers = new Set(shippableSelectedOrders.map((o) => o.courierPartner ?? '').filter((c) => c !== ''));
+    if (couriers.size === 0) return 'No courier set';
+    if (couriers.size === 1) return [...couriers][0];
+    return 'Multiple couriers';
+  })();
+
   const copyOrderId = (order: OrderDTO, e: MouseEvent) => {
     e.stopPropagation();
     navigator.clipboard.writeText(order.number);
@@ -526,7 +572,7 @@ export function OrdersPage() {
             <Download size={14} /> Export
           </button>
           <button
-            onClick={() => toast.push('Create order flow is not connected yet.', 'info')}
+            onClick={() => setCreateOrderOpen(true)}
             className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-slate-800"
           >
             <Plus size={14} /> Create order
@@ -742,7 +788,17 @@ export function OrdersPage() {
                             </td>
                             <td className="px-3 py-3 whitespace-nowrap">
                               <p className="font-medium text-slate-700">{order.customerName || 'No name'}</p>
-                              {order.customerPhone && <p className="text-xs text-slate-400">{order.customerPhone}</p>}
+                              <div className="flex items-center gap-1.5">
+                                {order.customerPhone && <p className="text-xs text-slate-400">{order.customerPhone}</p>}
+                                {order.claimedBy && order.claimedBy.userId !== user?.id && (
+                                  <span
+                                    title={`${order.claimedBy.email} is currently calling this customer`}
+                                    className={clsx('inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset', CLAIM_TONE)}
+                                  >
+                                    <Lock size={9} /> {order.claimedBy.email.split('@')[0]}
+                                  </span>
+                                )}
+                              </div>
                             </td>
                             <td className="px-3 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                               <OrderProductsCell lineItems={order.lineItems} currency={order.currency} />
@@ -761,7 +817,7 @@ export function OrdersPage() {
                             </td>
                             <td className="px-3 py-3 whitespace-nowrap">
                               <span className={clsx('inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset', STAGE_TONE[order.stage])}>
-                                {order.stage}
+                                {STAGE_LABEL[order.stage]}
                               </span>
                             </td>
                             <td className="px-3 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
@@ -843,11 +899,20 @@ export function OrdersPage() {
         count={selected.size}
         busy={bulkBusy}
         onClear={() => setSelected(new Set())}
-        onConfirm={() => void runBulk([...selected], { stage: 'Confirmed' })}
-        onHold={(reason, note, rescheduledFor) => void runBulk([...selected], { stage: 'On Hold', holdReason: reason as HoldReason, note: note || null, rescheduledFor })}
-        onCancel={(reason, note) => void runBulk([...selected], { stage: 'Cancelled', cancelReason: reason as CancelReason, note: note || null })}
+        onConfirm={confirmableSelectedIds.length > 0 ? () => void runBulk(confirmableSelectedIds, { stage: 'Confirmed' }) : undefined}
+        onMarkShipped={shippableSelectedIds.length > 0 ? () => setShipModalOpen(true) : undefined}
+        onHold={
+          holdableSelectedIds.length > 0
+            ? (reason, note, rescheduledFor) => void runBulk(holdableSelectedIds, { stage: 'On Hold', holdReason: reason as HoldReason, note: note || null, rescheduledFor })
+            : undefined
+        }
+        onCancel={
+          cancellableSelectedIds.length > 0
+            ? (reason, note) => void runBulk(cancellableSelectedIds, { stage: 'Cancelled', cancelReason: reason as CancelReason, note: note || null })
+            : undefined
+        }
         onMarkCollected={collectibleSelectedIds.length > 0 ? () => void handleBulkMarkCollected(collectibleSelectedIds) : undefined}
-        holdReasons={holdReasonsForMany(selectedOrders.map((o) => o.stage))}
+        holdReasons={holdReasonsForMany(holdableSelectedOrders.map((o) => o.stage))}
         onPrintInvoices={() => setPrintDocType('invoice')}
         onPrintPackingSlips={() => {
           void loadBinLookup();
@@ -867,8 +932,8 @@ export function OrdersPage() {
         onOpenOrder={setActiveOrder}
         onClearFilters={clearFilters}
         onFocusSearch={() => searchRef.current?.focus()}
-        selectedCount={selected.size}
-        onBulkConfirmSelected={() => void runBulk([...selected], { stage: 'Confirmed' })}
+        selectedCount={confirmableSelectedIds.length}
+        onBulkConfirmSelected={() => void runBulk(confirmableSelectedIds, { stage: 'Confirmed' })}
       />
 
       <OrderDetailDrawer
@@ -878,8 +943,23 @@ export function OrdersPage() {
         onClose={() => setActiveOrder(null)}
         onUpdated={refreshAll}
       />
-      <PrintOrderModal open={printDocType !== null} onClose={() => setPrintDocType(null)} orders={selectedOrders} docType={printDocType ?? 'invoice'} binLookup={binLookup} />
+      <PrintOrderModal
+        open={printDocType !== null}
+        onClose={() => setPrintDocType(null)}
+        orders={selectedOrders}
+        docType={printDocType ?? 'invoice'}
+        binLookup={binLookup}
+        onOrdersProcessed={refreshAll}
+      />
       <CourierLabelModal open={labelModalOpen} onClose={() => setLabelModalOpen(false)} orders={selectedOrders} />
+      <BulkShipModal
+        open={shipModalOpen}
+        count={shippableSelectedIds.length}
+        courierSummary={shippableCourierSummary}
+        busy={bulkBusy}
+        onClose={() => setShipModalOpen(false)}
+        onSubmit={handleBulkMarkShipped}
+      />
       <ImportOrdersModal store={importTarget} onClose={() => setImportTarget(null)} onImported={handleImported} />
       <ExportOrdersModal
         open={exportModalOpen}
@@ -890,6 +970,16 @@ export function OrdersPage() {
         hasActiveFilters={!noFiltersActive}
         exporting={exporting}
         onExport={(scope, format) => void handleExport(scope, format)}
+      />
+      <CreateOrderModal
+        open={createOrderOpen}
+        onClose={() => setCreateOrderOpen(false)}
+        stores={stores}
+        onCreated={(order) => {
+          setCreateOrderOpen(false);
+          refreshAll();
+          setActiveOrder(order);
+        }}
       />
     </div>
   );

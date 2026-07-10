@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   X, MapPin, Phone, Mail, Package, PackageX, Ban, Printer, Loader2, Copy, Check, PauseCircle, PlayCircle, Pencil, PhoneCall, PhoneOff, MoreVertical,
-  UserX, UserCheck, FileText, ClipboardList, Tag, ChevronDown, Lock, Scissors, Banknote,
+  UserX, UserCheck, FileText, ClipboardList, Tag, ChevronDown, Lock, Scissors, Banknote, Plus,
 } from 'lucide-react';
 import clsx from 'clsx';
 import type { CallOutcome, CourierAccountDTO, CourierProvider, OrderDTO, OrderRiskDTO, OrderStage, StoreDTO } from '@zetsales/shared';
 import {
-  blockCustomer, createDeliveryZone, getOrder, listDeliveryZones, listInventory, markPaymentCollected, unblockCustomer, updateOrder,
-  type DeliveryZoneDTO,
+  blockCustomer, claimOrder, createDeliveryZone, getOrder, getOrderFulfillmentStatus, getProduct, heartbeatOrderClaim, listDeliveryZones, listInventory,
+  markPaymentCollected, releaseOrderClaim, unblockCustomer, updateOrder, upsellOrder, type DeliveryZoneDTO,
 } from '../../lib/commerceApi';
-import { STAGE_TONE, STAGE_ICON, PAYMENT_TONE } from './orderTone';
+import { STAGE_TONE, STAGE_ICON, STAGE_LABEL, PAYMENT_TONE, CLAIM_TONE } from './orderTone';
+import { ProductPicker, type PickedProduct } from '../adPerformance/ProductPicker';
 import { STAGE_ORDER, NEXT_ACTION, SECONDARY_ACTIONS } from './stageFlow';
 import { ALL_CANCEL_REASONS, CALL_OUTCOMES, canHold, canCancel, inferCancelReason, holdReasonsFor } from './reasons';
 import { ReasonNoteMenu } from './ReasonNoteMenu';
@@ -41,6 +42,10 @@ function formatFullDate(iso: string) {
 }
 
 const TERMINAL_STAGES = ['Delivered', 'Partial Delivered', 'Returned', 'Cancelled'];
+
+// Comfortably under the server's 60s claim TTL (see CLAIM_STALE_MS in claim.ts) so a couple of
+// slow/dropped beats don't bounce the claim to someone else while this tab is still active.
+const HEARTBEAT_INTERVAL_MS = 20_000;
 
 // Stages an order only reaches after it's physically left the warehouse. Used to decide whether a
 // missing tracking code is actually a problem yet — an order can have a courier partner picked
@@ -95,7 +100,7 @@ function StageStepper({ order }: { order: OrderDTO }) {
                   {i + 1}
                 </div>
                 <span className={clsx('max-w-[64px] text-center text-[10px] leading-tight', done ? 'text-slate-700 font-medium' : 'text-slate-400')}>
-                  {stage}
+                  {STAGE_LABEL[stage]}
                 </span>
               </div>
               {i < STAGE_ORDER.length - 1 && (
@@ -146,8 +151,31 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
   const [packModalOpen, setPackModalOpen] = useState(false);
   const [packBusy, setPackBusy] = useState(false);
   const [confirmShipNoCourier, setConfirmShipNoCourier] = useState(false);
+  // Set only when *another* agent currently holds the claim — never for the viewer's own claim, so
+  // this alone can gate the "someone else is on this" banner and disable the calling actions.
+  const [lockedByOther, setLockedByOther] = useState<string | null>(null);
+  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState('');
+  const [editingPhone, setEditingPhone] = useState(false);
+  const [phoneInput, setPhoneInput] = useState('');
+  const [editingAltPhone, setEditingAltPhone] = useState(false);
+  const [altPhoneInput, setAltPhoneInput] = useState('');
+  const [editingAddress, setEditingAddress] = useState(false);
+  const [addressInput, setAddressInput] = useState('');
+  const [addProductOpen, setAddProductOpen] = useState(false);
+  const [upsellPicked, setUpsellPicked] = useState<PickedProduct | null>(null);
+  const [upsellVariants, setUpsellVariants] = useState<{ id: string; label: string; price: number }[]>([]);
+  const [upsellVariantId, setUpsellVariantId] = useState('');
+  const [upsellQuantity, setUpsellQuantity] = useState('1');
+  const [upsellLoadingVariants, setUpsellLoadingVariants] = useState(false);
+  const [upsellSubmitting, setUpsellSubmitting] = useState(false);
   const [binLookup, setBinLookup] = useState<BinLookup | undefined>(undefined);
   const [stockLookup, setStockLookup] = useState<StockLookup | undefined>(undefined);
+  // null means "unknown" (not yet loaded, or the check failed) — treated as not-blocking, same
+  // fail-open posture as binLookup/stockLookup above. The server's own hard gate on the actual PATCH
+  // is the real enforcement; this is only what lets the button explain itself before someone clicks.
+  const [fulfillmentStatus, setFulfillmentStatus] = useState<{ ready: boolean; reason: string | null } | null>(null);
 
   // Bin + free-stock lookup, from one shared fetch — bin numbers back the packing slip and the
   // pick/pack checklist (resolved per-order against `fulfillmentWarehouseId`, see binLookup.ts for
@@ -178,10 +206,11 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
   const refresh = async (id: string, { silent }: { silent?: boolean } = {}) => {
     if (!silent) setLoading(true);
     try {
-      const res = await getOrder(id);
+      const [res, fulfillment] = await Promise.all([getOrder(id), getOrderFulfillmentStatus(id).catch(() => null)]);
       setDetail(res.order);
       setRisk(res.risk);
       setTrackingInput(res.order.courierTrackingId ?? '');
+      setFulfillmentStatus(fulfillment ? { ready: fulfillment.ready, reason: fulfillment.reason } : null);
     } catch {
       toast.push('Could not load order details.', 'info');
     } finally {
@@ -199,10 +228,53 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
     }
     setAddingZone(false);
     setNewZoneName('');
+
+    // Claim this order for the duration it's open in this drawer, so no other agent's queue treats
+    // it as up-for-grabs. Heartbeats keep it alive; the cleanup below (order change or unmount)
+    // releases it — that covers both "switched to a different order" and "closed the drawer", since
+    // the parent unmounts/nulls `order` on close rather than keeping this component mounted.
+    const orderId = order?.id;
+    setLockedByOther(null);
+    if (orderId) {
+      void claimOrder(orderId)
+        .then(() => {
+          heartbeatRef.current = setInterval(() => {
+            void heartbeatOrderClaim(orderId).catch(() => {
+              if (heartbeatRef.current) {
+                clearInterval(heartbeatRef.current);
+                heartbeatRef.current = null;
+              }
+            });
+          }, HEARTBEAT_INTERVAL_MS);
+        })
+        .catch((err) => {
+          setLockedByOther(err instanceof Error ? err.message : 'This order is currently locked.');
+        });
+    }
+
+    return () => {
+      if (heartbeatRef.current) {
+        clearInterval(heartbeatRef.current);
+        heartbeatRef.current = null;
+      }
+      if (orderId) void releaseOrderClaim(orderId).catch(() => {});
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order?.id]);
 
   const holdReasons = useMemo(() => holdReasonsFor(detail?.stage ?? 'Pending'), [detail?.stage]);
+
+  // A stage change means the call this claim was protecting is resolved — release it immediately
+  // rather than waiting for the drawer to close, so the order isn't needlessly locked if staff keep
+  // it open to review after acting.
+  const releaseClaim = async () => {
+    if (!order) return;
+    if (heartbeatRef.current) {
+      clearInterval(heartbeatRef.current);
+      heartbeatRef.current = null;
+    }
+    await releaseOrderClaim(order.id).catch(() => {});
+  };
 
   const apply = async (payload: Parameters<typeof updateOrder>[1]) => {
     if (!order) return;
@@ -210,8 +282,9 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
       await updateOrder(order.id, payload);
       await refresh(order.id, { silent: true });
       onUpdated();
-    } catch {
-      toast.push('Could not update this order.', 'info');
+      if (payload.stage) void releaseClaim();
+    } catch (err) {
+      toast.push(err instanceof Error ? err.message : 'Could not update this order.', 'info');
     }
   };
 
@@ -229,6 +302,16 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
   }, [detail?.id, detail?.courierPartner, couriers]);
 
   if (!order) return null;
+
+  // Deliberate hand-back (wrong number, escalating to a supervisor) — closes the drawer since
+  // staying open without holding the claim would leave the buttons enabled for a call this agent
+  // just said they're not making.
+  const handleReleaseClaim = async () => {
+    await releaseClaim();
+    toast.push('Released — back in the queue for anyone to pick up.', 'success');
+    onUpdated();
+    onClose();
+  };
 
   const toggleBlock = async (next: boolean, note: string | null) => {
     try {
@@ -295,6 +378,73 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
     setEditingDiscount(false);
   };
 
+  const saveName = () => {
+    const trimmed = nameInput.trim();
+    if (trimmed) void apply({ customerName: trimmed });
+    setEditingName(false);
+  };
+
+  const savePhone = () => {
+    const trimmed = phoneInput.trim();
+    if (trimmed) void apply({ customerPhone: trimmed });
+    setEditingPhone(false);
+  };
+
+  const saveAltPhone = () => {
+    void apply({ customerAltPhone: altPhoneInput.trim() || null });
+    setEditingAltPhone(false);
+  };
+
+  const saveAddress = () => {
+    void apply({ address: addressInput.trim() || null });
+    setEditingAddress(false);
+  };
+
+  // Reset to a blank picker every time the modal opens rather than carrying over the last pick —
+  // an upsell is a one-off add per call, not something staff would want to repeat by accident.
+  const openAddProduct = () => {
+    setUpsellPicked(null);
+    setUpsellVariants([]);
+    setUpsellVariantId('');
+    setUpsellQuantity('1');
+    setAddProductOpen(true);
+  };
+
+  const handlePickUpsellProduct = async (picked: PickedProduct) => {
+    setUpsellPicked(picked);
+    setUpsellVariants([]);
+    setUpsellVariantId('');
+    setUpsellLoadingVariants(true);
+    try {
+      const res = await getProduct(picked.id);
+      const variants = res.product.variants.map((v) => ({ id: v.id, label: [v.title, v.optionValues.join(' / ')].filter(Boolean).join(' — ') || 'Default', price: v.price }));
+      setUpsellVariants(variants);
+      setUpsellVariantId(variants[0]?.id ?? '');
+    } catch {
+      toast.push('Could not load this product.', 'info');
+    } finally {
+      setUpsellLoadingVariants(false);
+    }
+  };
+
+  const submitUpsell = async () => {
+    if (!order || !upsellPicked || !upsellVariantId) return;
+    const quantity = Number(upsellQuantity);
+    if (!Number.isFinite(quantity) || quantity < 1) return;
+    setUpsellSubmitting(true);
+    try {
+      await upsellOrder(order.id, { productId: upsellPicked.id, variantId: upsellVariantId, quantity });
+      await refresh(order.id, { silent: true });
+      onUpdated();
+      toast.push('Product added.', 'success');
+      setAddProductOpen(false);
+    } catch (err) {
+      toast.push(err instanceof Error ? err.message : 'Could not add this product.', 'info');
+    } finally {
+      setUpsellSubmitting(false);
+    }
+  };
+
   const avatar = detail ? avatarFromName(detail.customerName) : null;
   const feeLocked = detail ? TERMINAL_STAGES.includes(detail.stage) : false;
   // Once a real consignment exists, the courier already has the parcel — changing "Partner" at that
@@ -311,11 +461,19 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
     : false;
   const primaryAction = detail ? NEXT_ACTION[detail.stage] : undefined;
   const secondaryActions = detail ? SECONDARY_ACTIONS[detail.stage] ?? [] : [];
+  // The only two manual actions that actually require physical stock to be on hand — "Process
+  // order" (about to start picking) and "Mark shipped" (about to hand off what was picked). Every
+  // other stage's forward action (confirming, marking delivered, etc.) isn't gated by this at all.
+  const fulfillmentBlocked =
+    Boolean(detail) &&
+    (detail!.stage === 'Confirmed' || detail!.stage === 'Processing') &&
+    fulfillmentStatus != null &&
+    !fulfillmentStatus.ready;
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} />
-      <div className="relative flex h-full w-full max-w-xl flex-col bg-white shadow-2xl">
+      <div className="absolute inset-0 animate-fade-in bg-slate-900/40" onClick={onClose} />
+      <div className="relative flex h-full w-full max-w-2xl animate-slide-in-right flex-col bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <div>
             <h2 className="text-lg font-bold text-slate-900">{order.number}</h2>
@@ -327,6 +485,24 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
             <X size={18} />
           </button>
         </div>
+
+        {lockedByOther && (
+          <div className={clsx('mx-6 mt-3 flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium ring-1 ring-inset', CLAIM_TONE)}>
+            <Lock size={13} className="shrink-0" />
+            <span className="flex-1">{lockedByOther} You can view this order, but can't log a call or change its stage until it's released.</span>
+          </div>
+        )}
+
+        {!lockedByOther && !loading && detail && (
+          <div className="mx-6 mt-3 flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+            <span className="flex items-center gap-1.5">
+              <Lock size={12} /> You're calling this customer.
+            </span>
+            <button onClick={handleReleaseClaim} className="font-semibold text-indigo-600 hover:text-indigo-700">
+              Release
+            </button>
+          </div>
+        )}
 
         {loading || !detail ? (
           <div className="flex-1 py-16 text-center text-sm text-slate-400">Loading...</div>
@@ -344,7 +520,7 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                     const Icon = STAGE_ICON[detail.stage];
                     return <Icon size={11} />;
                   })()}
-                  {detail.stage}
+                  {STAGE_LABEL[detail.stage]}
                 </span>
                 <span className={clsx('inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset', PAYMENT_TONE[detail.paymentStatus])}>
                   {detail.paymentStatus}
@@ -386,7 +562,39 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                     <div className={clsx('flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold text-white', avatar.color)}>{avatar.initials}</div>
                   )}
                   <div>
-                    <p className="text-sm font-semibold text-slate-800">{detail.customerName || 'No name'}</p>
+                    {editingName ? (
+                      <span className="flex items-center gap-1">
+                        <input
+                          autoFocus
+                          value={nameInput}
+                          onChange={(e) => setNameInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') saveName();
+                            if (e.key === 'Escape') setEditingName(false);
+                          }}
+                          className="w-40 rounded border border-slate-300 px-1.5 py-0.5 text-sm outline-none focus:border-indigo-400"
+                        />
+                        <button onClick={saveName} className="text-emerald-600 hover:text-emerald-700">
+                          <Check size={13} />
+                        </button>
+                        <button onClick={() => setEditingName(false)} className="text-slate-400 hover:text-slate-600">
+                          <X size={13} />
+                        </button>
+                      </span>
+                    ) : lockedByOther ? (
+                      <p className="text-sm font-semibold text-slate-800">{detail.customerName || 'No name'}</p>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setNameInput(detail.customerName ?? '');
+                          setEditingName(true);
+                        }}
+                        className="flex items-center gap-1 text-sm font-semibold text-slate-800 hover:text-indigo-600"
+                      >
+                        {detail.customerName || 'No name'}
+                        <Pencil size={11} className="text-slate-300" />
+                      </button>
+                    )}
                     {risk && (
                       <p className="text-xs text-slate-400">
                         {risk.totalOrders} past order{risk.totalOrders === 1 ? '' : 's'}
@@ -408,12 +616,48 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                 <div className="mt-3 space-y-1.5 text-sm text-slate-600">
                   {detail.customerPhone && (
                     <div className="flex items-center gap-2">
-                      <Phone size={13} className="text-slate-400 shrink-0" /> {detail.customerPhone}
+                      <Phone size={13} className="text-slate-400 shrink-0" />
+                      {editingPhone ? (
+                        <span className="flex items-center gap-1">
+                          <input
+                            autoFocus
+                            value={phoneInput}
+                            onChange={(e) => setPhoneInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') savePhone();
+                              if (e.key === 'Escape') setEditingPhone(false);
+                            }}
+                            className="w-32 rounded border border-slate-300 px-1.5 py-0.5 text-sm outline-none focus:border-indigo-400"
+                          />
+                          <button onClick={savePhone} className="text-emerald-600 hover:text-emerald-700">
+                            <Check size={13} />
+                          </button>
+                          <button onClick={() => setEditingPhone(false)} className="text-slate-400 hover:text-slate-600">
+                            <X size={13} />
+                          </button>
+                        </span>
+                      ) : lockedByOther ? (
+                        <span>{detail.customerPhone}</span>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            setPhoneInput(detail.customerPhone ?? '');
+                            setEditingPhone(true);
+                          }}
+                          className="flex items-center gap-1 hover:text-indigo-600"
+                        >
+                          {detail.customerPhone}
+                          <Pencil size={11} className="text-slate-300" />
+                        </button>
+                      )}
                       {detail.callAttempts > 0 && (
                         <span className="text-[11px] text-slate-400">
                           ({detail.callAttempts} call{detail.callAttempts > 1 ? 's' : ''})
                         </span>
                       )}
+                      {lockedByOther ? (
+                        <span className="text-[11px] font-medium text-slate-300">Log call</span>
+                      ) : (
                       <Popover
                         align="left"
                         widthClass="w-48"
@@ -440,18 +684,97 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                           </div>
                         )}
                       </Popover>
+                      )}
                     </div>
                   )}
+                  <div className="flex items-center gap-2">
+                    <Phone size={13} className="text-slate-300 shrink-0" />
+                    {editingAltPhone ? (
+                      <span className="flex items-center gap-1">
+                        <input
+                          autoFocus
+                          value={altPhoneInput}
+                          onChange={(e) => setAltPhoneInput(e.target.value)}
+                          placeholder="Alternative number"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') saveAltPhone();
+                            if (e.key === 'Escape') setEditingAltPhone(false);
+                          }}
+                          className="w-32 rounded border border-slate-300 px-1.5 py-0.5 text-sm outline-none focus:border-indigo-400"
+                        />
+                        <button onClick={saveAltPhone} className="text-emerald-600 hover:text-emerald-700">
+                          <Check size={13} />
+                        </button>
+                        <button onClick={() => setEditingAltPhone(false)} className="text-slate-400 hover:text-slate-600">
+                          <X size={13} />
+                        </button>
+                      </span>
+                    ) : lockedByOther ? (
+                      detail.customerAltPhone && (
+                        <span className="text-slate-500">
+                          {detail.customerAltPhone} <span className="text-[10px] text-slate-400">(alt)</span>
+                        </span>
+                      )
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setAltPhoneInput(detail.customerAltPhone ?? '');
+                          setEditingAltPhone(true);
+                        }}
+                        className="flex items-center gap-1 text-slate-500 hover:text-indigo-600"
+                      >
+                        {detail.customerAltPhone ? (
+                          <>
+                            {detail.customerAltPhone} <span className="text-[10px] text-slate-400">(alt)</span>
+                          </>
+                        ) : (
+                          '+ Add alternative number'
+                        )}
+                        <Pencil size={11} className="text-slate-300" />
+                      </button>
+                    )}
+                  </div>
                   {detail.customerEmail && (
                     <div className="flex items-center gap-2">
                       <Mail size={13} className="text-slate-400 shrink-0" /> {detail.customerEmail}
                     </div>
                   )}
-                  {(detail.address || detail.deliveryZone) && (
-                    <div className="flex items-center gap-2">
-                      <MapPin size={13} className="text-slate-400 shrink-0" /> {[detail.address, detail.deliveryZone].filter(Boolean).join(' · ')}
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <MapPin size={13} className="text-slate-400 shrink-0" />
+                    {editingAddress ? (
+                      <span className="flex flex-1 items-center gap-1">
+                        <input
+                          autoFocus
+                          value={addressInput}
+                          onChange={(e) => setAddressInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') saveAddress();
+                            if (e.key === 'Escape') setEditingAddress(false);
+                          }}
+                          className="w-full rounded border border-slate-300 px-1.5 py-0.5 text-sm outline-none focus:border-indigo-400"
+                        />
+                        <button onClick={saveAddress} className="text-emerald-600 hover:text-emerald-700 shrink-0">
+                          <Check size={13} />
+                        </button>
+                        <button onClick={() => setEditingAddress(false)} className="text-slate-400 hover:text-slate-600 shrink-0">
+                          <X size={13} />
+                        </button>
+                      </span>
+                    ) : lockedByOther ? (
+                      <span>{[detail.address, detail.deliveryZone].filter(Boolean).join(' · ') || 'No address'}</span>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setAddressInput(detail.address ?? '');
+                          setEditingAddress(true);
+                        }}
+                        className="flex items-center gap-1 text-left hover:text-indigo-600"
+                      >
+                        {detail.address ? [detail.address, detail.deliveryZone].filter(Boolean).join(' · ') : detail.deliveryZone || '+ Add address'}
+                        <Pencil size={11} className="shrink-0 text-slate-300" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </section>
 
@@ -459,7 +782,7 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                 <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Courier</h3>
                 {needsTrackingCode && (
                   <div className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
-                    Shipped, but no tracking code yet — {detail.courierPartner} isn't connected via API for this order. Enter the code from your booking below.
+                    Handed to courier, but no tracking code yet — {detail.courierPartner} isn't connected via API for this order. Enter the code from your booking below.
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-3">
@@ -602,6 +925,16 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                     </div>
                   ))}
                 </div>
+                {(detail.stage === 'Pending' || detail.stage === 'Flagged') && (
+                  <button
+                    onClick={openAddProduct}
+                    disabled={!!lockedByOther}
+                    title={lockedByOther ?? undefined}
+                    className="mt-3 flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-700 disabled:cursor-not-allowed disabled:text-slate-300"
+                  >
+                    <Plus size={13} /> Add product
+                  </button>
+                )}
                 <div className="mt-4 space-y-1.5 border-t border-slate-100 pt-3 text-sm">
                   <div className="flex justify-between text-slate-500">
                     <span>Subtotal</span>
@@ -740,22 +1073,31 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
 
             <div className="flex flex-wrap gap-2 border-t border-slate-200 px-6 py-4">
               {primaryAction && (
-                <button
-                  onClick={() => {
-                    // Processing -> Shipped is the "hand it off" moment — gate it behind the
-                    // pick/pack checklist instead of advancing the stage on a single click, so
-                    // staff actually look at what's in the box before it leaves the building.
-                    if (detail.stage === 'Processing') {
-                      void loadInventorySnapshot();
-                      setPackModalOpen(true);
-                    } else {
-                      apply({ stage: primaryAction.nextStage });
-                    }
-                  }}
-                  className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-slate-800 transition-colors"
-                >
-                  <primaryAction.icon size={14} /> {primaryAction.label}
-                </button>
+                <div className="flex flex-col gap-1">
+                  <button
+                    onClick={() => {
+                      if (fulfillmentBlocked) return;
+                      // Processing -> Shipped is the "hand it off" moment — gate it behind the
+                      // pick/pack checklist instead of advancing the stage on a single click, so
+                      // staff actually look at what's in the box before it leaves the building.
+                      if (detail.stage === 'Processing') {
+                        void loadInventorySnapshot();
+                        setPackModalOpen(true);
+                      } else {
+                        apply({ stage: primaryAction.nextStage });
+                      }
+                    }}
+                    disabled={fulfillmentBlocked || !!lockedByOther}
+                    title={lockedByOther ?? (fulfillmentBlocked ? (fulfillmentStatus?.reason ?? undefined) : undefined)}
+                    className={clsx(
+                      'flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-semibold transition-colors',
+                      fulfillmentBlocked || lockedByOther ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-slate-900 text-white hover:bg-slate-800'
+                    )}
+                  >
+                    <primaryAction.icon size={14} /> {primaryAction.label}
+                  </button>
+                  {fulfillmentBlocked && fulfillmentStatus?.reason && <p className="max-w-xs text-[11px] text-amber-700">{fulfillmentStatus.reason}</p>}
+                </div>
               )}
               {detail.stage === 'Out for Delivery' && (
                 <button
@@ -769,7 +1111,8 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                 <button
                   key={action.label}
                   onClick={() => apply({ stage: action.nextStage })}
-                  className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+                  disabled={!!lockedByOther}
+                  className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
                 >
                   <action.icon size={14} /> {action.label}
                 </button>
@@ -777,7 +1120,8 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
               {detail.stage === 'On Hold' && (
                 <button
                   onClick={() => void apply({ resume: true })}
-                  className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-slate-800 transition-colors"
+                  disabled={!!lockedByOther}
+                  className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-slate-900"
                 >
                   <PlayCircle size={14} /> Resume
                 </button>
@@ -957,8 +1301,57 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
           onUpdated();
         }}
       />
-      <PrintOrderModal open={printDocType !== null} onClose={() => setPrintDocType(null)} orders={detail ? [detail] : []} docType={printDocType ?? 'invoice'} binLookup={binLookup} />
+      <PrintOrderModal
+        open={printDocType !== null}
+        onClose={() => setPrintDocType(null)}
+        orders={detail ? [detail] : []}
+        docType={printDocType ?? 'invoice'}
+        binLookup={binLookup}
+        onOrdersProcessed={() => {
+          void refresh(order.id, { silent: true });
+          onUpdated();
+        }}
+      />
       <CourierLabelModal open={labelModalOpen} onClose={() => setLabelModalOpen(false)} orders={detail ? [detail] : []} />
+      <Modal open={addProductOpen} onClose={() => setAddProductOpen(false)} title="Add product" subtitle="Upsell an extra item onto this order before it's confirmed.">
+        <div className="space-y-3">
+          <ProductPicker value={upsellPicked} onChange={(p) => void handlePickUpsellProduct(p)} />
+          {upsellLoadingVariants ? (
+            <p className="text-xs text-slate-400">Loading variants...</p>
+          ) : (
+            upsellPicked &&
+            upsellVariants.length > 0 && (
+              <>
+                {upsellVariants.length > 1 && (
+                  <Select value={upsellVariantId} onChange={setUpsellVariantId} options={upsellVariants.map((v) => ({ value: v.id, label: v.label }))} />
+                )}
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-medium text-slate-500">Quantity</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={upsellQuantity}
+                    onChange={(e) => setUpsellQuantity(e.target.value)}
+                    className="w-20 rounded-lg border border-slate-200 px-2 py-1 text-sm outline-none focus:border-indigo-400"
+                  />
+                </div>
+              </>
+            )
+          )}
+          <div className="flex justify-end gap-2 pt-1">
+            <button onClick={() => setAddProductOpen(false)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+              Cancel
+            </button>
+            <button
+              onClick={submitUpsell}
+              disabled={!upsellPicked || !upsellVariantId || upsellSubmitting}
+              className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {upsellSubmitting ? 'Adding...' : 'Add to order'}
+            </button>
+          </div>
+        </div>
+      </Modal>
       <PackOrderModal
         open={packModalOpen}
         order={detail}

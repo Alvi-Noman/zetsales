@@ -272,6 +272,10 @@ export interface OrderTimelineEventDTO {
     at: string;
     by?: string | null;
 }
+export type OrderClaimDTO = {
+    userId: string;
+    email: string;
+} | null;
 export interface OrderDTO {
     id: string;
     storeId: string;
@@ -290,6 +294,7 @@ export interface OrderDTO {
     tags: string[];
     customerName: string | null;
     customerPhone: string | null;
+    customerAltPhone: string | null;
     customerEmail: string | null;
     address: string | null;
     lineItems: OrderLineItemDTO[];
@@ -320,6 +325,8 @@ export interface OrderDTO {
     cogsTotal: number | null;
     createdAt: string;
     updatedAt: string;
+    claimedBy: OrderClaimDTO;
+    claimedAt: string | null;
 }
 export type OrderTabKey = 'all' | 'priority' | 'pending' | 'confirmed' | 'processing' | 'shipped' | 'returning' | 'delivered' | 'codDue' | 'hold' | 'cancelled';
 export interface OrderDailyStatDTO {
@@ -660,6 +667,8 @@ export interface CallCenterQueueItemDTO {
     waitingMinutes: number;
     lastOutcome: string | null;
     isPriorityCall: boolean;
+    claimedBy: OrderClaimDTO;
+    claimedAt: string | null;
 }
 export interface CallCenterHourlyVolumeDTO {
     hour: number;

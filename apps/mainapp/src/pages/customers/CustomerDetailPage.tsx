@@ -3,7 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Ban, Calendar, Mail, MapPin, Package, Phone, ShieldCheck, Wallet } from 'lucide-react';
 import clsx from 'clsx';
 import { blockCustomer, getCustomer, listCustomerOrders, unblockCustomer } from '../../lib/commerceApi';
-import type { CustomerDetailDTO, CustomerOrderRowDTO } from '@zetsales/shared';
+import type { CustomerDetailDTO, CustomerOrderRowDTO, OrderStage } from '@zetsales/shared';
+import { STAGE_LABEL } from '../../components/orders/orderTone';
 import { useToast } from '../../components/ui/ToastProvider';
 
 function money(value: number) {
@@ -167,7 +168,7 @@ export function CustomerDetailPage() {
                       <td className="px-4 py-3 font-medium text-slate-800">#{o.number}</td>
                       <td className="px-4 py-3 text-slate-500">{new Date(o.createdAt).toLocaleDateString()}</td>
                       <td className="px-4 py-3">
-                        <span className={clsx('rounded-full px-2 py-0.5 text-xs font-medium', STAGE_TONE[o.stage] ?? 'bg-slate-100 text-slate-600')}>{o.stage}</span>
+                        <span className={clsx('rounded-full px-2 py-0.5 text-xs font-medium', STAGE_TONE[o.stage] ?? 'bg-slate-100 text-slate-600')}>{STAGE_LABEL[o.stage as OrderStage] ?? o.stage}</span>
                       </td>
                       <td className="px-4 py-3 text-slate-500">{o.paymentStatus}</td>
                       <td className="px-4 py-3 text-right font-semibold tabular-nums text-slate-800">{money(o.total)}</td>

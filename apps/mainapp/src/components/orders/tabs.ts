@@ -5,7 +5,7 @@ export const ORDER_TABS: { key: OrderTabKey; label: string }[] = [
   { key: 'priority', label: 'Priority calls' },
   { key: 'pending', label: 'Pending' },
   { key: 'confirmed', label: 'Confirmed' },
-  { key: 'processing', label: 'Processing' },
+  { key: 'processing', label: 'Packing' },
   { key: 'shipped', label: 'In transit' },
   { key: 'returning', label: 'Returning' },
   { key: 'delivered', label: 'Delivered' },

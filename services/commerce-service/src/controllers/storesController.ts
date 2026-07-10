@@ -39,7 +39,7 @@ async function registerShopifyProductWebhooks(shopDomain: string, accessToken: s
   }
 }
 
-function toStoreDto(doc: any, orderCount = 0): StoreDTO {
+function toStoreDto(doc: any, orderCount = 0, productCount = doc.productCount ?? 0): StoreDTO {
   return {
     id: doc._id.toString(),
     platform: doc.platform,
@@ -48,25 +48,30 @@ function toStoreDto(doc: any, orderCount = 0): StoreDTO {
     status: doc.status,
     connectionMethod: doc.connectionMethod,
     lastSyncedAt: doc.lastSyncedAt ? new Date(doc.lastSyncedAt).toISOString() : null,
-    productCount: doc.productCount ?? 0,
+    productCount,
     orderCount,
     createdAt: new Date(doc.createdAt).toISOString(),
   };
 }
 
-// orderCount is computed live (not stored on the store doc, unlike productCount) so it never
-// drifts out of sync with orders arriving continuously via webhook — the Orders/Products pages
-// use it to only show the "import your history" prompt for a store that's genuinely never been
-// imported, instead of every time the page loads.
+// Counts are computed live so webhook/manual import writes cannot leave stale store badges.
 export async function listStores(req: AuthenticatedRequest, res: Response) {
   const db = getDb();
   const tenantId = req.user!.tenantId!;
-  const [stores, orderCounts] = await Promise.all([
+  const [stores, orderCounts, productCounts] = await Promise.all([
     db.collection('stores').find({ tenantId }).sort({ createdAt: -1 }).toArray(),
     db.collection('orders').aggregate([{ $match: { tenantId } }, { $group: { _id: '$storeId', count: { $sum: 1 } } }]).toArray(),
+    db.collection('products').aggregate([{ $match: { tenantId } }, { $group: { _id: '$storeId', count: { $sum: 1 } } }]).toArray(),
   ]);
   const orderCountByStore = new Map(orderCounts.map((o) => [o._id as string, o.count as number]));
-  res.json({ success: true, stores: stores.map((s) => toStoreDto(s, orderCountByStore.get(s._id.toString()) ?? 0)) });
+  const productCountByStore = new Map(productCounts.map((p) => [p._id as string, p.count as number]));
+  res.json({
+    success: true,
+    stores: stores.map((s) => {
+      const storeId = s._id.toString();
+      return toStoreDto(s, orderCountByStore.get(storeId) ?? 0, productCountByStore.get(storeId) ?? 0);
+    }),
+  });
 }
 
 export async function capabilities(_req: AuthenticatedRequest, res: Response) {

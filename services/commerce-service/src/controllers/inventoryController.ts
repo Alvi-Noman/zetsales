@@ -313,10 +313,238 @@ export async function listInventory(req: AuthenticatedRequest, res: Response) {
   res.json({ success: true, levels: levels.map(levelDto), movements: movements.map(movementDto), velocityByVariantId });
 }
 
-// The full, filterable Movement Ledger — distinct from listInventory's unfiltered "last 50"
-// glance, which exists purely to seed the Inventory page's recent-activity sidebar. `reasons`
-// returns whatever reason strings actually exist for this tenant (not a hardcoded list), so the
-// filter dropdown can never drift out of sync with what the data actually contains.
+// Pre-confirm demand that cannot be covered by free stock. This stays in Inventory because the
+// output is a supplier purchase need, even though the source signal is open orders.
+function normalizeComparable(value: unknown) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function matchesVariantLabel(level: any, variant: string | null | undefined) {
+  const normalizedVariant = normalizeComparable(variant);
+  if (!normalizedVariant) return false;
+  return normalizeComparable(level.variantLabel) === normalizedVariant;
+}
+
+function shortfallOrderStage(order: any): OrderStage {
+  return order.stage === 'On Hold' ? (order.heldFromStage ?? 'Pending') : order.stage;
+}
+
+export async function listStockShortfalls(req: AuthenticatedRequest, res: Response) {
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+
+  const [orders, levels] = await Promise.all([
+    db
+      .collection('orders')
+      .find({
+        tenantId,
+        'lineItems.sku': { $exists: true, $nin: [null, ''] },
+        $or: [
+          { stage: { $in: ['Pending', 'Flagged'] } },
+          { stage: 'On Hold', heldFromStage: { $in: ['Pending', 'Flagged'] } },
+        ],
+      })
+      .project({
+        number: 1,
+        stage: 1,
+        heldFromStage: 1,
+        customerName: 1,
+        customerPhone: 1,
+        lineItems: 1,
+        createdAt: 1,
+        updatedAt: 1,
+      })
+      .sort({ createdAt: 1 })
+      .toArray(),
+    db.collection('inventoryLevels').find({ tenantId, sku: { $exists: true, $nin: [null, ''] } }).toArray(),
+  ]);
+
+  const levelsBySku = new Map<string, any[]>();
+  for (const level of levels) {
+    if (!level.sku) continue;
+    const list = levelsBySku.get(level.sku) ?? [];
+    list.push(level);
+    levelsBySku.set(level.sku, list);
+  }
+
+  const groups = new Map<string, {
+    productId: string | null;
+    variantId: string | null;
+    sku: string;
+    productTitle: string | null;
+    productImage: string | null;
+    variantLabel: string | null;
+    levels: any[];
+    orderLines: {
+      orderId: string;
+      orderNumber: string;
+      customerName: string | null;
+      customerPhone: string | null;
+      stage: OrderStage;
+      displayStage: OrderStage;
+      quantity: number;
+      createdAt: Date;
+      updatedAt: Date;
+    }[];
+  }>();
+
+  for (const order of orders) {
+    for (const item of order.lineItems ?? []) {
+      if (!item.sku || !item.quantity) continue;
+      const candidates = levelsBySku.get(item.sku) ?? [];
+      if (candidates.length === 0) continue;
+
+      const variantMatches = candidates.filter((level) => matchesVariantLabel(level, item.variant));
+      const pool = variantMatches.length > 0 ? variantMatches : candidates;
+      const displayLevel = pool[0];
+      const groupKey = variantMatches.length > 0
+        ? `${displayLevel.productId ?? item.sku}::${displayLevel.variantId ?? normalizeComparable(item.variant)}`
+        : `${item.sku}::${normalizeComparable(item.variant)}`;
+
+      const group = groups.get(groupKey) ?? {
+        productId: displayLevel.productId ?? null,
+        variantId: displayLevel.variantId ?? null,
+        sku: item.sku,
+        productTitle: displayLevel.productTitle ?? item.title ?? null,
+        productImage: displayLevel.productImage ?? null,
+        variantLabel: displayLevel.variantLabel ?? item.variant ?? null,
+        levels: pool,
+        orderLines: [] as {
+          orderId: string;
+          orderNumber: string;
+          customerName: string | null;
+          customerPhone: string | null;
+          stage: OrderStage;
+          displayStage: OrderStage;
+          quantity: number;
+          createdAt: Date;
+          updatedAt: Date;
+        }[],
+      };
+      group.orderLines.push({
+        orderId: order._id.toString(),
+        orderNumber: order.number,
+        customerName: order.customerName ?? null,
+        customerPhone: order.customerPhone ?? null,
+        stage: order.stage,
+        displayStage: shortfallOrderStage(order),
+        quantity: Number(item.quantity) || 0,
+        createdAt: new Date(order.createdAt),
+        updatedAt: new Date(order.updatedAt ?? order.createdAt),
+      });
+      groups.set(groupKey, group);
+    }
+  }
+
+  const rows = [];
+  for (const group of groups.values()) {
+    const locations = group.levels.map((level) => {
+      const free = Math.max(0, (level.onHand ?? 0) - (level.reserved ?? 0));
+      return {
+        warehouseId: level.warehouseId,
+        warehouseName: level.warehouseName,
+        bin: level.bin,
+        onHand: level.onHand ?? 0,
+        reserved: level.reserved ?? 0,
+        free,
+        inbound: level.inbound ?? 0,
+        reorderPoint: level.reorderPoint ?? null,
+      };
+    });
+    const availableNow = locations.reduce((sum, location) => sum + location.free, 0);
+    const inbound = locations.reduce((sum, location) => sum + location.inbound, 0);
+    const demand = group.orderLines.reduce((sum, line) => sum + line.quantity, 0);
+
+    let remainingFree = availableNow;
+    const affectedByOrder = new Map<string, {
+      orderId: string;
+      orderNumber: string;
+      customerName: string | null;
+      customerPhone: string | null;
+      stage: OrderStage;
+      displayStage: OrderStage;
+      quantity: number;
+      shortQuantity: number;
+      createdAt: Date;
+      updatedAt: Date;
+    }>();
+
+    for (const line of group.orderLines.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())) {
+      const coveredNow = Math.min(line.quantity, Math.max(0, remainingFree));
+      const shortQuantity = line.quantity - coveredNow;
+      remainingFree -= coveredNow;
+      if (shortQuantity <= 0) continue;
+
+      const existing = affectedByOrder.get(line.orderId);
+      if (existing) {
+        existing.quantity += line.quantity;
+        existing.shortQuantity += shortQuantity;
+      } else {
+        affectedByOrder.set(line.orderId, { ...line, shortQuantity });
+      }
+    }
+
+    const shortageNow = [...affectedByOrder.values()].reduce((sum, order) => sum + order.shortQuantity, 0);
+    if (shortageNow <= 0) continue;
+
+    const orderNeed = Math.max(0, shortageNow - inbound);
+    const ordersList = [...affectedByOrder.values()]
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+      .map((order) => ({
+        ...order,
+        createdAt: order.createdAt.toISOString(),
+        updatedAt: order.updatedAt.toISOString(),
+      }));
+
+    rows.push({
+      productId: group.productId,
+      variantId: group.variantId,
+      sku: group.sku,
+      productTitle: group.productTitle,
+      productImage: group.productImage,
+      variantLabel: group.variantLabel,
+      demand,
+      availableNow,
+      inbound,
+      shortageNow,
+      orderNeed,
+      orderCount: ordersList.length,
+      oldestOrderAt: ordersList[0]?.createdAt ?? null,
+      locations,
+      orders: ordersList,
+    });
+  }
+
+  const filteredRows = search
+    ? rows.filter((row) => {
+        const haystack = `${row.productTitle ?? ''} ${row.variantLabel ?? ''} ${row.sku}`.toLowerCase();
+        return haystack.includes(search.toLowerCase());
+      })
+    : rows;
+
+  filteredRows.sort((a, b) => {
+    if (b.orderNeed !== a.orderNeed) return b.orderNeed - a.orderNeed;
+    if (b.shortageNow !== a.shortageNow) return b.shortageNow - a.shortageNow;
+    return new Date(a.oldestOrderAt ?? 0).getTime() - new Date(b.oldestOrderAt ?? 0).getTime();
+  });
+  const filteredAffectedOrders = new Set(filteredRows.flatMap((row) => row.orders.map((order) => order.orderId)));
+
+  res.json({
+    success: true,
+    rows: filteredRows,
+    summary: {
+      skuCount: filteredRows.length,
+      affectedOrderCount: filteredAffectedOrders.size,
+      shortageUnits: filteredRows.reduce((sum, row) => sum + row.shortageNow, 0),
+      orderUnits: filteredRows.reduce((sum, row) => sum + row.orderNeed, 0),
+      incomingCoverageUnits: filteredRows.reduce((sum, row) => sum + Math.min(row.shortageNow, row.inbound), 0),
+    },
+  });
+}
+
+// The full, filterable movement ledger. Distinct from listInventory's unfiltered "last 50"
+// glance, which exists purely to seed the Inventory page's recent-activity sidebar.
 export async function listMovements(req: AuthenticatedRequest, res: Response) {
   const db = getDb();
   const tenantId = req.user!.tenantId!;
@@ -970,22 +1198,20 @@ export async function setInventoryCount(req: AuthenticatedRequest, res: Response
   res.json({ success: true, level: levelDto(result!), movement: movementDto({ ...movement, _id: movementResult.insertedId }) });
 }
 
-export async function createInboundStock(req: AuthenticatedRequest, res: Response) {
-  const parsed = inboundSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ success: false, message: 'Product, variant, warehouse, bin and inbound quantity are required.' });
-    return;
-  }
-
-  const db = getDb();
-  const tenantId = req.user!.tenantId!;
-  const input = parsed.data;
+// Shared by the single-item endpoint and the bulk endpoint below — logging several shortfall SKUs
+// from one phone call is the same operation repeated per line, not a different one, so this is the
+// one place that actually creates a shipment record rather than duplicating the logic twice.
+async function performInboundCreate(
+  db: ReturnType<typeof getDb>,
+  tenantId: string,
+  createdBy: string,
+  input: z.infer<typeof inboundSchema>
+): Promise<{ level: any; movement: any } | { error: string }> {
   const now = new Date();
 
   const variantInfo = await resolveVariantInfo(db, tenantId, input.productId, input.variantId);
   if (!variantInfo) {
-    res.status(404).json({ success: false, message: 'That product/variant could not be found — it may have been removed from the catalog.' });
-    return;
+    return { error: 'That product/variant could not be found — it may have been removed from the catalog.' };
   }
 
   const existing = await db.collection('inventoryLevels').findOne({
@@ -1065,7 +1291,7 @@ export async function createInboundStock(req: AuthenticatedRequest, res: Respons
     supplierName: input.supplierName || null,
     expectedAt: input.expectedAt ? new Date(input.expectedAt) : null,
     createdAt: now,
-    createdBy: req.user!.email,
+    createdBy,
   };
   const movementResult = await db.collection('inventoryMovements').insertOne(movement);
 
@@ -1099,7 +1325,92 @@ export async function createInboundStock(req: AuthenticatedRequest, res: Respons
     closedAt: null,
   });
 
-  res.json({ success: true, level: levelDto(result!), movement: movementDto({ ...movement, _id: movementResult.insertedId }) });
+  return { level: levelDto(result!), movement: movementDto({ ...movement, _id: movementResult.insertedId }) };
+}
+
+export async function createInboundStock(req: AuthenticatedRequest, res: Response) {
+  const parsed = inboundSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, message: 'Product, variant, warehouse, bin and inbound quantity are required.' });
+    return;
+  }
+
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const outcome = await performInboundCreate(db, tenantId, req.user!.email, parsed.data);
+  if ('error' in outcome) {
+    res.status(404).json({ success: false, message: outcome.error });
+    return;
+  }
+
+  res.json({ success: true, level: outcome.level, movement: outcome.movement });
+}
+
+const bulkInboundSchema = z.object({ items: z.array(inboundSchema).min(1).max(100) });
+
+// Logging several shortfall SKUs from the same offline call (one supplier, one conversation) as one
+// action instead of repeating the single-item flow N times. Each line is created independently and
+// sequentially — matches the no-transaction posture already accepted elsewhere in this file — so one
+// bad line (e.g. a product removed from the catalog mid-edit) fails on its own without rolling back
+// lines already written; the response reports per-line success so the client can show exactly which
+// ones landed.
+export async function createInboundStockBulk(req: AuthenticatedRequest, res: Response) {
+  const parsed = bulkInboundSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, message: 'At least one valid incoming stock line is required.' });
+    return;
+  }
+
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const createdBy = req.user!.email;
+
+  const results: { success: boolean; level?: any; movement?: any; error?: string }[] = [];
+  for (const item of parsed.data.items) {
+    const outcome = await performInboundCreate(db, tenantId, createdBy, item);
+    results.push('error' in outcome ? { success: false, error: outcome.error } : { success: true, level: outcome.level, movement: outcome.movement });
+  }
+
+  res.json({ success: true, results });
+}
+
+// Backs the "remember last supplier/cost" convenience in the Incoming Stock modal — a merchant
+// re-ordering a product they've ordered before shouldn't have to retype who they buy it from or
+// what it costs every single time. Looks at the movement ledger (not the `shipments` collection)
+// since a movement is written for every past inbound regardless of whether its shipment has since
+// been received/closed, so this still finds a supplier/price from a shipment that's long since
+// arrived. Not scoped to a single warehouse — the same product from the same supplier costs the
+// same regardless of which shelf it ends up on.
+export async function getLastInboundForVariant(req: AuthenticatedRequest, res: Response) {
+  const { productId, variantId } = req.query as Record<string, string | undefined>;
+  if (!productId || !variantId) {
+    res.status(400).json({ success: false, message: 'productId and variantId are required.' });
+    return;
+  }
+
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const last = await db
+    .collection('inventoryMovements')
+    .find({ tenantId, productId, variantId, reason: 'Incoming Stock' })
+    .sort({ createdAt: -1 })
+    .limit(1)
+    .next();
+
+  if (!last) {
+    res.json({ success: true, found: false });
+    return;
+  }
+
+  res.json({
+    success: true,
+    found: true,
+    supplierId: last.supplierId ?? null,
+    supplierName: last.supplierName ?? null,
+    unitPrice: last.unitPrice ?? null,
+    shippingCost: last.shippingCostTotal ?? null,
+    dutiesCost: last.dutiesCostTotal ?? null,
+  });
 }
 
 // The read side of the `shipments` ledger createInboundStock writes and receive/write-off allocate
@@ -1145,6 +1456,47 @@ export async function getOverdueShipments(req: AuthenticatedRequest, res: Respon
     .filter((s) => s.quantityOutstanding > 0);
 
   res.json({ success: true, shipments: overdue });
+}
+
+export async function getOpenShipments(req: AuthenticatedRequest, res: Response) {
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const now = new Date();
+
+  const shipments = await db
+    .collection('shipments')
+    .find({ tenantId, status: 'open' })
+    .sort({ expectedAt: 1, createdAt: 1 })
+    .toArray();
+
+  const open = shipments
+    .map((s) => {
+      const quantityOutstanding = s.quantityOrdered - s.quantityReceived - s.quantityWrittenOff;
+      const expectedAt = s.expectedAt ? new Date(s.expectedAt) : null;
+      return {
+        id: s._id.toString(),
+        productId: s.productId ?? null,
+        variantId: s.variantId ?? null,
+        sku: s.sku ?? null,
+        productTitle: s.productTitle ?? null,
+        variantLabel: s.variantLabel ?? null,
+        warehouseId: s.warehouseId,
+        warehouseName: s.warehouseName,
+        bin: s.bin,
+        supplierId: s.supplierId ?? null,
+        supplierName: s.supplierName ?? null,
+        quantityOutstanding,
+        quantityOrdered: s.quantityOrdered ?? quantityOutstanding,
+        quantityReceived: s.quantityReceived ?? 0,
+        quantityWrittenOff: s.quantityWrittenOff ?? 0,
+        expectedAt: expectedAt ? expectedAt.toISOString() : null,
+        daysOverdue: expectedAt && expectedAt < now ? Math.max(1, Math.floor((now.getTime() - expectedAt.getTime()) / (24 * 60 * 60 * 1000))) : null,
+        createdAt: new Date(s.createdAt).toISOString(),
+      };
+    })
+    .filter((s) => s.quantityOutstanding > 0);
+
+  res.json({ success: true, shipments: open });
 }
 
 // "Find lost items": any downward stock adjustment, regardless of stated reason, represents units

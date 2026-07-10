@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Filter } from 'lucide-react';
-import type { OrderFunnelDTO } from '@zetsales/shared';
+import type { OrderFunnelDTO, OrderStage } from '@zetsales/shared';
+import { STAGE_LABEL } from '../../components/orders/orderTone';
 import { getOrderFunnel } from '../../lib/analyticsApi';
 import { AnalyticsCardShell } from '../../components/analytics/AnalyticsCard';
 import { FunnelChart } from '../../components/analytics/charts/FunnelChart';
@@ -32,7 +33,7 @@ function Card({ query }: AnalyticsCardComponentProps) {
         <div className="space-y-1.5">
           {data.stages.map((s) => (
             <div key={s.stage} className="flex items-center gap-2">
-              <span className="w-16 shrink-0 truncate text-[10.5px] text-slate-400">{s.stage}</span>
+              <span className="w-16 shrink-0 truncate text-[10.5px] text-slate-400">{STAGE_LABEL[s.stage as OrderStage] ?? s.stage}</span>
               <div className="h-1.5 flex-1 rounded-full bg-slate-100">
                 <div className="h-1.5 rounded-full bg-indigo-400" style={{ width: `${Math.max(4, s.conversionFromStart)}%` }} />
               </div>
@@ -65,7 +66,7 @@ export const orderFunnelCard: AnalyticsCardDefinition = {
   key: 'orderFunnel',
   title: 'Order funnel',
   category: 'Orders',
-  description: 'How far orders get through Pending → Confirmed → Processing → Shipped → Delivered before falling off.',
+  description: 'How far orders get through Pending → Confirmed → Packing → Handed to Courier → Delivered before falling off.',
   icon: Filter,
   CardComponent: Card,
   DetailComponent: Detail,

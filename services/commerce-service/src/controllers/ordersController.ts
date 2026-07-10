@@ -10,10 +10,11 @@ import type { OrderDTO, OrderRiskDTO, OrderStage, RiskLabel } from '@zetsales/sh
 import { fetchShopifyOrderCount, fetchShopifyOrders } from '../integrations/shopifyClient.js';
 import { getValidShopifyAccessToken } from '../integrations/shopifyAuth.js';
 import { fetchWooOrders } from '../integrations/wooClient.js';
-import { applyInventoryStageEffect, checkStockForConfirm, recordFulfillmentWarehouse, resolveInventoryState } from '../integrations/inventoryEffects.js';
+import { applyInventoryStageEffect, checkFulfillmentReadiness, checkStockForConfirm, recordFulfillmentWarehouse, resolveInventoryState } from '../integrations/inventoryEffects.js';
 import { createSteadfastConsignment } from '../integrations/steadfastClient.js';
 import { createPathaoOrder } from '../integrations/pathaoClient.js';
 import { getConnectedCourier, markCourierUsed, decryptSteadfastCredentials, decryptPathaoCredentials } from './couriersController.js';
+import { resolveActiveClaim, CLAIM_STALE_MS } from '../utils/claim.js';
 import {
   mapShopifyOrderStage,
   mapShopifyPaymentStatus,
@@ -49,6 +50,7 @@ function toOrderDto(doc: any): OrderDTO {
     tags: doc.tags ?? [],
     customerName: doc.customerName,
     customerPhone: doc.customerPhone,
+    customerAltPhone: doc.customerAltPhone ?? null,
     customerEmail: doc.customerEmail ?? null,
     address: doc.address ?? null,
     lineItems: (doc.lineItems ?? []).map((li: any) => ({ ...li, image: li.image ?? null })),
@@ -75,6 +77,7 @@ function toOrderDto(doc: any): OrderDTO {
     cogsTotal: doc.cogsTotal ?? null,
     createdAt: new Date(doc.createdAt).toISOString(),
     updatedAt: new Date(doc.updatedAt).toISOString(),
+    ...resolveActiveClaim(doc),
   };
 }
 
@@ -805,6 +808,135 @@ export async function getOrder(req: AuthenticatedRequest, res: Response) {
   res.json({ success: true, order: dto, risk });
 }
 
+const createOrderSchema = z.object({
+  storeId: z.string().min(1),
+  customerName: z.string().trim().min(1).max(200),
+  customerPhone: z.string().trim().min(1).max(30),
+  customerAltPhone: z.string().trim().max(30).nullable().optional(),
+  customerEmail: z.string().trim().max(200).nullable().optional(),
+  address: z.string().trim().max(500).nullable().optional(),
+  deliveryZone: z.string().trim().max(100).nullable().optional(),
+  paymentMethod: z.enum(['Cash on Delivery', 'bKash', 'Nagad', 'Rocket', 'Card', 'Other']),
+  shippingFee: z.number().nonnegative().default(0),
+  discount: z.number().nonnegative().default(0),
+  lineItems: z.array(z.object({ productId: z.string().min(1), variantId: z.string().min(1), quantity: z.number().int().min(1).max(50) })).min(1),
+});
+
+// A per-tenant, atomic sequence — manual orders have no Shopify/WooCommerce order to borrow a
+// number from, so they get their own `MO-####` scheme instead. Kept in a dedicated `counters`
+// collection (not derived from a count of existing orders) so two agents creating orders at the
+// same moment can never land on the same number.
+async function nextManualOrderNumber(tenantId: string): Promise<string> {
+  const db = getDb();
+  const result = await db
+    .collection('counters')
+    .findOneAndUpdate({ _id: `${tenantId}:manualOrder` } as any, { $inc: { seq: 1 } }, { upsert: true, returnDocument: 'after' });
+  const seq = (result as any)?.seq ?? 1;
+  return `MO-${String(seq).padStart(4, '0')}`;
+}
+
+// Phone/walk-in orders that never came through a connected store — reuses the exact same
+// server-authoritative pricing as upsellOrder (client only ever names which product/variant/qty,
+// never the money) and the same blocked-customer auto-cancel convention synced orders already get,
+// so a manual order for a blocked number doesn't need special-case handling anywhere downstream.
+export async function createOrder(req: AuthenticatedRequest, res: Response) {
+  const parsed = createOrderSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, message: 'Invalid order details' });
+    return;
+  }
+  const data = parsed.data;
+
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const store = await db.collection('stores').findOne({ _id: new ObjectId(data.storeId), tenantId });
+  if (!store) {
+    res.status(404).json({ success: false, message: 'Store not found' });
+    return;
+  }
+
+  const lineItems: { title: string; variant: string | null; quantity: number; price: number; sku: string | null; image: string | null }[] = [];
+  for (const item of data.lineItems) {
+    const product = await db.collection('products').findOne({ _id: new ObjectId(item.productId), tenantId });
+    const variant = product ? (product.variants ?? []).find((v: any) => v.id === item.variantId) : null;
+    if (!product || !variant) {
+      res.status(404).json({ success: false, message: 'One of the selected products/variants could not be found' });
+      return;
+    }
+    lineItems.push({
+      title: product.title,
+      variant: (variant.optionValues ?? []).join(' / ') || null,
+      quantity: item.quantity,
+      price: variant.price,
+      sku: variant.sku ?? null,
+      image: product.images?.[0] ?? null,
+    });
+  }
+
+  const subtotal = lineItems.reduce((sum, li) => sum + li.price * li.quantity, 0);
+  const total = Math.max(0, subtotal + data.shippingFee - data.discount);
+  const now = new Date();
+  const blocked = await isCustomerBlocked(tenantId, data.customerPhone);
+  const number = await nextManualOrderNumber(tenantId);
+
+  const history: { label: string; detail: string; at: Date; by: string | null }[] = [
+    { label: 'Order placed', detail: 'Created manually', at: now, by: req.user!.email },
+  ];
+  if (blocked) history.push({ label: 'Cancelled', detail: 'Blocked customer', at: now, by: req.user!.email });
+
+  const doc = {
+    tenantId,
+    storeId: data.storeId,
+    platform: store.platform,
+    externalId: `manual-${new ObjectId().toString()}`,
+    number,
+    stage: blocked ? 'Cancelled' : 'Pending',
+    stageSource: 'manual',
+    heldFromStage: null,
+    paymentStatus: data.paymentMethod === 'Cash on Delivery' ? 'COD Pending' : 'Paid',
+    paymentMethod: data.paymentMethod,
+    subtotal,
+    shippingFee: data.shippingFee,
+    discount: data.discount,
+    total,
+    currency: 'BDT',
+    tags: ['Manual'],
+    customerName: data.customerName,
+    customerPhone: data.customerPhone,
+    customerAltPhone: data.customerAltPhone ?? null,
+    customerEmail: data.customerEmail ?? null,
+    address: data.address ?? null,
+    lineItems,
+    holdReason: null,
+    cancelReason: blocked ? 'Blocked customer' : null,
+    flagReason: null,
+    note: null,
+    rescheduledFor: null,
+    isPriorityCall: false,
+    priorityNote: null,
+    courierPartner: null,
+    courierTrackingId: null,
+    courierConsignmentId: null,
+    courierStatus: null,
+    courierSyncedAt: null,
+    courierCharge: null,
+    deliveryZone: data.deliveryZone ?? null,
+    callAttempts: 0,
+    history,
+    returnLocation: null,
+    fulfillmentWarehouseId: null,
+    fulfillmentWarehouseName: null,
+    cogsTotal: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const result = await db.collection('orders').insertOne(doc as any);
+  const dto = toOrderDto({ ...doc, _id: result.insertedId });
+  await attachBlockedFlags(db, tenantId, [dto]);
+  res.json({ success: true, order: dto });
+}
+
 const ORDER_STAGES = [
   'Pending', 'Flagged', 'Confirmed', 'Processing', 'Shipped', 'Out for Delivery',
   'RTO Initiated', 'QC Pending', 'Delivered', 'Partial Delivered', 'Returned', 'Cancelled', 'On Hold',
@@ -842,6 +974,10 @@ const updateOrderSchema = z.object({
   discount: z.number().nonnegative().optional(),
   incrementCallAttempt: z.boolean().optional(),
   callOutcome: z.enum(CALL_OUTCOMES).optional(),
+  customerName: z.string().trim().min(1).max(200).optional(),
+  customerPhone: z.string().trim().min(1).max(30).optional(),
+  customerAltPhone: z.string().trim().max(30).nullable().optional(),
+  address: z.string().trim().max(500).nullable().optional(),
 });
 type UpdateOrderPatch = z.infer<typeof updateOrderSchema>;
 
@@ -872,6 +1008,19 @@ function buildOrderUpdate(current: any, patch: UpdateOrderPatch, actor: string |
       codChangeEntry = { label: 'COD amount changed', detail: `৳${previousTotal.toFixed(2)} → ৳${nextTotal.toFixed(2)}`, at: now, by: actor };
     }
   }
+
+  // Contact info is otherwise untracked once an order syncs in — a name/phone/address correction
+  // made mid-call is exactly the kind of change a call center wants attributable later (who fixed a
+  // typo'd address, and when), so it gets the same "annotate what changed" treatment as the COD
+  // amount above rather than silently overwriting the field.
+  const CONTACT_FIELD_LABELS: Record<string, string> = { customerName: 'name', customerPhone: 'phone', customerAltPhone: 'alt phone', address: 'address' };
+  const changedContactFields = Object.keys(CONTACT_FIELD_LABELS).filter(
+    (key) => (patch as Record<string, unknown>)[key] !== undefined && (patch as Record<string, unknown>)[key] !== (current as Record<string, unknown>)[key]
+  );
+  const contactChangeEntry =
+    changedContactFields.length > 0
+      ? { label: 'Contact info updated', detail: changedContactFields.map((k) => CONTACT_FIELD_LABELS[k]).join(', '), at: now, by: actor }
+      : null;
 
   let historyEntry: { label: string; detail: string; at: Date; by: string | null } | null = null;
   if (resume) {
@@ -916,7 +1065,7 @@ function buildOrderUpdate(current: any, patch: UpdateOrderPatch, actor: string |
   // ever recording the last one, so time-to-first-contact and per-outcome breakdowns both stay
   // reconstructable from history alone.
   const callEntry = incrementCallAttempt ? { label: 'Call attempt', detail: callOutcome ?? 'No outcome recorded', at: now, by: actor } : null;
-  const historyEntries = [historyEntry, callEntry, codChangeEntry].filter((e): e is NonNullable<typeof e> => e !== null);
+  const historyEntries = [historyEntry, callEntry, codChangeEntry, contactChangeEntry].filter((e): e is NonNullable<typeof e> => e !== null);
 
   const update: Record<string, unknown> = { $set: setFields };
   if (historyEntries.length > 0) update.$push = { history: { $each: historyEntries } };
@@ -949,6 +1098,42 @@ async function applyOutOfStockPolicy(tenantId: string, current: any, patch: Upda
   };
 }
 
+// The two manual transitions where staff are actually about to physically handle stock — picking
+// it for packing (Confirmed -> Processing) and handing the packed parcel to a courier
+// (Processing -> Shipped). Unlike the fresh-reservation policy above, this is a hard gate with no
+// oversell exception: an order already sitting in Processing with nothing on the shelf shouldn't be
+// something staff discover only once they've opened the pick/pack checklist.
+const FULFILLMENT_GATED_TRANSITIONS: [OrderStage, OrderStage][] = [
+  ['Confirmed', 'Processing'],
+  ['Processing', 'Shipped'],
+];
+
+async function checkFulfillmentGate(tenantId: string, current: any, patch: UpdateOrderPatch): Promise<string | null> {
+  if (!patch.stage) return null;
+  const isGated = FULFILLMENT_GATED_TRANSITIONS.some(([from, to]) => current.stage === from && patch.stage === to);
+  if (!isGated) return null;
+
+  const readiness = await checkFulfillmentReadiness(tenantId, current.lineItems ?? []);
+  return readiness.ready ? null : readiness.reason;
+}
+
+// Read-only precheck for the same gate `updateOrder` enforces — lets the Orders UI disable
+// "Process order"/"Mark shipped" (and explain why) before staff click, instead of only finding out
+// from a rejected request after the fact. Computed fresh from live inventory every time, same as
+// the shortfall/velocity numbers elsewhere in this codebase — nothing here is cached or stored.
+export async function getOrderFulfillmentStatus(req: AuthenticatedRequest, res: Response) {
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const doc = await db.collection('orders').findOne({ _id: new ObjectId(req.params.id), tenantId }, { projection: { lineItems: 1 } });
+  if (!doc) {
+    res.status(404).json({ success: false, message: 'Order not found' });
+    return;
+  }
+
+  const readiness = await checkFulfillmentReadiness(tenantId, doc.lineItems ?? []);
+  res.json({ success: true, ready: readiness.ready, reason: readiness.reason });
+}
+
 // Stage/hold/cancel/courier/zone/etc are all local-to-ZetSales — none of this pushes back to
 // Shopify/WooCommerce, since those platforms have no matching concepts (confirmation calls,
 // courier handover, delivery zones). Setting `stage` here marks it manual so the next webhook
@@ -965,6 +1150,12 @@ export async function updateOrder(req: AuthenticatedRequest, res: Response) {
   const current = await db.collection('orders').findOne({ _id: new ObjectId(req.params.id), tenantId });
   if (!current) {
     res.status(404).json({ success: false, message: 'Order not found' });
+    return;
+  }
+
+  const blockReason = await checkFulfillmentGate(tenantId, current, parsed.data);
+  if (blockReason) {
+    res.status(409).json({ success: false, message: blockReason });
     return;
   }
 
@@ -994,6 +1185,144 @@ export async function updateOrder(req: AuthenticatedRequest, res: Response) {
   const dto = toOrderDto(result);
   await attachBlockedFlags(db, tenantId, [dto]);
   res.json({ success: true, order: dto });
+}
+
+const upsellSchema = z.object({
+  productId: z.string().min(1),
+  variantId: z.string().min(1),
+  quantity: z.number().int().min(1).max(50),
+});
+
+// Restricted to Pending/Flagged — before stock ever gets reserved for this order (that only starts
+// happening at confirm time, see applyOutOfStockPolicy above). Adding a product here just means the
+// existing fresh-reservation check already re-reads lineItems fresh at confirm time, so the upsold
+// item gets correctly stock-gated for free the moment the agent does confirm; retroactively
+// reserving stock for an *already*-confirmed order is a materially harder problem this sidesteps.
+export async function upsellOrder(req: AuthenticatedRequest, res: Response) {
+  const parsed = upsellSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, message: 'Invalid product/quantity' });
+    return;
+  }
+
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const current = await db.collection('orders').findOne({ _id: new ObjectId(req.params.id), tenantId });
+  if (!current) {
+    res.status(404).json({ success: false, message: 'Order not found' });
+    return;
+  }
+  if (!['Pending', 'Flagged'].includes(current.stage)) {
+    res.status(400).json({ success: false, message: 'Products can only be added before the order is confirmed.' });
+    return;
+  }
+
+  const { productId, variantId, quantity } = parsed.data;
+  const product = await db.collection('products').findOne({ _id: new ObjectId(productId), tenantId });
+  if (!product) {
+    res.status(404).json({ success: false, message: 'Product not found' });
+    return;
+  }
+  const variant = (product.variants ?? []).find((v: any) => v.id === variantId);
+  if (!variant) {
+    res.status(404).json({ success: false, message: 'Variant not found' });
+    return;
+  }
+
+  // Priced/named from the variant's own record, not whatever the client sent — the client only
+  // ever supplies which product/variant/quantity, never the money.
+  const lineItem = {
+    title: product.title,
+    variant: (variant.optionValues ?? []).join(' / ') || null,
+    quantity,
+    price: variant.price,
+    sku: variant.sku ?? null,
+    image: product.images?.[0] ?? null,
+  };
+  const subtotal = (current.subtotal ?? current.total ?? 0) + lineItem.price * quantity;
+  const total = Math.max(0, subtotal + (current.shippingFee ?? 0) - (current.discount ?? 0));
+  const now = new Date();
+
+  const update: Record<string, unknown> = {
+    $push: { lineItems: lineItem, history: { label: 'Upsell added', detail: `${quantity} × ${product.title}`, at: now, by: req.user!.email } },
+    $set: { subtotal, total, updatedAt: now },
+  };
+  const result = await db.collection('orders').findOneAndUpdate({ _id: new ObjectId(req.params.id), tenantId }, update, { returnDocument: 'after' });
+  if (!result) {
+    res.status(404).json({ success: false, message: 'Order not found' });
+    return;
+  }
+
+  const dto = toOrderDto(result);
+  await attachBlockedFlags(db, tenantId, [dto]);
+  res.json({ success: true, order: dto });
+}
+
+// Advisory lock: an agent opening an order to work it claims it so nobody else dials the same
+// customer at once. Not a hard mutex — matches on "unclaimed, claimed-but-expired, or already
+// claimed by me" so a re-claim (e.g. drawer reopened before the previous claim's cleanup ran) is a
+// no-op success rather than a spurious conflict.
+export async function claimOrder(req: AuthenticatedRequest, res: Response) {
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const staleBefore = new Date(Date.now() - CLAIM_STALE_MS);
+  const now = new Date();
+
+  const result = await db.collection('orders').findOneAndUpdate(
+    {
+      _id: new ObjectId(req.params.id),
+      tenantId,
+      $or: [{ claimedAt: null }, { claimedAt: { $lt: staleBefore } }, { 'claimedBy.userId': req.user!.id }],
+    },
+    { $set: { claimedBy: { userId: req.user!.id, email: req.user!.email }, claimedAt: now } },
+    { returnDocument: 'after' }
+  );
+
+  if (!result) {
+    const current = await db.collection('orders').findOne({ _id: new ObjectId(req.params.id), tenantId }, { projection: { claimedBy: 1, claimedAt: 1 } });
+    if (!current) {
+      res.status(404).json({ success: false, message: 'Order not found' });
+      return;
+    }
+    const claimedBy = resolveActiveClaim(current).claimedBy;
+    res.status(409).json({ success: false, message: claimedBy ? `${claimedBy.email} is already calling this customer.` : 'This order is currently locked.', claimedBy });
+    return;
+  }
+
+  res.json({ success: true, order: toOrderDto(result) });
+}
+
+// Keeps a claim alive while the drawer stays open — only extends a claim the caller already holds,
+// so a claim that expired and was picked up by someone else can't be silently reclaimed by a late
+// heartbeat from the original tab.
+export async function heartbeatOrderClaim(req: AuthenticatedRequest, res: Response) {
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const result = await db.collection('orders').findOneAndUpdate(
+    { _id: new ObjectId(req.params.id), tenantId, 'claimedBy.userId': req.user!.id },
+    { $set: { claimedAt: new Date() } },
+    { returnDocument: 'after' }
+  );
+
+  if (!result) {
+    res.status(409).json({ success: false, message: 'You no longer hold this claim.' });
+    return;
+  }
+  res.json({ success: true, order: toOrderDto(result) });
+}
+
+// Idempotent by design: releasing a claim you no longer hold (already expired, already released,
+// picked up by someone else) is a no-op success, not an error — the caller's intent ("I'm done with
+// this order") is already satisfied.
+export async function releaseOrderClaim(req: AuthenticatedRequest, res: Response) {
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const result = await db.collection('orders').findOneAndUpdate(
+    { _id: new ObjectId(req.params.id), tenantId, 'claimedBy.userId': req.user!.id },
+    { $set: { claimedBy: null, claimedAt: null } },
+    { returnDocument: 'after' }
+  );
+  res.json({ success: true, order: result ? toOrderDto(result) : null });
 }
 
 const blockCustomerSchema = z.object({
@@ -1213,6 +1542,11 @@ export async function bulkUpdateOrders(req: AuthenticatedRequest, res: Response)
       const current = await db.collection('orders').findOne({ _id: new ObjectId(orderId), tenantId });
       if (!current) {
         results.push({ orderId, success: false, error: 'Order not found' });
+        continue;
+      }
+      const blockReason = await checkFulfillmentGate(tenantId, current, parsed.data.patch);
+      if (blockReason) {
+        results.push({ orderId, success: false, error: blockReason });
         continue;
       }
       const patch = await applyOutOfStockPolicy(tenantId, current, parsed.data.patch);

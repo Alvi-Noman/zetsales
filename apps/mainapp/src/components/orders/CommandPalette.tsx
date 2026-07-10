@@ -3,7 +3,7 @@ import { Search, ArrowRight, Command, Zap } from 'lucide-react';
 import clsx from 'clsx';
 import type { OrderDTO, OrderTabKey } from '@zetsales/shared';
 import { listOrders } from '../../lib/commerceApi';
-import { STAGE_TONE } from './orderTone';
+import { STAGE_TONE, STAGE_LABEL } from './orderTone';
 import { ORDER_TABS } from './tabs';
 
 interface QuickAction {
@@ -152,7 +152,7 @@ export function CommandPalette({
               <span className="font-medium text-slate-800">{order.number}</span>
               <span className="truncate text-slate-400">{order.customerName || 'No name'}</span>
               <span className={clsx('ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset', STAGE_TONE[order.stage])}>
-                {order.stage}
+                {STAGE_LABEL[order.stage]}
               </span>
             </button>
           ))}

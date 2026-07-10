@@ -13,6 +13,7 @@ interface ConnectWooCommerceModalProps {
 
 export function ConnectWooCommerceModal({ open, onClose, onConnected }: ConnectWooCommerceModalProps) {
   const toast = useToast();
+  const [autofillKey, setAutofillKey] = useState(0);
   const [siteUrl, setSiteUrl] = useState('');
   const [consumerKey, setConsumerKey] = useState('');
   const [consumerSecret, setConsumerSecret] = useState('');
@@ -26,6 +27,20 @@ export function ConnectWooCommerceModal({ open, onClose, onConnected }: ConnectW
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!open && pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    if (open) setAutofillKey((key) => key + 1);
+    setSiteUrl('');
+    setConsumerKey('');
+    setConsumerSecret('');
+    setSubmitting(false);
+    setError('');
+    setWaitingForApproval(false);
+  }, [open]);
 
   const handleOneClick = async () => {
     setError('');
@@ -81,13 +96,25 @@ export function ConnectWooCommerceModal({ open, onClose, onConnected }: ConnectW
 
   return (
     <Modal open={open} onClose={onClose} title="Connect a WooCommerce store" subtitle="Add one of your WooCommerce stores to ZetSales.">
-      <div className="space-y-5">
+      <form
+        key={autofillKey}
+        className="space-y-5"
+        autoComplete="off"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void handleKeysConnect();
+        }}
+      >
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-700">Site URL</label>
           <input
             value={siteUrl}
             onChange={(e) => setSiteUrl(e.target.value)}
             placeholder="https://my-store.com"
+            name={`woocommerce-site-url-${autofillKey}`}
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
             className="w-full rounded-lg border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/15"
           />
         </div>
@@ -101,6 +128,7 @@ export function ConnectWooCommerceModal({ open, onClose, onConnected }: ConnectW
           </div>
         ) : (
           <button
+            type="button"
             onClick={handleOneClick}
             disabled={submitting}
             className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#7f54b3] py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60"
@@ -119,6 +147,12 @@ export function ConnectWooCommerceModal({ open, onClose, onConnected }: ConnectW
                 value={consumerKey}
                 onChange={(e) => setConsumerKey(e.target.value)}
                 placeholder="ck_..."
+                name={`woocommerce-consumer-key-${autofillKey}`}
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                data-lpignore="true"
+                data-1p-ignore="true"
                 className="w-full rounded-lg border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/15"
               />
             </div>
@@ -129,13 +163,19 @@ export function ConnectWooCommerceModal({ open, onClose, onConnected }: ConnectW
                 value={consumerSecret}
                 onChange={(e) => setConsumerSecret(e.target.value)}
                 placeholder="cs_..."
+                name={`woocommerce-consumer-secret-${autofillKey}`}
+                autoComplete="new-password"
+                autoCorrect="off"
+                spellCheck={false}
+                data-lpignore="true"
+                data-1p-ignore="true"
                 className="w-full rounded-lg border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/15"
               />
             </div>
           </div>
           <p className="mt-1.5 text-xs text-slate-400">In WordPress: WooCommerce → Settings → Advanced → REST API → Add key.</p>
           <button
-            onClick={handleKeysConnect}
+            type="submit"
             disabled={submitting}
             className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
           >
@@ -152,7 +192,7 @@ export function ConnectWooCommerceModal({ open, onClose, onConnected }: ConnectW
         >
           <ExternalLink size={12} /> WooCommerce REST API authentication docs
         </a>
-      </div>
+      </form>
     </Modal>
   );
 }

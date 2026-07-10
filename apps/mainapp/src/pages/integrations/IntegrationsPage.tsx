@@ -109,6 +109,7 @@ export function IntegrationsPage() {
   useEffect(() => {
     const connected = searchParams.get('connected');
     const error = searchParams.get('error');
+    const connect = searchParams.get('connect');
     const AD_PLATFORMS = ['meta', 'tiktok', 'google'];
     if (connected === 'facebook') {
       toast.push('Connected your Facebook Business Suite.');
@@ -128,10 +129,21 @@ export function IntegrationsPage() {
     } else if (error) {
       toast.push(`Could not finish connecting ${error}. Please try again.`, 'info');
     }
-    if (connected || error) {
-      searchParams.delete('connected');
-      searchParams.delete('error');
-      setSearchParams(searchParams, { replace: true });
+
+    if (connect === 'shopify') {
+      setActiveTab('stores');
+      setShopifyModalOpen(true);
+    } else if (connect === 'woocommerce' || connect === 'woo') {
+      setActiveTab('stores');
+      setWooModalOpen(true);
+    }
+
+    if (connected || error || connect) {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete('connected');
+      nextParams.delete('error');
+      nextParams.delete('connect');
+      setSearchParams(nextParams, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

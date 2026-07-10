@@ -22,13 +22,14 @@ import { getOrderStats, getOrderTrends, listOrders, listProducts, listStores } f
 import { useAuth } from '../../context/AuthContext';
 import { HomeKpiCard } from '../../components/home/HomeKpiCard';
 import { ChannelOverviewCard } from '../../components/home/ChannelOverviewCard';
-import { STAGE_TONE } from '../../components/orders/orderTone';
+import { InitialStoreEmptyState } from '../../components/home/InitialStoreEmptyState';
+import { STAGE_TONE, STAGE_LABEL } from '../../components/orders/orderTone';
 
 const PIPELINE_STAGES: { tab: Exclude<OrderTabKey, 'all'>; label: string; icon: typeof Clock; tone: string }[] = [
   { tab: 'pending', label: 'Pending', icon: Clock, tone: STAGE_TONE.Pending },
   { tab: 'confirmed', label: 'Confirmed', icon: CheckCircle2, tone: STAGE_TONE.Confirmed },
-  { tab: 'processing', label: 'Processing', icon: Package, tone: STAGE_TONE.Processing },
-  { tab: 'shipped', label: 'Shipped', icon: Truck, tone: STAGE_TONE.Shipped },
+  { tab: 'processing', label: 'Packing', icon: Package, tone: STAGE_TONE.Processing },
+  { tab: 'shipped', label: 'Handed to Courier', icon: Truck, tone: STAGE_TONE.Shipped },
   { tab: 'delivered', label: 'Delivered', icon: PackageCheck, tone: STAGE_TONE.Delivered },
   { tab: 'codDue', label: 'COD Due', icon: Wallet, tone: 'bg-amber-50 text-amber-700 ring-amber-600/20' },
   { tab: 'hold', label: 'On Hold', icon: PauseCircle, tone: STAGE_TONE['On Hold'] },
@@ -106,35 +107,58 @@ export function HomePage() {
   const rtoRate = useMemo(() => (stats && stats.totalOrders > 0 ? Math.round((stats.rtoOrders / stats.totalOrders) * 100) : 0), [stats]);
   const businessLabel = user?.businessName?.trim() || 'there';
   const connectedCount = stores.filter((s) => s.status === 'connected').length;
+  const showNoStoreEmptyState = !storesLoading && connectedCount === 0;
 
-  return (
-    <div className="flex h-full flex-col overflow-y-auto bg-slate-50">
-      <div className="border-b border-slate-200 bg-white px-8 py-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-bold text-slate-900">
-              {greeting()}, {businessLabel}
-            </h1>
-            <p className="mt-1 text-sm text-slate-500">
-              {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })} &middot; here's how your stores are doing.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => navigate('/integrations')}
-              className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              <Plug size={14} /> Connect a store
-            </button>
+  const header = (
+    <div className="border-b border-slate-200 bg-white px-8 py-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900">
+            {greeting()}, {businessLabel}
+          </h1>
+          <p className="mt-1 text-sm text-slate-500">
+            {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })} &middot; here's how your stores are doing.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => navigate(showNoStoreEmptyState ? '/integrations?connect=shopify' : '/integrations')}
+            className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            <Plug size={14} /> Connect a store
+          </button>
+          {!showNoStoreEmptyState && (
             <button
               onClick={() => navigate('/products/new')}
               className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-slate-800"
             >
               <Plus size={14} /> Add product
             </button>
-          </div>
+          )}
         </div>
       </div>
+    </div>
+  );
+
+  if (showNoStoreEmptyState) {
+    return (
+      <div className="flex h-full flex-col overflow-y-auto bg-slate-50">
+        <div className="flex-1 px-8 py-6">
+          <InitialStoreEmptyState
+            businessName={businessLabel}
+            hasStoreRecords={stores.length > 0}
+            onConnectShopify={() => navigate('/integrations?connect=shopify')}
+            onConnectWooCommerce={() => navigate('/integrations?connect=woocommerce')}
+            onOpenIntegrations={() => navigate('/integrations')}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full flex-col overflow-y-auto bg-slate-50">
+      {header}
 
       <div className="flex-1 space-y-6 px-8 py-6">
         <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
@@ -255,7 +279,7 @@ export function HomePage() {
                         {order.currency === 'BDT' ? '৳' : order.currency + ' '}
                         {order.total.toLocaleString()}
                       </span>
-                      <span className={clsx('rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset', STAGE_TONE[order.stage])}>{order.stage}</span>
+                      <span className={clsx('rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset', STAGE_TONE[order.stage])}>{STAGE_LABEL[order.stage]}</span>
                     </div>
                   </button>
                 ))}

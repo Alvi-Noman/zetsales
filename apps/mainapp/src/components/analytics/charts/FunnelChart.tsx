@@ -1,5 +1,10 @@
-import type { OrderFunnelStageDTO } from '@zetsales/shared';
+import type { OrderFunnelStageDTO, OrderStage } from '@zetsales/shared';
+import { STAGE_LABEL } from '../../orders/orderTone';
 import { ordinalStep } from '../chartTheme';
+
+function stageLabel(stage: string): string {
+  return STAGE_LABEL[stage as OrderStage] ?? stage;
+}
 
 interface FunnelChartProps {
   stages: OrderFunnelStageDTO[];
@@ -31,11 +36,11 @@ export function FunnelChart({ stages, formatCount }: FunnelChartProps) {
                 <span className="font-medium tabular-nums" style={{ color: s.conversionFromPrevious >= 50 ? '#059669' : '#e11d48' }}>
                   {s.conversionFromPrevious}%
                 </span>
-                <span>continued to {s.stage}</span>
+                <span>continued to {stageLabel(s.stage)}</span>
               </div>
             )}
             <div className="flex items-center gap-3">
-              <div className="w-24 shrink-0 text-[12.5px] font-medium text-slate-700">{s.stage}</div>
+              <div className="w-24 shrink-0 text-[12.5px] font-medium text-slate-700">{stageLabel(s.stage)}</div>
               <div className="relative h-8 flex-1 rounded-lg bg-slate-50">
                 <div
                   className="flex h-8 items-center justify-end rounded-lg px-3 transition-all duration-300 ease-out"

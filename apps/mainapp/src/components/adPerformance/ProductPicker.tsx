@@ -14,13 +14,16 @@ export interface PickedProduct {
 interface ProductPickerProps {
   value: PickedProduct | null;
   onChange: (product: PickedProduct) => void;
+  // Scopes results to one store's catalog (e.g. when creating an order for a specific store) —
+  // omitted entirely keeps the original tenant-wide search this component started with.
+  storeId?: string;
 }
 
 // A searchable product combobox on top of the generic Popover primitive (see FilterMenu for why a
 // plain options list isn't reused here — the product catalog can be far larger than a store/
 // payment-status filter, so results are fetched per keystroke via listProducts({ search }) instead
 // of being loaded upfront).
-export function ProductPicker({ value, onChange }: ProductPickerProps) {
+export function ProductPicker({ value, onChange, storeId }: ProductPickerProps) {
   const [search, setSearch] = useState('');
   const [results, setResults] = useState<ProductListItemDTO[]>([]);
   const [loading, setLoading] = useState(false);
@@ -29,7 +32,7 @@ export function ProductPicker({ value, onChange }: ProductPickerProps) {
     let cancelled = false;
     setLoading(true);
     const timer = setTimeout(() => {
-      void listProducts({ search: search.trim() || undefined, pageSize: 20 })
+      void listProducts({ search: search.trim() || undefined, storeId, pageSize: 20 })
         .then((res) => {
           if (!cancelled) setResults(res.products);
         })
@@ -41,7 +44,7 @@ export function ProductPicker({ value, onChange }: ProductPickerProps) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [search]);
+  }, [search, storeId]);
 
   return (
     <Popover

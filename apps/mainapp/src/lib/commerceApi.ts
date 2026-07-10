@@ -1,4 +1,4 @@
-import type { AdAccountDTO, AdCampaignDTO, AdCreativeAssetDTO, CreateAdCampaignPayload, AdChannel, AdCostEntryDTO, AdPerformanceReportDTO, BulkOrderResultDTO, CallOutcome, CancelReason, CourierAccountDTO, CourierSettlementDTO, CourierHandoverDTO, CourierHandoverDetailDTO, EligibleHandoverOrderDTO, CustomerListDTO, CustomerDetailDTO, CustomerOrderRowDTO, HoldReason, OrderDTO, OrderRiskDTO, OrderStage, OrderStatsDTO, OrderTabKey, OrderTrendsDTO, ProductCollectionDTO, ProductDTO, ProductListItemDTO, ProductPublishTargetDTO, ProductPushResultDTO, ProductWritePayload, StoreDTO, SupplierProductDraftDTO } from '@zetsales/shared';
+import type { AdAccountDTO, AdCampaignDTO, AdCreativeAssetDTO, CreateAdCampaignPayload, AdChannel, AdCostEntryDTO, AdPerformanceReportDTO, BulkOrderResultDTO, CallOutcome, CancelReason, CourierAccountDTO, CourierSettlementDTO, CourierHandoverDTO, CourierHandoverDetailDTO, EligibleHandoverOrderDTO, CustomerListDTO, CustomerDetailDTO, CustomerOrderRowDTO, HoldReason, OrderDTO, OrderRiskDTO, OrderStage, OrderStatsDTO, OrderTabKey, OrderTrendsDTO, PaymentMethod, ProductCollectionDTO, ProductDTO, ProductListItemDTO, ProductPublishTargetDTO, ProductPushResultDTO, ProductWritePayload, StoreDTO, SupplierProductDraftDTO } from '@zetsales/shared';
 import { api } from './api';
 
 export async function getCapabilities() {
@@ -268,9 +268,64 @@ export interface InventorySkuOptionDTO {
   variantLabel: string;
 }
 
+export interface StockShortfallLocationDTO {
+  warehouseId: string;
+  warehouseName: string;
+  bin: string;
+  onHand: number;
+  reserved: number;
+  free: number;
+  inbound: number;
+  reorderPoint: number | null;
+}
+
+export interface StockShortfallOrderDTO {
+  orderId: string;
+  orderNumber: string;
+  customerName: string | null;
+  customerPhone: string | null;
+  stage: OrderStage;
+  displayStage: OrderStage;
+  quantity: number;
+  shortQuantity: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StockShortfallRowDTO {
+  productId: string | null;
+  variantId: string | null;
+  sku: string;
+  productTitle: string | null;
+  productImage: string | null;
+  variantLabel: string | null;
+  demand: number;
+  availableNow: number;
+  inbound: number;
+  shortageNow: number;
+  orderNeed: number;
+  orderCount: number;
+  oldestOrderAt: string | null;
+  locations: StockShortfallLocationDTO[];
+  orders: StockShortfallOrderDTO[];
+}
+
+export interface StockShortfallsSummaryDTO {
+  skuCount: number;
+  affectedOrderCount: number;
+  shortageUnits: number;
+  orderUnits: number;
+  incomingCoverageUnits: number;
+}
+
 export async function listInventory() {
   const res = await api.get('/commerce/inventory');
   return res.data as { success: boolean; levels: InventoryLevelDTO[]; movements: InventoryMovementDTO[]; velocityByVariantId: Record<string, number> };
+}
+
+export async function listStockShortfalls(params: { search?: string } = {}) {
+  const res = await api.get('/commerce/inventory/stock-shortfalls', { params });
+  return res.data as { success: boolean; rows: StockShortfallRowDTO[]; summary: StockShortfallsSummaryDTO };
 }
 
 export interface ListMovementsParams {
@@ -417,9 +472,35 @@ export interface OverdueShipmentDTO {
   daysOverdue: number;
 }
 
+export interface OpenShipmentDTO {
+  id: string;
+  productId: string | null;
+  variantId: string | null;
+  sku: string | null;
+  productTitle: string | null;
+  variantLabel: string | null;
+  warehouseId: string;
+  warehouseName: string;
+  bin: string;
+  supplierId: string | null;
+  supplierName: string | null;
+  quantityOutstanding: number;
+  quantityOrdered: number;
+  quantityReceived: number;
+  quantityWrittenOff: number;
+  expectedAt: string | null;
+  daysOverdue: number | null;
+  createdAt: string;
+}
+
 export async function getOverdueShipments() {
   const res = await api.get('/commerce/inventory/overdue-shipments');
   return res.data as { success: boolean; shipments: OverdueShipmentDTO[] };
+}
+
+export async function getOpenShipments() {
+  const res = await api.get('/commerce/inventory/open-shipments');
+  return res.data as { success: boolean; shipments: OpenShipmentDTO[] };
 }
 
 export interface ReservationDTO {
@@ -604,6 +685,35 @@ export async function createInventoryInbound(payload: InventoryInboundPayload) {
   return res.data as { success: boolean; level: InventoryLevelDTO; movement: InventoryMovementDTO };
 }
 
+export interface InboundBulkResultDTO {
+  success: boolean;
+  level?: InventoryLevelDTO;
+  movement?: InventoryMovementDTO;
+  error?: string;
+}
+
+export async function createInventoryInboundBulk(items: InventoryInboundPayload[]) {
+  const res = await api.post('/commerce/inventory/inbound/bulk', { items });
+  return res.data as { success: boolean; results: InboundBulkResultDTO[] };
+}
+
+export interface LastInboundDTO {
+  found: boolean;
+  supplierId?: string | null;
+  supplierName?: string | null;
+  unitPrice?: number | null;
+  shippingCost?: number | null;
+  dutiesCost?: number | null;
+}
+
+// Backs the "remember last supplier/cost" convenience — fetched whenever a SKU is picked in the
+// Incoming Stock modal so re-ordering a familiar product doesn't require retyping who it's bought
+// from or what it costs.
+export async function getLastInboundDetails(productId: string, variantId: string) {
+  const res = await api.get('/commerce/inventory/last-inbound', { params: { productId, variantId } });
+  return res.data as { success: boolean } & LastInboundDTO;
+}
+
 export interface TransferStockPayload {
   productId: string;
   variantId: string;
@@ -651,6 +761,27 @@ export async function getOrder(id: string) {
   return res.data as { success: boolean; order: OrderDTO; risk: OrderRiskDTO };
 }
 
+export interface CreateOrderPayload {
+  storeId: string;
+  customerName: string;
+  customerPhone: string;
+  customerAltPhone?: string | null;
+  customerEmail?: string | null;
+  address?: string | null;
+  deliveryZone?: string | null;
+  paymentMethod: PaymentMethod;
+  shippingFee: number;
+  discount: number;
+  lineItems: { productId: string; variantId: string; quantity: number }[];
+}
+
+// Phone/walk-in orders that never came through a connected store — see upsellOrder for the same
+// server-authoritative pricing convention (price/sku come from the variant record, not the client).
+export async function createOrder(payload: CreateOrderPayload) {
+  const res = await api.post('/commerce/orders', payload);
+  return res.data as { success: boolean; order: OrderDTO };
+}
+
 export interface UpdateOrderPayload {
   stage?: OrderStage;
   resume?: boolean;
@@ -669,6 +800,10 @@ export interface UpdateOrderPayload {
   discount?: number;
   incrementCallAttempt?: boolean;
   callOutcome?: CallOutcome;
+  customerName?: string;
+  customerPhone?: string;
+  customerAltPhone?: string | null;
+  address?: string | null;
 }
 
 export async function updateOrder(id: string, payload: UpdateOrderPayload) {
@@ -676,8 +811,42 @@ export async function updateOrder(id: string, payload: UpdateOrderPayload) {
   return res.data as { success: boolean; order: OrderDTO };
 }
 
+// Backs the "Process order"/"Mark shipped" lock — same hard stock check the server enforces on the
+// actual PATCH, fetched ahead of time so the button can be disabled with an explanation instead of
+// only failing after a click.
+export async function getOrderFulfillmentStatus(id: string) {
+  const res = await api.get(`/commerce/orders/${id}/fulfillment-status`);
+  return res.data as { success: boolean; ready: boolean; reason: string | null };
+}
+
 export async function markPaymentCollected(id: string) {
   const res = await api.post(`/commerce/orders/${id}/mark-collected`, {});
+  return res.data as { success: boolean; order: OrderDTO };
+}
+
+// Advisory lock so two agents don't call the same customer at once — claim on opening an order,
+// heartbeat while the drawer stays open, release on close/handoff. A 409 (thrown as an Error by the
+// shared response interceptor) means someone else already holds it; its message names who.
+export async function claimOrder(id: string) {
+  const res = await api.post(`/commerce/orders/${id}/claim`, {});
+  return res.data as { success: boolean; order: OrderDTO };
+}
+
+export async function heartbeatOrderClaim(id: string) {
+  const res = await api.post(`/commerce/orders/${id}/claim/heartbeat`, {});
+  return res.data as { success: boolean; order: OrderDTO };
+}
+
+export async function releaseOrderClaim(id: string) {
+  const res = await api.post(`/commerce/orders/${id}/release`, {});
+  return res.data as { success: boolean; order: OrderDTO | null };
+}
+
+// Only available while an order is still Pending/Flagged — see upsellOrder server-side for why
+// (adding a product after confirmation would need retroactive stock reservation, which this
+// sidesteps by not allowing it in the first place).
+export async function upsellOrder(id: string, payload: { productId: string; variantId: string; quantity: number }) {
+  const res = await api.post(`/commerce/orders/${id}/upsell`, payload);
   return res.data as { success: boolean; order: OrderDTO };
 }
 

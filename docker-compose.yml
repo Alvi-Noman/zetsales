@@ -1,4 +1,12 @@
 services:
+  mongo:
+    image: mongo:6
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongo_data:/data/db
+    restart: unless-stopped
+
   auth-service:
     build:
       context: .
@@ -117,6 +125,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  mongo_data:
   commerce_uploads:
   messaging_uploads:
   caddy_data:

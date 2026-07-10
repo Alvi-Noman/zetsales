@@ -84,7 +84,7 @@ export function PackOrderModal({ open, order, onClose, onConfirm, binLookup, bus
         className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-lg bg-slate-900 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
       >
         {allChecked ? <Truck size={14} /> : <PackageCheck size={14} />}
-        {allChecked ? 'Confirm & mark shipped' : `Check off all ${order.lineItems.length} item${order.lineItems.length === 1 ? '' : 's'} to continue`}
+        {allChecked ? 'Confirm & hand over to courier' : `Check off all ${order.lineItems.length} item${order.lineItems.length === 1 ? '' : 's'} to continue`}
       </button>
     </Modal>
   );

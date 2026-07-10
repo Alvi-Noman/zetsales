@@ -1,8 +1,10 @@
-import { AlertTriangle, ArrowRight, Phone, Star } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Lock, Phone, Star } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import type { CallCenterQueueItemDTO } from '@zetsales/shared';
 import { formatMoney } from '../../../analytics/format';
+import { CLAIM_TONE } from '../../../components/orders/orderTone';
+import { useAuth } from '../../../context/AuthContext';
 
 function agingTone(minutes: number): { text: string; ring: string } {
   if (minutes > 120) return { text: 'text-rose-600', ring: 'ring-rose-600/20 bg-rose-50' };
@@ -19,6 +21,7 @@ function formatWaiting(minutes: number): string {
 
 export function CallQueue({ queue }: { queue: CallCenterQueueItemDTO[] }) {
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white">
@@ -41,6 +44,14 @@ export function CallQueue({ queue }: { queue: CallCenterQueueItemDTO[] }) {
                     {item.isPriorityCall && <Star size={11} className="shrink-0 fill-amber-400 text-amber-400" />}
                     <p className="truncate text-[13px] font-semibold text-slate-800">{item.customerName || 'Unnamed customer'}</p>
                     <span className="shrink-0 text-[10.5px] text-slate-400">{item.number}</span>
+                    {item.claimedBy && item.claimedBy.userId !== user?.id && (
+                      <span
+                        title={`${item.claimedBy.email} is currently calling this customer`}
+                        className={clsx('inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset', CLAIM_TONE)}
+                      >
+                        <Lock size={9} /> {item.claimedBy.email.split('@')[0]}
+                      </span>
+                    )}
                   </div>
                   <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-400">
                     {item.customerPhone && (

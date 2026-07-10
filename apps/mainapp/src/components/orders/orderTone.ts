@@ -20,6 +20,26 @@ export const STAGE_TONE: Record<OrderStage, string> = {
   'On Hold': 'bg-orange-50 text-orange-700 ring-orange-600/20',
 };
 
+// Display text only — the underlying stage value stays 'Processing' everywhere (stored orders,
+// stage comparisons, the fulfillment gate, history entries already logged) so this is a pure
+// relabel with no data migration. "Packing" is what that stage actually means in practice: a
+// packing slip has been printed and the order is with a packer, not some generic "processing."
+export const STAGE_LABEL: Record<OrderStage, string> = {
+  Pending: 'Pending',
+  Flagged: 'Flagged',
+  Confirmed: 'Confirmed',
+  Processing: 'Packing',
+  Shipped: 'Handed to Courier',
+  'Out for Delivery': 'Out for Delivery',
+  'RTO Initiated': 'RTO Initiated',
+  'QC Pending': 'QC Pending',
+  Delivered: 'Delivered',
+  'Partial Delivered': 'Partial Delivered',
+  Returned: 'Returned',
+  Cancelled: 'Cancelled',
+  'On Hold': 'On Hold',
+};
+
 export const STAGE_ICON: Record<OrderStage, typeof Clock> = {
   Pending: Clock,
   Flagged: Flag,
@@ -44,6 +64,10 @@ export const PAYMENT_METHOD_SHORT: Record<PaymentMethod, string> = {
   Card: 'Card',
   Other: 'Other',
 };
+
+// Style for the "someone else is calling this customer" badge — shown on order rows/queue items
+// and as a banner in the drawer when another agent currently holds the claim.
+export const CLAIM_TONE = 'bg-amber-50 text-amber-700 ring-amber-600/20';
 
 export const PAYMENT_TONE: Record<OrderPaymentStatus, string> = {
   'COD Pending': 'bg-amber-50 text-amber-700 ring-amber-600/20',

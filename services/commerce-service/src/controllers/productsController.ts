@@ -201,7 +201,7 @@ export async function importStoreProductsStream(req: AuthenticatedRequest, res: 
           send({ type: 'progress', imported, total, title: p.title });
         }
         pageInfo = cancelled ? null : nextPageInfo;
-      } while (pageInfo && imported < 1000);
+      } while (pageInfo && !cancelled);
     } else {
       const consumerKey = decryptSecret(store.credentials.consumerKey);
       const consumerSecret = decryptSecret(store.credentials.consumerSecret);
@@ -223,7 +223,7 @@ export async function importStoreProductsStream(req: AuthenticatedRequest, res: 
           send({ type: 'progress', imported, total: total ?? imported, title: p.name });
         }
         page += 1;
-      } while (!cancelled && batchLength === 50 && imported < 1000);
+      } while (!cancelled && batchLength === 50 && (total === null || imported < total));
     }
 
     if (cancelled) return;
@@ -510,6 +510,19 @@ async function pushToStore(store: any, input: ProductPushInput, collectionIds: s
   return mapWooProduct(product, store.shopDomain, consumerKey, consumerSecret);
 }
 
+// axios's own error message ("Request failed with status code 400") hides the actual reason the
+// store's API rejected the request. WooCommerce puts it in response.data.message (e.g. duplicate
+// SKU, invalid image); Shopify puts it in response.data.errors (a string, or an object/array keyed
+// by field). Fall back to the generic message only when neither shape is present.
+function describeStoreError(err: unknown): string {
+  if (axios.isAxiosError(err) && err.response?.data) {
+    const data = err.response.data as { message?: string; errors?: unknown };
+    if (typeof data.message === 'string' && data.message) return data.message;
+    if (data.errors) return typeof data.errors === 'string' ? data.errors : JSON.stringify(data.errors);
+  }
+  return (err as Error).message;
+}
+
 function skuPart(value: string) {
   return value
     .normalize('NFKD')
@@ -601,7 +614,7 @@ export async function createProduct(req: AuthenticatedRequest, res: Response) {
         displayName: store.displayName,
         platform: store.platform as StorePlatform,
         success: false,
-        error: (err as Error).message,
+        error: describeStoreError(err),
       });
     }
   }
@@ -703,7 +716,7 @@ export async function updateProduct(req: AuthenticatedRequest, res: Response) {
       );
       results.push({ storeId: store._id.toString(), displayName: store.displayName, platform: store.platform as StorePlatform, success: true });
     } catch (err) {
-      results.push({ storeId: store._id.toString(), displayName: store.displayName, platform: store.platform as StorePlatform, success: false, error: (err as Error).message });
+      results.push({ storeId: store._id.toString(), displayName: store.displayName, platform: store.platform as StorePlatform, success: false, error: describeStoreError(err) });
     }
   }
 

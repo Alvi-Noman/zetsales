@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ExternalLink, Loader2, Zap } from 'lucide-react';
 import clsx from 'clsx';
 import { Modal } from '../ui/Modal';
@@ -17,6 +17,7 @@ type CredMode = 'client-credentials' | 'legacy-token';
 
 export function ConnectShopifyModal({ open, onClose, oauthEnabled, onConnected }: ConnectShopifyModalProps) {
   const toast = useToast();
+  const [autofillKey, setAutofillKey] = useState(0);
   const [shopDomain, setShopDomain] = useState('');
   const [mode, setMode] = useState<CredMode>('client-credentials');
   const [clientId, setClientId] = useState('');
@@ -24,6 +25,17 @@ export function ConnectShopifyModal({ open, onClose, oauthEnabled, onConnected }
   const [accessToken, setAccessToken] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (open) setAutofillKey((key) => key + 1);
+    setShopDomain('');
+    setMode('client-credentials');
+    setClientId('');
+    setClientSecret('');
+    setAccessToken('');
+    setSubmitting(false);
+    setError('');
+  }, [open]);
 
   const handleOAuth = () => {
     if (!shopDomain.trim()) {
@@ -68,13 +80,25 @@ export function ConnectShopifyModal({ open, onClose, oauthEnabled, onConnected }
 
   return (
     <Modal open={open} onClose={onClose} title="Connect a Shopify store" subtitle="Add one of your Shopify stores to ZetSales.">
-      <div className="space-y-5">
+      <form
+        key={autofillKey}
+        className="space-y-5"
+        autoComplete="off"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void handleConnect();
+        }}
+      >
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-700">Shop domain</label>
           <input
             value={shopDomain}
             onChange={(e) => setShopDomain(e.target.value)}
             placeholder="my-shop.myshopify.com"
+            name={`shopify-shop-domain-${autofillKey}`}
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
             className="w-full rounded-lg border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/15"
           />
           <p className="mt-1.5 text-xs text-slate-400">
@@ -87,6 +111,7 @@ export function ConnectShopifyModal({ open, onClose, oauthEnabled, onConnected }
         {oauthEnabled && (
           <>
             <button
+              type="button"
               onClick={handleOAuth}
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#95BF47] py-2.5 text-sm font-semibold text-white hover:opacity-90"
             >
@@ -99,6 +124,7 @@ export function ConnectShopifyModal({ open, onClose, oauthEnabled, onConnected }
         <div className="border-t border-slate-100 pt-4">
           <div className="mb-3 flex items-center gap-1 rounded-lg bg-slate-100 p-1">
             <button
+              type="button"
               onClick={() => setMode('client-credentials')}
               className={clsx(
                 'flex-1 rounded-md py-1.5 text-xs font-semibold transition-colors',
@@ -108,6 +134,7 @@ export function ConnectShopifyModal({ open, onClose, oauthEnabled, onConnected }
               Client ID + Secret
             </button>
             <button
+              type="button"
               onClick={() => setMode('legacy-token')}
               className={clsx(
                 'flex-1 rounded-md py-1.5 text-xs font-semibold transition-colors',
@@ -125,6 +152,12 @@ export function ConnectShopifyModal({ open, onClose, oauthEnabled, onConnected }
                 <input
                   value={clientId}
                   onChange={(e) => setClientId(e.target.value)}
+                  name={`shopify-client-id-${autofillKey}`}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  data-lpignore="true"
+                  data-1p-ignore="true"
                   className="w-full rounded-lg border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/15"
                 />
               </div>
@@ -134,6 +167,12 @@ export function ConnectShopifyModal({ open, onClose, oauthEnabled, onConnected }
                   type="password"
                   value={clientSecret}
                   onChange={(e) => setClientSecret(e.target.value)}
+                  name={`shopify-client-secret-${autofillKey}`}
+                  autoComplete="new-password"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  data-lpignore="true"
+                  data-1p-ignore="true"
                   className="w-full rounded-lg border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/15"
                 />
               </div>
@@ -151,6 +190,12 @@ export function ConnectShopifyModal({ open, onClose, oauthEnabled, onConnected }
                 value={accessToken}
                 onChange={(e) => setAccessToken(e.target.value)}
                 placeholder="shpat_..."
+                name={`shopify-access-token-${autofillKey}`}
+                autoComplete="new-password"
+                autoCorrect="off"
+                spellCheck={false}
+                data-lpignore="true"
+                data-1p-ignore="true"
                 className="w-full rounded-lg border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/15"
               />
               <p className="mt-1.5 text-xs text-slate-400">Only applies to a custom app created before January 2026 (Shopify retired this for new apps).</p>
@@ -158,7 +203,7 @@ export function ConnectShopifyModal({ open, onClose, oauthEnabled, onConnected }
           )}
 
           <button
-            onClick={handleConnect}
+            type="submit"
             disabled={submitting}
             className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
           >
@@ -175,7 +220,7 @@ export function ConnectShopifyModal({ open, onClose, oauthEnabled, onConnected }
         >
           <ExternalLink size={12} /> Shopify's Dev Dashboard custom app authentication docs
         </a>
-      </div>
+      </form>
     </Modal>
   );
 }

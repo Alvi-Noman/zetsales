@@ -35,15 +35,18 @@ import {
   addWarehouseBin,
   confirmReturnPackageQc,
   createInventoryInbound,
+  createInventoryInboundBulk,
   createSupplier,
   createWarehouse,
   deleteWarehouse,
   getCountContext,
   getInventorySettings,
+  getLastInboundDetails,
   getLevelReservations,
-  getOverdueShipments,
+  getOpenShipments,
   getReturnsQueue,
   getShrinkageReport,
+  listStockShortfalls,
   listMovements,
   listBins,
   listInventory,
@@ -70,16 +73,21 @@ import {
   type InventoryMovementDTO,
   type InventorySkuOptionDTO,
   type ManualReturnSearchResultDTO,
-  type OverdueShipmentDTO,
+  type OpenShipmentDTO,
   type QcResult,
   type ReservationDTO,
   type ReturnsPackageActionPayload,
   type ReturnsPackageDTO,
   type ReturnsWorkflow,
   type ShrinkageReportDTO,
+  type StockShortfallRowDTO,
+  type StockShortfallLocationDTO,
+  type StockShortfallsSummaryDTO,
   type SupplierDTO,
   type WarehouseDTO,
 } from '../../lib/commerceApi';
+import type { OrderStage } from '@zetsales/shared';
+import { STAGE_LABEL } from '../../components/orders/orderTone';
 import { Modal } from '../../components/ui/Modal';
 import { Popover } from '../../components/ui/Popover';
 import { useToast } from '../../components/ui/ToastProvider';
@@ -89,7 +97,7 @@ const DEFAULT_LEAD_TIME_DAYS = 7;
 
 type FocusMode = 'all' | 'inbound' | 'overdue' | 'reorder' | 'reserved' | 'dead';
 type SortMode = 'onHand' | 'title';
-type PageView = 'stock' | 'returns' | 'shrinkage' | 'ledger';
+type PageView = 'stock' | 'shortfalls' | 'returns' | 'shrinkage' | 'ledger';
 
 const SORT_LABELS: Record<SortMode, string> = {
   onHand: 'On hand (highest first)',
@@ -108,6 +116,116 @@ function ageLabel(value: string) {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h`;
   return `${Math.floor(hours / 24)}d`;
+}
+
+function textKey(value: string | null | undefined) {
+  return (value ?? '').trim().toLowerCase();
+}
+
+function dateLabel(value: string | null) {
+  if (!value) return 'No ETA';
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(value));
+}
+
+function shipmentTiming(shipment: OpenShipmentDTO) {
+  if (!shipment.expectedAt) return { label: 'No ETA', tone: 'slate' as const };
+  if (shipment.daysOverdue != null) return { label: `${shipment.daysOverdue}d late`, tone: 'rose' as const };
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const expected = new Date(shipment.expectedAt);
+  expected.setHours(0, 0, 0, 0);
+  const days = Math.ceil((expected.getTime() - today.getTime()) / 86_400_000);
+  if (days <= 0) return { label: 'Due today', tone: 'amber' as const };
+  if (days <= 2) return { label: `Due in ${days}d`, tone: 'amber' as const };
+  return { label: `In ${days}d`, tone: 'emerald' as const };
+}
+
+function incomingStatusLabel(shipments: OpenShipmentDTO[]) {
+  if (shipments.length === 0) return 'incoming';
+  const late = shipments.filter((shipment) => shipment.daysOverdue != null);
+  if (late.length > 0) return `${Math.max(...late.map((shipment) => shipment.daysOverdue ?? 0))}d late`;
+  const dueSoon = shipments.map(shipmentTiming).find((timing) => timing.tone === 'amber');
+  return dueSoon?.label ?? 'incoming';
+}
+
+function IncomingCoveragePanel({
+  shipments,
+  shortageNow,
+  title = 'Incoming coverage',
+}: {
+  shipments: OpenShipmentDTO[];
+  shortageNow?: number;
+  title?: string;
+}) {
+  const incomingTotal = shipments.reduce((sum, shipment) => sum + shipment.quantityOutstanding, 0);
+  const covered = shortageNow == null ? incomingTotal : Math.min(shortageNow, incomingTotal);
+  const gap = shortageNow == null ? 0 : Math.max(0, shortageNow - incomingTotal);
+
+  if (shipments.length === 0) {
+    return (
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+        No shipment details found for this incoming quantity.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{title}</p>
+          <p className="mt-0.5 text-sm font-semibold text-slate-800">
+            {incomingTotal.toLocaleString()} unit{incomingTotal === 1 ? '' : 's'} on the way
+          </p>
+        </div>
+        {shortageNow != null && (
+          <span className={clsx('shrink-0 rounded-full px-2 py-1 text-[11px] font-bold', gap > 0 ? 'bg-rose-50 text-rose-700' : 'bg-indigo-50 text-indigo-700')}>
+            {gap > 0 ? `${gap} still needed` : `covers ${covered}/${shortageNow}`}
+          </span>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        {shipments.map((shipment) => {
+          const timing = shipmentTiming(shipment);
+          return (
+            <div key={shipment.id} className="rounded-lg border border-slate-200 bg-white p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-800">{shipment.supplierName ?? 'Supplier not set'}</p>
+                  <p className="mt-0.5 truncate text-xs text-slate-400">
+                    {shipment.warehouseName}{shipment.bin !== 'Unassigned' ? ` / ${shipment.bin}` : ''}
+                  </p>
+                </div>
+                <span
+                  className={clsx(
+                    'shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold',
+                    timing.tone === 'rose' && 'bg-rose-50 text-rose-700',
+                    timing.tone === 'amber' && 'bg-amber-50 text-amber-700',
+                    timing.tone === 'emerald' && 'bg-emerald-50 text-emerald-700',
+                    timing.tone === 'slate' && 'bg-slate-100 text-slate-600',
+                  )}
+                >
+                  {timing.label}
+                </span>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:max-w-xs">
+                <div>
+                  <p className="font-bold tabular-nums text-indigo-700">{shipment.quantityOutstanding}</p>
+                  <p className="text-slate-400">still incoming</p>
+                </div>
+                <div>
+                  <p className="font-semibold text-slate-700">{dateLabel(shipment.expectedAt)}</p>
+                  <p className="text-slate-400">expected</p>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 // A package sitting in the returns queue for a long time is a real, common failure mode (forgotten
@@ -1242,6 +1360,9 @@ function NewInboundModal({
   onClose,
   onSaved,
   onManageWarehouses,
+  initialSku,
+  initialQuantity,
+  initialWarehouseId,
 }: {
   open: boolean;
   suppliers: SupplierDTO[];
@@ -1249,6 +1370,12 @@ function NewInboundModal({
   onClose: () => void;
   onSaved: () => void;
   onManageWarehouses: () => void;
+  // Set when this modal is opened as a shortcut from a Stock Shortfalls row — skips the SKU search
+  // entirely and starts from a suggested quantity/warehouse instead of blank fields. Same shape as
+  // NewCountModal's initialSku/initialQuantity shortcut prefill.
+  initialSku?: InventorySkuOptionDTO | null;
+  initialQuantity?: number;
+  initialWarehouseId?: string;
 }) {
   const toast = useToast();
   const [sku, setSku] = useState<InventorySkuOptionDTO | null>(null);
@@ -1290,9 +1417,51 @@ function NewInboundModal({
       setUnitPrice('');
       setShippingCost('');
       setDutiesCost('');
+      setNewSupplierName('');
+      setExpectedAt('');
       setNote('');
     }
   }, [open]);
+
+  // Same shortcut-prefill timing as NewCountModal's initialSku effect — applies once, the instant
+  // this modal opens via the Shortfalls row shortcut, rather than on every render.
+  useEffect(() => {
+    if (open && initialSku) {
+      setSku(initialSku);
+      if (initialQuantity != null && initialQuantity > 0) setQuantity(String(initialQuantity));
+      if (initialWarehouseId && warehouses.some((w) => w.id === initialWarehouseId)) setWarehouseId(initialWarehouseId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialSku]);
+
+  // Remembers the supplier and price this exact product was logged as incoming with last time —
+  // re-ordering a familiar product should mostly be "confirm quantity, save," not retyping who it's
+  // bought from and what it costs every single call. Only ever a starting point: whatever's found
+  // lands in ordinary editable fields, same as the quantity suggestion above.
+  useEffect(() => {
+    setUnitPrice('');
+    setShippingCost('');
+    setDutiesCost('');
+    setSupplierId('');
+    if (!sku) return;
+    let cancelled = false;
+    void getLastInboundDetails(sku.productId, sku.variantId)
+      .then((res) => {
+        if (cancelled || !res.found) return;
+        if (res.unitPrice != null) setUnitPrice(String(res.unitPrice));
+        if (res.shippingCost != null) setShippingCost(String(res.shippingCost));
+        if (res.dutiesCost != null) setDutiesCost(String(res.dutiesCost));
+        if (res.supplierId && suppliers.some((s) => s.id === res.supplierId)) setSupplierId(res.supplierId);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // Deliberately excludes `suppliers` — it's read at fetch-resolution time, not a reactive
+    // dependency; refetching every time the suppliers list identity changes (e.g. after any
+    // unrelated save elsewhere) would silently blow away a supplier the user already picked.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sku]);
 
   const selectedWarehouse = warehouses.find((warehouse) => warehouse.id === warehouseId) ?? warehouses[0];
   const canSave =
@@ -1330,7 +1499,7 @@ function NewInboundModal({
         note: note.trim() || undefined,
       };
       await createInventoryInbound(payload);
-      toast.push('Incoming stock created.', 'success');
+      toast.push('Incoming stock added.', 'success');
       setSupplierId('');
       setNewSupplierName('');
       setExpectedAt('');
@@ -1345,14 +1514,14 @@ function NewInboundModal({
 
   if (open && warehouses.length === 0) {
     return (
-      <Modal open={open} onClose={onClose} title="Incoming Stock" subtitle="Record stock that is on the way but not available yet." widthClass="max-w-2xl">
+      <Modal open={open} onClose={onClose} title="Incoming Stock" subtitle="Log stock you've already arranged (e.g. by phone) so it shows up as on the way." widthClass="max-w-2xl">
         <WarehouseRequiredNotice onManageWarehouses={onManageWarehouses} onClose={onClose} />
       </Modal>
     );
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Incoming Stock" subtitle="Record stock that is on the way but not available yet." widthClass="max-w-2xl">
+    <Modal open={open} onClose={onClose} title="Incoming Stock" subtitle="Log stock you've already arranged (e.g. by phone) so it shows up as on the way." widthClass="max-w-2xl">
       <div className="space-y-5">
         <div className="grid grid-cols-2 gap-4">
           <div className="col-span-2">
@@ -1408,7 +1577,330 @@ function NewInboundModal({
             Cancel
           </button>
           <button onClick={save} disabled={!canSave} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40">
-            {saving ? 'Saving...' : 'Create shipment'}
+            {saving ? 'Saving...' : 'Add shipment'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+interface BulkInboundItem {
+  key: string;
+  sku: InventorySkuOptionDTO;
+  quantity: number;
+  warehouseId: string;
+}
+
+interface BulkInboundLine {
+  key: string;
+  sku: InventorySkuOptionDTO;
+  warehouseId: string;
+  bin: string;
+  quantity: string;
+  unitPrice: string;
+  shippingCost: string;
+  dutiesCost: string;
+  expectedAt: string;
+  supplierId: string;
+  newSupplierName: string;
+  note: string;
+}
+
+// Logging several shortfall products from one phone call ("I called our fabric supplier, ordered
+// three things") as one action instead of repeating the single-item Incoming Stock flow per
+// product. Every field is per line, not shared — a bulk log covers whatever actually happened
+// across possibly several calls/suppliers, so warehouse, cost, supplier and expected date can each
+// differ line to line exactly like they would in separate single-item entries; this is just those
+// entries filled out together instead of one at a time.
+function BulkInboundModal({
+  open,
+  items,
+  suppliers,
+  warehouses,
+  onClose,
+  onSaved,
+  onManageWarehouses,
+}: {
+  open: boolean;
+  items: BulkInboundItem[];
+  suppliers: SupplierDTO[];
+  warehouses: WarehouseDTO[];
+  onClose: () => void;
+  onSaved: () => void;
+  onManageWarehouses: () => void;
+}) {
+  const toast = useToast();
+  const [lines, setLines] = useState<BulkInboundLine[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  // Builds the editable line list fresh from whatever was selected when this modal was opened, then
+  // asks each line's own last-inbound history for a remembered supplier/cost — same per-SKU memory
+  // NewInboundModal uses for a single item, just applied to every line at once. Only runs on the
+  // open transition (not on every `items` render) so it never clobbers mid-edit input.
+  useEffect(() => {
+    if (!open) {
+      setLines([]);
+      return;
+    }
+    setLines(
+      items.map((item) => ({
+        key: item.key,
+        sku: item.sku,
+        warehouseId: item.warehouseId,
+        bin: 'Unassigned',
+        quantity: String(item.quantity),
+        unitPrice: '',
+        shippingCost: '',
+        dutiesCost: '',
+        expectedAt: '',
+        supplierId: '',
+        newSupplierName: '',
+        note: '',
+      }))
+    );
+
+    let cancelled = false;
+    void Promise.all(
+      items.map((item) =>
+        getLastInboundDetails(item.sku.productId, item.sku.variantId).catch(
+          () => ({ success: true, found: false }) as Awaited<ReturnType<typeof getLastInboundDetails>>
+        )
+      )
+    ).then((results) => {
+      if (cancelled) return;
+      setLines((prev) =>
+        prev.map((line, i) => {
+          const res = results[i];
+          if (!res.found) return line;
+          return {
+            ...line,
+            unitPrice: res.unitPrice != null ? String(res.unitPrice) : line.unitPrice,
+            shippingCost: res.shippingCost != null ? String(res.shippingCost) : line.shippingCost,
+            dutiesCost: res.dutiesCost != null ? String(res.dutiesCost) : line.dutiesCost,
+            supplierId: res.supplierId && suppliers.some((s) => s.id === res.supplierId) ? res.supplierId : line.supplierId,
+          };
+        })
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+    // Deliberately excludes `suppliers` for the same reason as NewInboundModal's equivalent effect —
+    // read at fetch-resolution time, not a reactive dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  // Per-line bin options, keyed by warehouse — fetched lazily as each warehouse actually shows up
+  // across the lines (most bulk logs only ever touch one or two warehouses, so this stays cheap).
+  const [binOptionsByWarehouse, setBinOptionsByWarehouse] = useState<Record<string, string[]>>({});
+  const fetchedWarehouseIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!open) {
+      setBinOptionsByWarehouse({});
+      fetchedWarehouseIdsRef.current = new Set();
+      return;
+    }
+    const uniqueIds = [...new Set(lines.map((line) => line.warehouseId))].filter((id) => id && !fetchedWarehouseIdsRef.current.has(id));
+    if (uniqueIds.length === 0) return;
+    uniqueIds.forEach((id) => fetchedWarehouseIdsRef.current.add(id));
+    void Promise.all(uniqueIds.map((id) => listBins(id).then((res) => [id, res.bins] as const))).then((results) => {
+      setBinOptionsByWarehouse((prev) => {
+        const next = { ...prev };
+        for (const [id, bins] of results) next[id] = bins;
+        return next;
+      });
+    });
+  }, [open, lines]);
+
+  const updateLine = (key: string, patch: Partial<BulkInboundLine>) => setLines((prev) => prev.map((line) => (line.key === key ? { ...line, ...patch } : line)));
+
+  const canSave =
+    lines.length > 0 &&
+    lines.every(
+      (line) =>
+        line.warehouseId &&
+        line.bin.trim().length > 0 &&
+        line.quantity.trim() !== '' &&
+        Number(line.quantity) > 0 &&
+        (line.supplierId !== '__new' || line.newSupplierName.trim().length > 0)
+    ) &&
+    !saving;
+
+  const save = async () => {
+    if (!canSave) return;
+    setSaving(true);
+    try {
+      const warehouseById = new Map(warehouses.map((w) => [w.id, w]));
+      // A brand-new supplier typed on more than one line (e.g. the same new vendor across three
+      // products) is created once and reused — createSupplier itself upserts by name too, so this
+      // is a convenience to avoid redundant round trips, not a correctness requirement.
+      const newSupplierCache = new Map<string, SupplierDTO>();
+      const payloads: InventoryInboundPayload[] = [];
+      for (const line of lines) {
+        const warehouse = warehouseById.get(line.warehouseId) ?? warehouses[0];
+        let resolvedSupplier = suppliers.find((s) => s.id === line.supplierId) ?? null;
+        if (line.supplierId === '__new') {
+          const name = line.newSupplierName.trim();
+          resolvedSupplier = newSupplierCache.get(name) ?? null;
+          if (!resolvedSupplier) {
+            const created = await createSupplier({ name });
+            resolvedSupplier = created.supplier;
+            newSupplierCache.set(name, resolvedSupplier);
+          }
+        }
+        payloads.push({
+          productId: line.sku.productId,
+          variantId: line.sku.variantId,
+          warehouseId: warehouse.id,
+          warehouseName: warehouse.name,
+          bin: line.bin.trim(),
+          quantity: Number(line.quantity),
+          unitPrice: line.unitPrice.trim() ? Number(line.unitPrice) : undefined,
+          shippingCost: line.shippingCost.trim() ? Number(line.shippingCost) : undefined,
+          dutiesCost: line.dutiesCost.trim() ? Number(line.dutiesCost) : undefined,
+          supplierId: resolvedSupplier?.id,
+          supplierName: resolvedSupplier?.name,
+          expectedAt: line.expectedAt || undefined,
+          note: line.note.trim() || undefined,
+        });
+      }
+
+      const res = await createInventoryInboundBulk(payloads);
+      const failedCount = res.results.filter((r) => !r.success).length;
+      if (failedCount === 0) {
+        toast.push(`Added incoming stock for ${res.results.length} product${res.results.length === 1 ? '' : 's'}.`, 'success');
+      } else {
+        toast.push(`Added ${res.results.length - failedCount} of ${res.results.length} — ${failedCount} could not be saved.`, 'info');
+      }
+      onSaved();
+      onClose();
+    } catch (err) {
+      toast.push((err as Error).message || 'Could not log incoming stock.', 'info');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (open && warehouses.length === 0) {
+    return (
+      <Modal open={open} onClose={onClose} title="Add incoming (bulk)" subtitle="Log several products as incoming stock at once." widthClass="max-w-3xl">
+        <WarehouseRequiredNotice onManageWarehouses={onManageWarehouses} onClose={onClose} />
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Add incoming (bulk)"
+      subtitle="Log several products you've already arranged as incoming stock in one go — each can have its own supplier, cost and arrival date."
+      widthClass="max-w-3xl"
+    >
+      <div className="space-y-5">
+        <div className="space-y-3">
+          {lines.map((line) => {
+            const binOptions = binOptionsByWarehouse[line.warehouseId] ?? [];
+            const usesBins = line.warehouseId in binOptionsByWarehouse && hasRealBins(binOptions);
+            return (
+              <div key={line.key} className="rounded-lg border border-slate-200 p-3.5">
+                <div className="mb-3 flex min-w-0 items-center gap-3">
+                  {line.sku.productImage ? (
+                    <img src={line.sku.productImage} alt="" className="h-10 w-10 shrink-0 rounded-md border border-slate-200 object-cover" />
+                  ) : (
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-300">
+                      <Package size={14} />
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-slate-800">{line.sku.productTitle}</p>
+                    <p className="truncate text-xs text-slate-400">
+                      {line.sku.variantLabel ? `${line.sku.variantLabel} — ` : ''}
+                      {line.sku.sku ?? 'no SKU'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className={usesBins ? undefined : 'col-span-2'}>
+                    <label className="mb-1.5 block text-xs font-semibold text-slate-600">Warehouse</label>
+                    <WarehousePicker warehouses={warehouses} value={line.warehouseId} onChange={(id) => updateLine(line.key, { warehouseId: id })} />
+                  </div>
+                  {usesBins && (
+                    <div>
+                      <label className="mb-1.5 block text-xs font-semibold text-slate-600">Shelf/Bin</label>
+                      <BinPicker value={line.bin} onChange={(bin) => updateLine(line.key, { bin })} options={binOptions} />
+                    </div>
+                  )}
+                  <div>
+                    <label className="mb-1.5 block text-xs font-semibold text-slate-600">Incoming quantity</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={line.quantity}
+                      onChange={(e) => updateLine(line.key, { quantity: e.target.value })}
+                      placeholder="0"
+                      className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15"
+                    />
+                  </div>
+                  <LandedCostFields
+                    unitPrice={line.unitPrice}
+                    setUnitPrice={(v) => updateLine(line.key, { unitPrice: v })}
+                    shippingCost={line.shippingCost}
+                    setShippingCost={(v) => updateLine(line.key, { shippingCost: v })}
+                    dutiesCost={line.dutiesCost}
+                    setDutiesCost={(v) => updateLine(line.key, { dutiesCost: v })}
+                    quantity={Math.max(1, Number(line.quantity) || 0)}
+                  />
+                  <div>
+                    <label className="mb-1.5 block text-xs font-semibold text-slate-600">Expected arrival</label>
+                    <input
+                      type="date"
+                      value={line.expectedAt}
+                      onChange={(e) => updateLine(line.key, { expectedAt: e.target.value })}
+                      className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-semibold text-slate-600">Supplier</label>
+                    <SupplierPicker suppliers={suppliers} value={line.supplierId} onChange={(id) => updateLine(line.key, { supplierId: id })} />
+                  </div>
+                  {line.supplierId === '__new' && (
+                    <div className="col-span-2">
+                      <label className="mb-1.5 block text-xs font-semibold text-slate-600">New supplier name</label>
+                      <input
+                        value={line.newSupplierName}
+                        onChange={(e) => updateLine(line.key, { newSupplierName: e.target.value })}
+                        placeholder="e.g. ABC Garments"
+                        className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15"
+                      />
+                    </div>
+                  )}
+                  <div className="col-span-2">
+                    <label className="mb-1.5 block text-xs font-semibold text-slate-600">Note</label>
+                    <input
+                      value={line.note}
+                      onChange={(e) => updateLine(line.key, { note: e.target.value })}
+                      placeholder="Optional receiving note"
+                      className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15"
+                    />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3.5 py-2.5 text-xs text-emerald-700">
+          Incoming stock is not sellable yet. It becomes on-hand stock once you receive it.
+        </div>
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            Cancel
+          </button>
+          <button onClick={save} disabled={!canSave} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40">
+            {saving ? 'Saving...' : `Add ${lines.length} shipment${lines.length === 1 ? '' : 's'}`}
           </button>
         </div>
       </div>
@@ -1710,7 +2202,7 @@ function ReorderPointCell({ level, unitsPerDay, onSaved }: { level: InventoryLev
 
   if (editing) {
     return (
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center justify-center gap-1.5">
         <input
           autoFocus
           type="number"
@@ -1727,7 +2219,7 @@ function ReorderPointCell({ level, unitsPerDay, onSaved }: { level: InventoryLev
   }
 
   return (
-    <button type="button" onClick={() => setEditing(true)} className="group flex items-center gap-1.5 text-left">
+    <button type="button" onClick={() => setEditing(true)} className="group inline-flex items-center justify-center gap-1.5">
       <span className="font-medium tabular-nums text-slate-700">{level.reorderPoint ?? '—'}</span>
       <Pencil size={11} className="text-slate-300 opacity-0 group-hover:opacity-100" />
       {level.reorderPoint == null && suggested != null && <span className="text-xs text-indigo-500">Suggested: {suggested}</span>}
@@ -1782,7 +2274,7 @@ function ReservedCell({ level }: { level: InventoryLevelDTO }) {
                 <div key={o.orderId} className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 px-2.5 py-2 text-xs">
                   <div className="min-w-0">
                     <p className="truncate font-semibold text-slate-700">{o.orderNumber}</p>
-                    <p className="truncate text-slate-400">{o.customerName ?? 'Unknown customer'} · {o.stage}</p>
+                    <p className="truncate text-slate-400">{o.customerName ?? 'Unknown customer'} · {STAGE_LABEL[o.stage as OrderStage] ?? o.stage}</p>
                   </div>
                   <span className="shrink-0 font-bold tabular-nums text-indigo-700">{o.quantity}</span>
                 </div>
@@ -1803,12 +2295,17 @@ function IncomingCell({
   level,
   onReceived,
   overdueDays,
+  shipments,
+  variant = 'table',
 }: {
   level: InventoryLevelDTO;
   onReceived: (level: InventoryLevelDTO) => void;
   overdueDays: number | null;
+  shipments: OpenShipmentDTO[];
+  variant?: 'table' | 'shortfall';
 }) {
   const toast = useToast();
+  const [modalOpen, setModalOpen] = useState(false);
   const [quantity, setQuantity] = useState(String(level.inbound));
   const [saving, setSaving] = useState(false);
   const [writingOff, setWritingOff] = useState(false);
@@ -1817,6 +2314,8 @@ function IncomingCell({
   // Only "not coming at all" actually needs a loss reason, so that's revealed as its own step rather
   // than dumping all the options in one row and implying they're all equally "a write-off."
   const [remainderStage, setRemainderStage] = useState<'choice' | 'writeOffReasons'>('choice');
+  const [remainderChoice, setRemainderChoice] = useState<'keepIncoming' | 'correctQuantity' | 'writeOff'>('keepIncoming');
+  const [writeOffReason, setWriteOffReason] = useState<InboundWriteOffReason>('Short-shipped by supplier');
 
   if (level.inbound <= 0) {
     return (
@@ -1827,14 +2326,18 @@ function IncomingCell({
     );
   }
 
+  const receivedQty = Math.max(0, Math.min(level.inbound, Number(quantity) || 0));
+  const remainderQty = Math.max(0, level.inbound - receivedQty);
+  const receivedLabel = `${receivedQty} unit${receivedQty === 1 ? '' : 's'}`;
+  const remainderLabel = `${remainderQty} unit${remainderQty === 1 ? '' : 's'}`;
+
   const submit = async (close: () => void) => {
-    const qty = Number(quantity);
-    if (!qty || qty <= 0) return;
+    if (receivedQty <= 0) return;
     setSaving(true);
     try {
-      const res = await receiveInboundStock(level.id, qty);
+      const res = await receiveInboundStock(level.id, receivedQty);
       onReceived(res.level);
-      toast.push(`${qty} unit${qty === 1 ? '' : 's'} received into on-hand stock.`, 'success');
+      toast.push(`${receivedLabel} received into on-hand stock.`, 'success');
       close();
     } catch (err) {
       toast.push((err as Error).message || 'Could not mark this as received.', 'info');
@@ -1848,9 +2351,6 @@ function IncomingCell({
   // count rather than a vague "the rest," and handles both halves of the real event in one click:
   // whatever was typed goes to on-hand first, then whatever's left over gets written off — instead
   // of requiring two separate trips through this popover to record one actual delivery.
-  const receivedQty = Math.max(0, Math.min(level.inbound, Number(quantity) || 0));
-  const remainderQty = Math.max(0, level.inbound - receivedQty);
-
   const writeOff = async (reason: InboundWriteOffReason, close: () => void) => {
     setWritingOff(true);
     try {
@@ -1874,50 +2374,109 @@ function IncomingCell({
     }
   };
 
+  const confirmReceipt = async (close: () => void) => {
+    if (remainderQty <= 0) {
+      await submit(close);
+      return;
+    }
+
+    if (remainderChoice === 'keepIncoming') {
+      if (receivedQty > 0) {
+        await submit(close);
+      } else {
+        toast.push('Incoming stock left unchanged.', 'info');
+        close();
+      }
+      return;
+    }
+
+    await writeOff(remainderChoice === 'correctQuantity' ? 'Wrong entry' : writeOffReason, close);
+  };
+
+  const openModal = () => {
+    setQuantity(String(level.inbound));
+    setRemainderStage('choice');
+    setRemainderChoice('keepIncoming');
+    setWriteOffReason('Short-shipped by supplier');
+    setModalOpen(true);
+  };
+  const closeModal = () => setModalOpen(false);
+  const busy = saving || writingOff;
+  const statusLabel = incomingStatusLabel(shipments);
+  const showTimingBadge = statusLabel !== 'incoming';
+  const primaryActionLabel =
+    remainderQty <= 0
+      ? `Receive ${receivedLabel}`
+      : remainderChoice === 'keepIncoming'
+        ? receivedQty > 0
+          ? `Receive ${receivedLabel}`
+          : `Leave ${remainderLabel} incoming`
+        : remainderChoice === 'correctQuantity'
+          ? receivedQty > 0
+            ? `Receive ${receivedQty} and correct ${remainderQty}`
+            : `Correct ${remainderLabel}`
+          : receivedQty > 0
+            ? `Receive ${receivedQty} and write off ${remainderQty}`
+            : `Write off ${remainderLabel}`;
+
   return (
-    <Popover
-      align="left"
-      widthClass="w-64"
-      trigger={() => (
-        <button
-          type="button"
-          onClick={() => {
-            setQuantity(String(level.inbound));
-            setRemainderStage('choice');
-          }}
-          className="text-left hover:opacity-70"
-        >
+    <>
+      {variant === 'shortfall' ? (
+        <button type="button" onClick={openModal} className="inline-flex items-center gap-1.5 transition hover:opacity-70">
+          <span className="font-bold tabular-nums text-indigo-600 underline decoration-dotted underline-offset-2">{level.inbound}</span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="text-slate-400">incoming</span>
+            {showTimingBadge && (
+              <span className={clsx('rounded-full px-1.5 py-0.5 text-[10px] font-bold', overdueDays != null ? 'bg-rose-50 text-rose-700' : 'bg-indigo-50 text-indigo-700')}>
+                {statusLabel}
+              </span>
+            )}
+          </span>
+        </button>
+      ) : (
+        <button type="button" onClick={openModal} className="text-left transition hover:opacity-70">
           <p className="font-semibold tabular-nums text-emerald-700 underline decoration-dotted underline-offset-2">{level.inbound}</p>
-          <p className={overdueDays != null ? 'font-semibold text-rose-600' : 'text-slate-400'}>{overdueDays != null ? `${overdueDays}d overdue` : 'incoming'}</p>
+          <p className={overdueDays != null ? 'font-semibold text-rose-600' : 'text-slate-400'}>{statusLabel}</p>
         </button>
       )}
-    >
-      {(close) => (
-        <div className="p-3">
-          <p className="mb-2 text-xs font-semibold text-slate-500">Mark as received</p>
-          {overdueDays != null && (
-            <p className="mb-2 rounded-md bg-rose-50 px-2 py-1.5 text-[11px] font-medium text-rose-700">
-              This shipment was expected {overdueDays} day{overdueDays === 1 ? '' : 's'} ago — worth chasing up with the supplier.
-            </p>
-          )}
-          <p className="mb-2 text-xs text-slate-400">How many of the {level.inbound} incoming units have actually arrived?</p>
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              min="0"
-              max={level.inbound}
-              value={quantity}
-              onChange={(e) => setQuantity(e.target.value)}
-              className="h-8 w-20 rounded-md border border-slate-200 px-2 text-sm outline-none focus:border-indigo-400"
-            />
-            <button
-              onClick={() => void submit(close)}
-              disabled={saving}
-              className="flex-1 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {saving ? 'Saving...' : 'Mark received'}
-            </button>
-          </div>
+
+      <Modal
+        open={modalOpen}
+        onClose={closeModal}
+        title="Incoming Shipment Details"
+        subtitle={`${level.productTitle ?? 'Inventory item'}${level.variantLabel ? ` - ${level.variantLabel}` : ''}`}
+        widthClass="max-w-xl"
+      >
+        <div className="space-y-4">
+          <IncomingCoveragePanel shipments={shipments} title="Incoming shipments" />
+
+          <section className="rounded-xl border border-slate-200 p-4">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold text-slate-900">Mark as received</p>
+                <p className="mt-0.5 text-xs text-slate-400">Convert arrived units from incoming stock into on-hand stock.</p>
+              </div>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-slate-600">{level.inbound} incoming</span>
+            </div>
+
+            {overdueDays != null && (
+              <p className="mb-2 rounded-md bg-rose-50 px-2 py-1.5 text-[11px] font-medium text-rose-700">
+                This shipment is {overdueDays}d late - worth chasing up with the supplier.
+              </p>
+            )}
+
+            <p className="mb-2 text-xs font-semibold text-slate-500">Arrived now</p>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min="0"
+                max={level.inbound}
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+                className="h-9 w-24 rounded-lg border border-slate-200 px-3 text-sm font-semibold tabular-nums text-slate-800 outline-none focus:border-indigo-400"
+              />
+              <span className="text-xs text-slate-400">of {level.inbound} incoming units arrived</span>
+            </div>
           {remainderQty > 0 && (
             <div className="mt-3 border-t border-slate-100 pt-2.5">
               <p className="mb-1.5 text-[11px] text-slate-400">
@@ -1926,24 +2485,43 @@ function IncomingCell({
               {remainderStage === 'choice' ? (
                 <div className="space-y-1.5">
                   <button
-                    onClick={() => (receivedQty > 0 ? void submit(close) : close())}
-                    disabled={saving}
-                    className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-left text-[11px] font-semibold text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                    type="button"
+                    onClick={() => setRemainderChoice('keepIncoming')}
+                    disabled={busy}
+                    className={`w-full rounded-md border px-2 py-1.5 text-left text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                      remainderChoice === 'keepIncoming'
+                        ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
+                        : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'
+                    }`}
                   >
-                    Still on the way
-                    <span className="block font-normal text-slate-400">Receive the {receivedQty}, leave the rest incoming</span>
+                    Keep as incoming
+                    <span className="block font-normal text-slate-400">Still expected from supplier.</span>
                   </button>
                   <button
-                    onClick={() => void writeOff('Wrong entry', close)}
-                    disabled={writingOff}
-                    className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-left text-[11px] font-semibold text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                    type="button"
+                    onClick={() => setRemainderChoice('correctQuantity')}
+                    disabled={busy}
+                    className={`w-full rounded-md border px-2 py-1.5 text-left text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                      remainderChoice === 'correctQuantity'
+                        ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
+                        : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'
+                    }`}
                   >
-                    My mistake, fix it
+                    Correct expected quantity
                     <span className="block font-normal text-slate-400">Wrong quantity entered — not a real loss</span>
                   </button>
                   <button
-                    onClick={() => setRemainderStage('writeOffReasons')}
-                    className="w-full rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-left text-[11px] font-semibold text-amber-700 hover:bg-amber-100"
+                    type="button"
+                    onClick={() => {
+                      setRemainderChoice('writeOff');
+                      setRemainderStage('writeOffReasons');
+                    }}
+                    disabled={busy}
+                    className={`w-full rounded-md border px-2 py-1.5 text-left text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                      remainderChoice === 'writeOff'
+                        ? 'border-amber-300 bg-amber-100 text-amber-800'
+                        : 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
+                    }`}
                   >
                     Not coming — write it off
                     <span className="block font-normal text-amber-600/70">A real loss — counts on the Loss Report</span>
@@ -1951,28 +2529,43 @@ function IncomingCell({
                 </div>
               ) : (
                 <div>
-                  <button onClick={() => setRemainderStage('choice')} className="mb-1.5 text-[11px] font-medium text-slate-400 hover:text-slate-600">
+                  <button type="button" onClick={() => setRemainderStage('choice')} className="mb-1.5 text-[11px] font-medium text-slate-400 hover:text-slate-600">
                     ← Back
                   </button>
                   <div className="grid grid-cols-2 gap-1.5">
                     <button
-                      onClick={() => void writeOff('Short-shipped by supplier', close)}
-                      disabled={writingOff}
-                      className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
+                      type="button"
+                      onClick={() => setWriteOffReason('Short-shipped by supplier')}
+                      disabled={busy}
+                      className={`rounded-md border px-2 py-1.5 text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                        writeOffReason === 'Short-shipped by supplier'
+                          ? 'border-amber-300 bg-amber-100 text-amber-800'
+                          : 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
+                      }`}
                     >
                       Supplier shorted it
                     </button>
                     <button
-                      onClick={() => void writeOff('Lost in transit', close)}
-                      disabled={writingOff}
-                      className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
+                      type="button"
+                      onClick={() => setWriteOffReason('Lost in transit')}
+                      disabled={busy}
+                      className={`rounded-md border px-2 py-1.5 text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                        writeOffReason === 'Lost in transit'
+                          ? 'border-amber-300 bg-amber-100 text-amber-800'
+                          : 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
+                      }`}
                     >
                       Lost in transit
                     </button>
                     <button
-                      onClick={() => void writeOff('Damaged on arrival', close)}
-                      disabled={writingOff}
-                      className="col-span-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
+                      type="button"
+                      onClick={() => setWriteOffReason('Damaged on arrival')}
+                      disabled={busy}
+                      className={`col-span-2 rounded-md border px-2 py-1.5 text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                        writeOffReason === 'Damaged on arrival'
+                          ? 'border-amber-300 bg-amber-100 text-amber-800'
+                          : 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
+                      }`}
                     >
                       Damaged on arrival
                     </button>
@@ -1981,9 +2574,18 @@ function IncomingCell({
               )}
             </div>
           )}
+            <button
+              type="button"
+              onClick={() => void confirmReceipt(closeModal)}
+              disabled={busy}
+              className="mt-4 w-full rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {busy ? 'Saving...' : primaryActionLabel}
+            </button>
+          </section>
         </div>
-      )}
-    </Popover>
+      </Modal>
+    </>
   );
 }
 
@@ -3174,6 +3776,24 @@ export function InventoryPage() {
   const [ledgerDateTo, setLedgerDateTo] = useState('');
   const LEDGER_PAGE_SIZE = 25;
 
+  const [shortfalls, setShortfalls] = useState<StockShortfallRowDTO[]>([]);
+  const [shortfallsSummary, setShortfallsSummary] = useState<StockShortfallsSummaryDTO>({
+    skuCount: 0,
+    affectedOrderCount: 0,
+    shortageUnits: 0,
+    orderUnits: 0,
+    incomingCoverageUnits: 0,
+  });
+  const [shortfallsLoading, setShortfallsLoading] = useState(false);
+  const [shortfallsLoaded, setShortfallsLoaded] = useState(false);
+  const [shortfallsSearch, setShortfallsSearch] = useState('');
+  // Carries a single shortfall row's suggested SKU/quantity/warehouse into the Incoming Stock
+  // modal — the "Add incoming" shortcut button below sets this instead of making someone re-search
+  // for a product they're already looking at.
+  const [inboundPrefill, setInboundPrefill] = useState<{ sku: InventorySkuOptionDTO; quantity: number; warehouseId: string } | null>(null);
+  const [selectedShortfallKeys, setSelectedShortfallKeys] = useState<Set<string>>(new Set());
+  const [bulkInboundModalOpen, setBulkInboundModalOpen] = useState(false);
+
   const [awaitingReceipt, setAwaitingReceipt] = useState<ReturnsPackageDTO[]>([]);
   const [awaitingQc, setAwaitingQc] = useState<ReturnsPackageDTO[]>([]);
   const [returnsLoading, setReturnsLoading] = useState(false);
@@ -3182,7 +3802,7 @@ export function InventoryPage() {
   const [returnsWarehouseFilter, setReturnsWarehouseFilter] = useState('');
   const [returnsToProcessPage, setReturnsToProcessPage] = useState(1);
   const RETURNS_TO_PROCESS_PAGE_SIZE = 10;
-  const [overdueShipments, setOverdueShipments] = useState<OverdueShipmentDTO[]>([]);
+  const [openShipments, setOpenShipments] = useState<OpenShipmentDTO[]>([]);
   const agingReceiptCount = awaitingReceipt.filter(isAgingPackage).length;
   const agingQcCount = awaitingQc.filter(isAgingPackage).length;
   const returnsToProcessTotalPages = Math.max(1, Math.ceil(awaitingReceipt.length / RETURNS_TO_PROCESS_PAGE_SIZE));
@@ -3195,13 +3815,13 @@ export function InventoryPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const [inventoryRes, skusRes, supplierRes, warehouseRes, settingsRes, overdueRes] = await Promise.all([
+      const [inventoryRes, skusRes, supplierRes, warehouseRes, settingsRes, openShipmentsRes] = await Promise.all([
         listInventory(),
         listInventorySkuOptions(),
         listSuppliers(),
         listWarehouses(),
         getInventorySettings(),
-        getOverdueShipments(),
+        getOpenShipments(),
       ]);
       setLevels(inventoryRes.levels);
       setMovements(inventoryRes.movements);
@@ -3210,11 +3830,20 @@ export function InventoryPage() {
       setSuppliers(supplierRes.suppliers);
       setWarehouses(warehouseRes.warehouses);
       setReturnsWorkflow(settingsRes.settings.returnsWorkflow);
-      setOverdueShipments(overdueRes.shipments);
+      setOpenShipments(openShipmentsRes.shipments);
     } catch {
       toast.push('Could not load inventory workspace.', 'info');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadOpenShipments = async () => {
+    try {
+      const res = await getOpenShipments();
+      setOpenShipments(res.shipments);
+    } catch {
+      toast.push('Could not refresh incoming shipment details.', 'info');
     }
   };
 
@@ -3255,12 +3884,34 @@ export function InventoryPage() {
     }
   };
 
+  const loadStockShortfalls = async (searchValue = shortfallsSearch) => {
+    setShortfallsLoading(true);
+    try {
+      const res = await listStockShortfalls({ search: searchValue.trim() || undefined });
+      setShortfalls(res.rows);
+      setShortfallsSummary(res.summary);
+      setShortfallsLoaded(true);
+    } catch {
+      toast.push('Could not load stock shortfalls.', 'info');
+    } finally {
+      setShortfallsLoading(false);
+    }
+  };
+
   // Called after every action that can log a shrinkage-relevant movement (a damaged/lost/cycle
   // count, an inbound write-off, a return QC'd with a shortfall) — only actually refetches if the
   // report's already been loaded once this session, so it stays in sync in the background without
   // forcing a fetch nobody's asked to see yet.
   const refreshShrinkageIfLoaded = () => {
     if (shrinkage) void loadShrinkage();
+  };
+
+  // Same pattern — logging incoming stock (single or bulk) can move a row from "Need to buy" to
+  // "Incoming covers," or clear it off the list entirely, so the Shortfalls tab needs to reflect
+  // that immediately rather than showing a stale "need to buy" number after the action that just
+  // addressed it.
+  const refreshShortfallsIfLoaded = () => {
+    if (shortfallsLoaded) void loadStockShortfalls();
   };
 
   const changeReturnsWorkflow = async (mode: ReturnsWorkflow) => {
@@ -3311,12 +3962,20 @@ export function InventoryPage() {
     if (view === 'shrinkage') void loadShrinkage();
     if (view === 'returns' && !returnsLoaded) void loadReturnsQueue();
     if (view === 'ledger') void loadLedger(1);
+    if (view === 'shortfalls' && !shortfallsLoaded) void loadStockShortfalls();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
 
   // Debounced so typing in the search box doesn't fire a request per keystroke — every filter
   // change restarts on page 1, since a stale page number from a previous, differently-filtered
   // result set wouldn't mean anything here.
+  useEffect(() => {
+    if (view !== 'shortfalls') return;
+    const handle = setTimeout(() => void loadStockShortfalls(shortfallsSearch), 250);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shortfallsSearch]);
+
   useEffect(() => {
     if (view !== 'ledger') return;
     const handle = setTimeout(() => void loadLedger(1), 300);
@@ -3356,15 +4015,74 @@ export function InventoryPage() {
   // Overdue shipments are keyed by product+variant+warehouse+bin, same as a level — this maps each
   // affected level to the worst (largest) days-overdue among its open shipments, so a level with
   // more than one overdue shipment still shows a single, honest "how late" number.
-  const overdueDaysByLevelKey = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const s of overdueShipments) {
-      const key = `${s.productId}::${s.variantId}::${s.warehouseId}::${s.bin}`;
-      map.set(key, Math.max(map.get(key) ?? 0, s.daysOverdue));
+  const levelKey = (level: InventoryLevelDTO) => `${level.productId}::${level.variantId}::${level.warehouseId}::${level.bin}`;
+  const shipmentKey = (shipment: OpenShipmentDTO) => `${shipment.productId}::${shipment.variantId}::${shipment.warehouseId}::${shipment.bin}`;
+
+  const openShipmentsByLevelKey = useMemo(() => {
+    const map = new Map<string, OpenShipmentDTO[]>();
+    for (const shipment of openShipments) {
+      const key = shipmentKey(shipment);
+      const list = map.get(key) ?? [];
+      list.push(shipment);
+      map.set(key, list);
     }
     return map;
-  }, [overdueShipments]);
-  const levelKey = (level: InventoryLevelDTO) => `${level.productId}::${level.variantId}::${level.warehouseId}::${level.bin}`;
+  }, [openShipments]);
+
+  const overdueDaysByLevelKey = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const shipment of openShipments) {
+      if (shipment.daysOverdue == null) continue;
+      const key = shipmentKey(shipment);
+      map.set(key, Math.max(map.get(key) ?? 0, shipment.daysOverdue));
+    }
+    return map;
+  }, [openShipments]);
+
+  const levelForShortfallLocation = (row: StockShortfallRowDTO, location: StockShortfallLocationDTO) =>
+    levels.find((level) => {
+      if (level.warehouseId !== location.warehouseId || level.bin !== location.bin) return false;
+      if (row.variantId) return level.variantId === row.variantId;
+      return level.sku === row.sku && textKey(level.variantLabel) === textKey(row.variantLabel);
+    }) ?? null;
+
+  const shortfallRowKey = (row: StockShortfallRowDTO) => `${row.productId ?? row.sku}-${row.variantId ?? row.variantLabel ?? ''}`;
+
+  // What to suggest logging as incoming for this row, and where. `orderNeed` alone only clears
+  // today's backlog — if a location also carries a reorder point, topping up to it (rather than just
+  // to zero-short) means the next order doesn't put this SKU right back on this same list a few days
+  // later. Never authoritative — always shown as an editable, labeled suggestion in the modal, since
+  // what a supplier actually agrees to on a call can reasonably differ from either number.
+  function shortfallSuggestion(row: StockShortfallRowDTO): { quantity: number; warehouseId: string } {
+    let restockTopUp = 0;
+    let targetLocation: StockShortfallLocationDTO | null = null;
+    for (const location of row.locations) {
+      if (location.reorderPoint != null) {
+        restockTopUp += Math.max(0, location.reorderPoint - location.free - location.inbound);
+      }
+      if (!targetLocation || location.free < targetLocation.free) targetLocation = location;
+    }
+    const quantity = Math.max(row.orderNeed, restockTopUp, 1);
+    const warehouseId = targetLocation?.warehouseId ?? warehouses[0]?.id ?? '';
+    return { quantity, warehouseId };
+  }
+
+  const toggleShortfallSelection = (row: StockShortfallRowDTO) => {
+    const key = shortfallRowKey(row);
+    setSelectedShortfallKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  // Only rows with a resolvable product/variant can actually be logged as incoming (same
+  // requirement as the per-row "Add incoming" button) — "select all" should only ever select what
+  // Add incoming (bulk) can actually act on.
+  const selectableShortfalls = shortfalls.filter((row) => row.productId && row.variantId);
+  const selectAllShortfalls = () => setSelectedShortfallKeys(new Set(selectableShortfalls.map(shortfallRowKey)));
+  const clearShortfallSelection = () => setSelectedShortfallKeys(new Set());
 
   const filteredLevels = levels.filter((level) => {
     const haystack = `${level.productTitle ?? ''} ${level.variantLabel ?? ''} ${level.sku ?? ''}`.toLowerCase();
@@ -3421,8 +4139,8 @@ export function InventoryPage() {
   const focusOptions: { key: FocusMode; label: string; count: number }[] = [
     { key: 'all', label: 'All items', count: levels.length },
     { key: 'reorder', label: 'Low Stock', count: reorderCount },
-    { key: 'overdue', label: 'Overdue shipments', count: overdueLevelsCount },
-    { key: 'reserved', label: 'Has reserved stock', count: reservedCount },
+    { key: 'overdue', label: 'Late shipments', count: overdueLevelsCount },
+    { key: 'reserved', label: 'Booked for orders', count: reservedCount },
     { key: 'dead', label: 'Dead stock', count: deadCount },
     { key: 'inbound', label: 'Incoming stock', count: inboundCount },
   ];
@@ -3444,6 +4162,7 @@ export function InventoryPage() {
 
   const applyLevelUpdate = (updated: InventoryLevelDTO) => {
     setLevels((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+    void loadOpenShipments();
     // Covers the inbound write-off action (a shrinkage source) along with plain reorder-point edits
     // and ordinary "mark received" (which aren't) — cheap and harmless to over-trigger since it's a
     // no-op unless the report's already loaded.
@@ -3451,7 +4170,7 @@ export function InventoryPage() {
   };
 
   return (
-    <div className="flex h-full flex-col bg-white">
+    <div className="min-h-full bg-white">
       <div className="flex flex-wrap items-center justify-between gap-y-3 border-b border-slate-200 bg-white px-4 py-4 lg:px-8 lg:py-5">
         <div>
           <div className="flex items-center gap-2">
@@ -3470,7 +4189,13 @@ export function InventoryPage() {
           <button onClick={() => setCountModalOpen(true)} className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-slate-800">
             <Plus size={14} /> New count
           </button>
-          <button onClick={() => setInboundModalOpen(true)} className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-indigo-700">
+          <button
+            onClick={() => {
+              setInboundPrefill(null);
+              setInboundModalOpen(true);
+            }}
+            className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+          >
             <Truck size={14} /> Incoming Stock
           </button>
           {canTransferBetweenLocations(warehouses, levels) && (
@@ -3483,7 +4208,7 @@ export function InventoryPage() {
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 pt-3 lg:px-8">
         <div className="flex flex-wrap items-center gap-1">
-          {(['stock', 'returns', 'ledger', 'shrinkage'] as PageView[]).map((v) => (
+          {(['stock', 'shortfalls', 'returns', 'ledger', 'shrinkage'] as PageView[]).map((v) => (
             <button
               key={v}
               onClick={() => setView(v)}
@@ -3492,7 +4217,10 @@ export function InventoryPage() {
                 view === v ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-500 hover:text-slate-700'
               )}
             >
-              {v === 'stock' ? 'Stock levels' : v === 'returns' ? 'Returns to process' : v === 'shrinkage' ? 'Loss Report' : 'Stock History'}
+              {v === 'stock' ? 'Stock levels' : v === 'shortfalls' ? 'Stock Shortfalls' : v === 'returns' ? 'Returns to process' : v === 'shrinkage' ? 'Loss Report' : 'Stock History'}
+              {v === 'shortfalls' && shortfallsSummary.skuCount > 0 && (
+                <span className="ml-1.5 rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-700">{shortfallsSummary.skuCount}</span>
+              )}
               {v === 'returns' && awaitingReceipt.length + awaitingQc.length > 0 && (
                 <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">
                   {awaitingReceipt.length + awaitingQc.length}
@@ -3527,7 +4255,7 @@ export function InventoryPage() {
       </div>
 
       {view === 'returns' ? (
-        <div className="flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6">
+        <div className="px-4 py-4 lg:px-8 lg:py-6">
           {returnsLoading && !returnsLoaded ? (
             <div className="flex h-64 items-center justify-center text-sm text-slate-400">Loading returns queue...</div>
           ) : (
@@ -3691,8 +4419,254 @@ export function InventoryPage() {
             </div>
           )}
         </div>
+      ) : view === 'shortfalls' ? (
+        <div className="px-4 py-4 lg:px-8 lg:py-6">
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+              <MetricCard
+                icon={PackagePlus}
+                label="Need to buy"
+                value={shortfallsSummary.orderUnits.toLocaleString()}
+                detail="units after incoming stock"
+                tone={shortfallsSummary.orderUnits > 0 ? 'rose' : 'emerald'}
+              />
+              <MetricCard
+                icon={AlertTriangle}
+                label="Short now"
+                value={shortfallsSummary.shortageUnits.toLocaleString()}
+                detail="units blocking orders"
+                tone={shortfallsSummary.shortageUnits > 0 ? 'amber' : 'emerald'}
+              />
+              <MetricCard
+                icon={ClipboardCheck}
+                label="Affected orders"
+                value={shortfallsSummary.affectedOrderCount.toLocaleString()}
+                detail={`${shortfallsSummary.skuCount.toLocaleString()} SKU${shortfallsSummary.skuCount === 1 ? '' : 's'}`}
+              />
+              <MetricCard
+                icon={Truck}
+                label="Covered incoming"
+                value={shortfallsSummary.incomingCoverageUnits.toLocaleString()}
+                detail="short units already inbound"
+                tone="indigo"
+              />
+            </div>
+
+            <section className="rounded-xl border border-slate-200 bg-white p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-bold text-slate-900">Stock Shortfalls</h2>
+                  <p className="mt-1 text-xs text-slate-400">Pending, flagged, and pre-confirm hold orders that cannot be covered by currently free stock.</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {selectableShortfalls.length > 0 && (
+                    <div className="flex items-center gap-3 text-xs font-semibold">
+                      {selectedShortfallKeys.size < selectableShortfalls.length && (
+                        <button onClick={selectAllShortfalls} className="text-indigo-600 hover:underline">
+                          Select all ({selectableShortfalls.length})
+                        </button>
+                      )}
+                      {selectedShortfallKeys.size > 0 && (
+                        <button onClick={clearShortfallSelection} className="text-slate-500 hover:underline">
+                          Clear selection
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {selectedShortfallKeys.size > 0 && (
+                    <button
+                      onClick={() => setBulkInboundModalOpen(true)}
+                      className="flex h-9 items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 text-sm font-semibold text-white hover:bg-indigo-700"
+                    >
+                      <Truck size={14} /> Add incoming ({selectedShortfallKeys.size})
+                    </button>
+                  )}
+                  <div className="relative w-full sm:w-72">
+                    <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      value={shortfallsSearch}
+                      onChange={(e) => setShortfallsSearch(e.target.value)}
+                      placeholder="Search product, variant or SKU"
+                      className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 pl-8 pr-3 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15"
+                    />
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-xl border border-slate-200 bg-white">
+              {shortfallsLoading && !shortfallsLoaded ? (
+                <div className="flex h-64 items-center justify-center text-sm text-slate-400">Loading stock shortfalls...</div>
+              ) : shortfalls.length === 0 ? (
+                <div className="flex h-64 flex-col items-center justify-center gap-2 px-8 text-center">
+                  <PackageCheck size={28} className="text-slate-300" />
+                  <p className="text-sm font-semibold text-slate-700">No stock shortfalls right now</p>
+                  <p className="max-w-md text-sm text-slate-400">Every active pre-confirm order is either covered by free stock or the item is not tracked in Inventory yet.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {shortfalls.map((row) => {
+                    const rowIncomingLevels = row.locations
+                      .map((location) => levelForShortfallLocation(row, location))
+                      .filter((level): level is InventoryLevelDTO => Boolean(level && level.inbound > 0));
+                    const singleIncomingLevel = rowIncomingLevels.length === 1 ? rowIncomingLevels[0] : null;
+                    const rowKey = shortfallRowKey(row);
+                    const canLogIncoming = Boolean(row.productId && row.variantId);
+                    const suggestion = canLogIncoming ? shortfallSuggestion(row) : null;
+                    const isSelected = selectedShortfallKeys.has(rowKey);
+                    return (
+                    <div key={rowKey} className="p-4">
+                      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+                        <div className="min-w-0">
+                          <div className="flex min-w-0 items-start gap-3">
+                            {canLogIncoming && (
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => toggleShortfallSelection(row)}
+                                className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                aria-label={`Select ${row.productTitle ?? row.sku}`}
+                              />
+                            )}
+                            {row.productImage ? (
+                              <img src={row.productImage} alt={row.productTitle ?? ''} className="h-14 w-14 shrink-0 rounded-lg border border-slate-200 object-cover" />
+                            ) : (
+                              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-300">
+                                <Package size={18} />
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="truncate font-semibold text-slate-900">{row.productTitle ?? 'Inventory item'}</p>
+                                {row.orderNeed > 0 ? (
+                                  <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-700 ring-1 ring-inset ring-rose-600/20">Need to buy</span>
+                                ) : (
+                                  <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-700 ring-1 ring-inset ring-indigo-600/20">Incoming covers</span>
+                                )}
+                                {suggestion && (
+                                  <button
+                                    onClick={() => {
+                                      setInboundPrefill({
+                                        sku: {
+                                          productId: row.productId!,
+                                          variantId: row.variantId!,
+                                          sku: row.sku,
+                                          productTitle: row.productTitle ?? row.sku,
+                                          productImage: row.productImage,
+                                          variantLabel: row.variantLabel ?? '',
+                                        },
+                                        quantity: suggestion.quantity,
+                                        warehouseId: suggestion.warehouseId,
+                                      });
+                                      setInboundModalOpen(true);
+                                    }}
+                                    className="ml-auto flex h-7 shrink-0 items-center gap-1.5 rounded-lg bg-indigo-600 px-2.5 text-[11px] font-bold text-white hover:bg-indigo-700"
+                                  >
+                                    <Truck size={12} /> Add incoming
+                                  </button>
+                                )}
+                              </div>
+                              <p className="mt-0.5 truncate text-xs text-slate-400">
+                                {row.variantLabel ? `${row.variantLabel} - ` : ''}SKU {row.sku}
+                              </p>
+                              <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
+                                <div>
+                                  <p className="font-bold tabular-nums text-slate-900">{row.demand}</p>
+                                  <p className="text-slate-400">order demand</p>
+                                </div>
+                                <div>
+                                  <p className="font-bold tabular-nums text-emerald-600">{row.availableNow}</p>
+                                  <p className="text-slate-400">free now</p>
+                                </div>
+                                <div>
+                                  {singleIncomingLevel ? (
+                                    <IncomingCell
+                                      level={singleIncomingLevel}
+                                      onReceived={applyLevelUpdate}
+                                      overdueDays={overdueDaysByLevelKey.get(levelKey(singleIncomingLevel)) ?? null}
+                                      shipments={openShipmentsByLevelKey.get(levelKey(singleIncomingLevel)) ?? []}
+                                      variant="shortfall"
+                                    />
+                                  ) : (
+                                    <p className="font-bold tabular-nums text-indigo-600">{row.inbound}</p>
+                                  )}
+                                  {!singleIncomingLevel && <p className="mt-0.5 text-slate-400">incoming</p>}
+                                </div>
+                                <div>
+                                  <p className="font-bold tabular-nums text-amber-600">{row.shortageNow}</p>
+                                  <p className="text-slate-400">short now</p>
+                                </div>
+                                <div>
+                                  <p className={clsx('font-bold tabular-nums', row.orderNeed > 0 ? 'text-rose-600' : 'text-emerald-600')}>{row.orderNeed}</p>
+                                  <p className="text-slate-400">need to buy</p>
+                                  {suggestion && suggestion.quantity > row.orderNeed && (
+                                    <p className="mt-0.5 text-[10px] font-semibold text-indigo-600">Suggest {suggestion.quantity} to also refill reorder point</p>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {row.locations.map((location) => {
+                                  const locationLevel = levelForShortfallLocation(row, location);
+                                  return (
+                                    <span key={`${location.warehouseId}-${location.bin}`} className="inline-flex items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5 text-[11px] text-slate-600 ring-1 ring-inset ring-slate-100">
+                                      <span>
+                                        {location.warehouseName}
+                                        {location.bin !== 'Unassigned' ? ` / ${location.bin}` : ''}: <span className="font-semibold tabular-nums text-slate-700">{location.free}</span> free
+                                      </span>
+                                      {location.inbound > 0 && locationLevel ? (
+                                        <IncomingCell
+                                          level={locationLevel}
+                                          onReceived={applyLevelUpdate}
+                                          overdueDays={overdueDaysByLevelKey.get(levelKey(locationLevel)) ?? null}
+                                          shipments={openShipmentsByLevelKey.get(levelKey(locationLevel)) ?? []}
+                                          variant="shortfall"
+                                        />
+                                      ) : location.inbound > 0 ? (
+                                        <span>, {location.inbound} incoming</span>
+                                      ) : null}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="rounded-lg border border-slate-200">
+                          <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+                            <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Affected orders</p>
+                            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">{row.orderCount}</span>
+                          </div>
+                          <div className="max-h-56 overflow-y-auto divide-y divide-slate-100">
+                            {row.orders.map((order) => (
+                              <div key={order.orderId} className="flex items-start justify-between gap-3 px-3 py-2.5 text-xs">
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-bold text-slate-800">{order.orderNumber}</span>
+                                    <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">{STAGE_LABEL[order.stage]}</span>
+                                  </div>
+                                  <p className="mt-0.5 truncate text-slate-500">{order.customerName ?? order.customerPhone ?? 'Unknown customer'}</p>
+                                  <p className="mt-0.5 text-slate-400">{ageLabel(order.createdAt)} ago</p>
+                                </div>
+                                <div className="shrink-0 text-right">
+                                  <p className="font-bold tabular-nums text-rose-600">{order.shortQuantity} short</p>
+                                  <p className="text-slate-400">of {order.quantity}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          </div>
+        </div>
       ) : view === 'shrinkage' ? (
-        <div className="flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6">
+        <div className="px-4 py-4 lg:px-8 lg:py-6">
           {shrinkageLoading || !shrinkage ? (
             <div className="flex h-64 items-center justify-center text-sm text-slate-400">Loading loss report...</div>
           ) : (
@@ -3799,7 +4773,7 @@ export function InventoryPage() {
           )}
         </div>
       ) : view === 'ledger' ? (
-        <div className="flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6">
+        <div className="px-4 py-4 lg:px-8 lg:py-6">
           <div className="space-y-4">
             <section className="rounded-xl border border-slate-200 bg-white p-4">
               <div className="flex flex-wrap items-center gap-2">
@@ -3918,9 +4892,9 @@ export function InventoryPage() {
           </div>
         </div>
       ) : loading ? (
-        <div className="flex flex-1 items-center justify-center text-sm text-slate-400">Loading inventory...</div>
+        <div className="flex h-64 items-center justify-center text-sm text-slate-400">Loading inventory...</div>
       ) : levels.length === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-8 text-center">
+        <div className="flex h-64 flex-col items-center justify-center gap-2 px-8 text-center">
           <Warehouse size={30} className="text-slate-300" />
           <p className="text-sm font-semibold text-slate-700">No SKUs tracked yet</p>
           <p className="max-w-sm text-sm text-slate-400">Log your first opening count to start tracking real stock, per SKU.</p>
@@ -4085,24 +5059,24 @@ export function InventoryPage() {
             </div>
           </div>
 
-          <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto xl:grid-cols-[minmax(0,1fr)_360px] xl:overflow-hidden">
-            <div className="flex min-h-0 flex-col">
-              <div className="xl:flex-1 xl:overflow-y-auto">
+          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px]">
+            <div className="flex flex-col">
+              <div>
                 <table className="w-full min-w-0 table-fixed border-collapse text-sm xl:min-w-[1040px]">
                   <colgroup>
-                    <col className="w-[30%]" />
-                    <col className="w-[16%]" />
-                    <col className="w-[18%]" />
+                    <col className="w-[29%]" />
+                    <col className="w-[15%]" />
+                    <col className="w-[22%]" />
                     <col className="w-[14%]" />
                     <col className="w-[12%]" />
-                    <col className="w-[10%]" />
+                    <col className="w-[8%]" />
                   </colgroup>
                   <thead>
                     <tr className="border-b border-slate-200 text-left text-xs font-semibold text-slate-500">
                       <th className="py-3.5 pl-6 pr-5">Item</th>
                       <th className="px-5 py-3.5">Location</th>
                       <th className="px-5 py-3.5">Availability</th>
-                      <th className="px-5 py-3.5">Low Stock Alert</th>
+                      <th className="px-5 py-3.5 text-center">Low Stock Alert</th>
                       <th className="px-5 py-3.5">Status</th>
                       <th className="py-3.5 pl-3 pr-6 text-right">Value</th>
                     </tr>
@@ -4151,16 +5125,21 @@ export function InventoryPage() {
                             </div>
                           </td>
                           <td className="px-5 py-4">
-                            <div className="grid grid-cols-3 gap-2 text-xs">
+                            <div className="grid grid-cols-3 gap-x-6 gap-y-1 text-xs">
                               <div>
                                 <p className="font-semibold tabular-nums text-slate-900">{level.onHand}</p>
                                 <p className="text-slate-400">on hand</p>
                               </div>
                               <ReservedCell level={level} />
-                              <IncomingCell level={level} onReceived={applyLevelUpdate} overdueDays={overdueDaysByLevelKey.get(levelKey(level)) ?? null} />
+                              <IncomingCell
+                                level={level}
+                                onReceived={applyLevelUpdate}
+                                overdueDays={overdueDaysByLevelKey.get(levelKey(level)) ?? null}
+                                shipments={openShipmentsByLevelKey.get(levelKey(level)) ?? []}
+                              />
                             </div>
                           </td>
-                          <td className="px-5 py-4">
+                          <td className="px-5 py-4 text-center">
                             <ReorderPointCell level={level} unitsPerDay={level.variantId ? velocityByVariantId[level.variantId] : undefined} onSaved={applyLevelUpdate} />
                           </td>
                           <td className="px-5 py-4">
@@ -4213,7 +5192,7 @@ export function InventoryPage() {
               )}
             </div>
 
-            <aside className="border-t border-slate-200 bg-slate-50 p-4 xl:overflow-y-auto xl:border-l xl:border-t-0">
+            <aside className="border-t border-slate-200 bg-slate-50 p-4 xl:border-l xl:border-t-0">
               <div className="space-y-4">
                 <section className="rounded-lg border border-slate-200 bg-white p-4">
                   <div className="flex items-center justify-between">
@@ -4277,9 +5256,46 @@ export function InventoryPage() {
         open={inboundModalOpen}
         suppliers={suppliers}
         warehouses={warehouses}
-        onClose={() => setInboundModalOpen(false)}
+        onClose={() => {
+          setInboundModalOpen(false);
+          setInboundPrefill(null);
+        }}
         onSaved={() => {
           void load();
+          refreshShortfallsIfLoaded();
+        }}
+        onManageWarehouses={() => setWarehouseModalOpen(true)}
+        initialSku={inboundPrefill?.sku ?? null}
+        initialQuantity={inboundPrefill?.quantity}
+        initialWarehouseId={inboundPrefill?.warehouseId}
+      />
+      <BulkInboundModal
+        open={bulkInboundModalOpen}
+        items={shortfalls
+          .filter((row) => selectedShortfallKeys.has(shortfallRowKey(row)) && row.productId && row.variantId)
+          .map((row) => {
+            const suggestion = shortfallSuggestion(row);
+            return {
+              key: shortfallRowKey(row),
+              sku: {
+                productId: row.productId!,
+                variantId: row.variantId!,
+                sku: row.sku,
+                productTitle: row.productTitle ?? row.sku,
+                productImage: row.productImage,
+                variantLabel: row.variantLabel ?? '',
+              },
+              quantity: suggestion.quantity,
+              warehouseId: suggestion.warehouseId,
+            };
+          })}
+        suppliers={suppliers}
+        warehouses={warehouses}
+        onClose={() => setBulkInboundModalOpen(false)}
+        onSaved={() => {
+          void load();
+          refreshShortfallsIfLoaded();
+          setSelectedShortfallKeys(new Set());
         }}
         onManageWarehouses={() => setWarehouseModalOpen(true)}
       />

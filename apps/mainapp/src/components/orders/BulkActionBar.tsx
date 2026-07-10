@@ -1,4 +1,4 @@
-import { Ban, PhoneCall, PauseCircle, X, Printer, FileText, ClipboardList, Tag, Scissors, Banknote } from 'lucide-react';
+import { Ban, PhoneCall, PauseCircle, X, Printer, FileText, ClipboardList, Tag, Scissors, Banknote, Truck } from 'lucide-react';
 import type { HoldReason } from '@zetsales/shared';
 import { ALL_CANCEL_REASONS } from './reasons';
 import { ReasonNoteMenu } from './ReasonNoteMenu';
@@ -7,9 +7,18 @@ import { Popover } from '../ui/Popover';
 interface BulkActionBarProps {
   count: number;
   onClear: () => void;
-  onConfirm: () => void;
-  onHold: (reason: string, note: string, rescheduledFor: string | null) => void;
-  onCancel: (reason: string, note: string) => void;
+  // Each of these three is undefined when nothing in the current selection is actually eligible
+  // (e.g. Confirm when everything selected is already past Pending/Flagged) — same "only renders
+  // when the caller gives us a handler" contract as onMarkCollected below, so a nonsensical action
+  // never shows up in the first place rather than silently no-op'ing (or worse) against orders it
+  // doesn't apply to.
+  onConfirm?: () => void;
+  // Undefined unless at least one selected order is actually in Processing — opens the handover
+  // details popup rather than firing directly, since marking shipped in bulk means physically
+  // handing a batch to a courier and there's real information worth logging about that moment.
+  onMarkShipped?: () => void;
+  onHold?: (reason: string, note: string, rescheduledFor: string | null) => void;
+  onCancel?: (reason: string, note: string) => void;
   onPrintInvoices: () => void;
   onPrintPackingSlips: () => void;
   onPrintCombined: () => void;
@@ -26,7 +35,7 @@ interface BulkActionBarProps {
 }
 
 export function BulkActionBar({
-  count, onClear, onConfirm, onHold, onCancel, onPrintInvoices, onPrintPackingSlips, onPrintCombined, onPrintLabels, onMarkCollected, holdReasons, busy,
+  count, onClear, onConfirm, onMarkShipped, onHold, onCancel, onPrintInvoices, onPrintPackingSlips, onPrintCombined, onPrintLabels, onMarkCollected, holdReasons, busy,
 }: BulkActionBarProps) {
   if (count === 0) return null;
 
@@ -40,13 +49,24 @@ export function BulkActionBar({
           {count} selected
         </span>
         <div className="h-5 w-px bg-white/10" />
-        <button
-          onClick={onConfirm}
-          disabled={busy}
-          className="flex items-center gap-1.5 rounded-xl bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 hover:bg-slate-100 disabled:opacity-60"
-        >
-          <PhoneCall size={13} /> Confirm
-        </button>
+        {onConfirm && (
+          <button
+            onClick={onConfirm}
+            disabled={busy}
+            className="flex items-center gap-1.5 rounded-xl bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 hover:bg-slate-100 disabled:opacity-60"
+          >
+            <PhoneCall size={13} /> Confirm
+          </button>
+        )}
+        {onMarkShipped && (
+          <button
+            onClick={onMarkShipped}
+            disabled={busy}
+            className="flex items-center gap-1.5 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20 disabled:opacity-60"
+          >
+            <Truck size={13} /> Hand over to courier
+          </button>
+        )}
         <Popover
           align="right"
           widthClass="w-44"
@@ -106,31 +126,35 @@ export function BulkActionBar({
             <Banknote size={13} /> Mark COD collected
           </button>
         )}
-        <ReasonNoteMenu
-          title="Put selected orders on hold"
-          reasons={holdReasons}
-          confirmLabel="Put on hold"
-          onApply={onHold}
-          align="right"
-          trigger={() => (
-            <div className="flex items-center gap-1.5 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20 cursor-pointer">
-              <PauseCircle size={13} /> Hold
-            </div>
-          )}
-        />
-        <ReasonNoteMenu
-          title="Cancel selected orders"
-          reasons={ALL_CANCEL_REASONS}
-          confirmLabel="Cancel orders"
-          confirmTone="danger"
-          onApply={onCancel}
-          align="right"
-          trigger={() => (
-            <div className="flex items-center gap-1.5 rounded-xl bg-rose-500/20 px-3 py-1.5 text-xs font-semibold text-rose-200 hover:bg-rose-500/30 cursor-pointer">
-              <Ban size={13} /> Cancel
-            </div>
-          )}
-        />
+        {onHold && (
+          <ReasonNoteMenu
+            title="Put selected orders on hold"
+            reasons={holdReasons}
+            confirmLabel="Put on hold"
+            onApply={onHold}
+            align="right"
+            trigger={() => (
+              <div className="flex items-center gap-1.5 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20 cursor-pointer">
+                <PauseCircle size={13} /> Hold
+              </div>
+            )}
+          />
+        )}
+        {onCancel && (
+          <ReasonNoteMenu
+            title="Cancel selected orders"
+            reasons={ALL_CANCEL_REASONS}
+            confirmLabel="Cancel orders"
+            confirmTone="danger"
+            onApply={onCancel}
+            align="right"
+            trigger={() => (
+              <div className="flex items-center gap-1.5 rounded-xl bg-rose-500/20 px-3 py-1.5 text-xs font-semibold text-rose-200 hover:bg-rose-500/30 cursor-pointer">
+                <Ban size={13} /> Cancel
+              </div>
+            )}
+          />
+        )}
       </div>
     </div>
   );

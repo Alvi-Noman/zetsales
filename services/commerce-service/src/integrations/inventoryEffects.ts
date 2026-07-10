@@ -169,6 +169,43 @@ export interface StockShortfall {
   blocksConfirm: boolean;
 }
 
+interface LineItemStockResolution {
+  sku: string;
+  productTitle: string | null;
+  variantLabel: string | null;
+  needed: number;
+  free: number;
+  inbound: number;
+}
+
+// Shared by checkStockForConfirm and checkFulfillmentReadiness below — the same "match by SKU,
+// then disambiguate by variant label, take the best-stocked candidate" logic applyInventoryStageEffect
+// itself uses to pick which location an order actually draws from. Keeping this in one place means
+// "can this be confirmed," "can this be processed/shipped," and "what actually gets reserved" can
+// never quietly disagree with each other. Returns null when the SKU isn't tracked at all (nothing to
+// check) or the line item is empty.
+async function resolveLineItemStock(
+  db: ReturnType<typeof getDb>,
+  tenantId: string,
+  item: { sku: string | null; variant: string | null; quantity: number }
+): Promise<LineItemStockResolution | null> {
+  if (!item.sku || !item.quantity) return null;
+  const candidates = await db.collection('inventoryLevels').find({ tenantId, sku: item.sku }).toArray();
+  if (candidates.length === 0) return null;
+  const variantMatches = item.variant ? candidates.filter((c) => c.variantLabel && c.variantLabel.toLowerCase() === item.variant!.toLowerCase()) : [];
+  const pool = variantMatches.length > 0 ? variantMatches : candidates;
+  const bestFree = Math.max(...pool.map((c) => c.onHand - c.reserved));
+  const inbound = pool.reduce((sum, c) => sum + (c.inbound ?? 0), 0);
+  return {
+    sku: item.sku,
+    productTitle: pool[0]?.productTitle ?? null,
+    variantLabel: pool[0]?.variantLabel ?? null,
+    needed: item.quantity,
+    free: bestFree,
+    inbound,
+  };
+}
+
 // Runs right before a fresh reservation (fromState 'none' -> 'reserved', i.e. an order actually
 // being confirmed for the first time) — checks whether the single best-stocked location can cover
 // each line item, exactly matching what applyInventoryStageEffect's own selection logic above will
@@ -183,36 +220,103 @@ export async function checkStockForConfirm(
   const shortfalls: StockShortfall[] = [];
 
   for (const item of lineItems) {
-    if (!item.sku || !item.quantity) continue;
-
-    const candidates = await db.collection('inventoryLevels').find({ tenantId, sku: item.sku }).toArray();
-    if (candidates.length === 0) continue;
-    const variantMatches = item.variant ? candidates.filter((c) => c.variantLabel && c.variantLabel.toLowerCase() === item.variant!.toLowerCase()) : [];
-    const pool = variantMatches.length > 0 ? variantMatches : candidates;
-    const bestFree = Math.max(...pool.map((c) => c.onHand - c.reserved));
-    if (bestFree >= item.quantity) continue;
+    const result = await resolveLineItemStock(db, tenantId, item);
+    if (!result || result.free >= result.needed) continue;
 
     // Best-effort: find whichever product doc actually carries this SKU on one of its variants, to
     // read its oversell policy — order line items only ever carry a SKU string, not a stable
     // product/variant id, so this is the same SKU-matching approach the rest of the reservation
-    // logic already relies on. Disambiguates by variant title the same way the candidate selection
-    // above disambiguates by variantLabel — most multi-variant products here share one SKU across
-    // every sibling variant, so matching by SKU alone would silently grab whichever variant happens
-    // to be first in the array regardless of which one this order actually specifies.
+    // logic already relies on. Disambiguates by variant title the same way resolveLineItemStock
+    // disambiguates by variantLabel — most multi-variant products here share one SKU across every
+    // sibling variant, so matching by SKU alone would silently grab whichever variant happens to be
+    // first in the array regardless of which one this order actually specifies.
     const product = await db.collection('products').findOne({ tenantId, 'variants.sku': item.sku });
     const variantsWithSku = (product?.variants ?? []).filter((v: any) => v.sku === item.sku);
     const variant = (item.variant && variantsWithSku.find((v: any) => v.title?.toLowerCase() === item.variant!.toLowerCase())) || variantsWithSku[0];
     const continueSelling = variant?.continueSellingWhenOutOfStock ?? true;
 
     shortfalls.push({
-      sku: item.sku,
-      productTitle: pool[0]?.productTitle ?? null,
-      variantLabel: pool[0]?.variantLabel ?? null,
-      needed: item.quantity,
-      free: Math.max(0, bestFree),
+      sku: result.sku,
+      productTitle: result.productTitle,
+      variantLabel: result.variantLabel,
+      needed: result.needed,
+      free: Math.max(0, result.free),
       blocksConfirm: !continueSelling,
     });
   }
 
   return shortfalls;
+}
+
+export interface FulfillmentReadiness {
+  ready: boolean;
+  // Human-readable explanation of the first blocking line item found — null when ready. Only ever
+  // meant for display (disabling a button, explaining why); the boolean is the actual gate.
+  reason: string | null;
+}
+
+// 'RTO Initiated' and 'QC Pending' are where a failed delivery sits on its way back to the
+// warehouse — see RESERVED_STAGES above. That stock isn't real onHand yet and never counts toward
+// whether the fulfillment gate unlocks (only an actual "receive" action in Returns to process does
+// that), but knowing it exists changes what staff should DO about a blocked order: chase a supplier,
+// or just go check in a return that's already sitting there. Purely informational — this never
+// feeds into the ready/not-ready decision itself, only the explanation shown alongside it.
+const RETURN_IN_TRANSIT_STAGES: OrderStage[] = ['RTO Initiated', 'QC Pending'];
+
+async function countReturnsInTransit(db: ReturnType<typeof getDb>, tenantId: string, sku: string, variantLabel: string | null): Promise<number> {
+  const orders = await db
+    .collection('orders')
+    .find(
+      {
+        tenantId,
+        'lineItems.sku': sku,
+        $or: [{ stage: { $in: RETURN_IN_TRANSIT_STAGES } }, { stage: 'On Hold', heldFromStage: { $in: RETURN_IN_TRANSIT_STAGES } }],
+      },
+      { projection: { lineItems: 1 } }
+    )
+    .toArray();
+
+  let quantity = 0;
+  for (const order of orders) {
+    for (const li of order.lineItems ?? []) {
+      if (li.sku !== sku || !(li.quantity > 0)) continue;
+      if (variantLabel && li.variant && li.variant.toLowerCase() !== variantLabel.toLowerCase()) continue;
+      quantity += li.quantity;
+    }
+  }
+  return quantity;
+}
+
+// Hard physical-stock gate for the two manual transitions that represent actually pulling stock off
+// a shelf — Confirmed -> Processing ("Process order") and Processing -> Shipped ("Mark shipped").
+// Unlike checkStockForConfirm, there's no oversell-policy escape hatch here: continueSellingWhenOutOfStock
+// is a decision about whether to accept a backordered sale, not about whether stock has since
+// physically appeared. By the time staff are trying to pick or hand off an order, the only question
+// left is whether the units are actually there — that's a fact, not a policy.
+export async function checkFulfillmentReadiness(
+  tenantId: string,
+  lineItems: { sku: string | null; variant: string | null; quantity: number }[]
+): Promise<FulfillmentReadiness> {
+  const db = getDb();
+
+  for (const item of lineItems) {
+    const result = await resolveLineItemStock(db, tenantId, item);
+    if (!result || result.free >= result.needed) continue;
+
+    const label = result.productTitle ?? result.sku;
+    const free = Math.max(0, result.free);
+    const shortBy = result.needed - free;
+    const incomingNote = result.inbound > 0 ? `, ${result.inbound} incoming` : '';
+    const returning = await countReturnsInTransit(db, tenantId, result.sku, result.variantLabel);
+    const returnsNote =
+      returning > 0
+        ? ` ${returning} unit${returning === 1 ? '' : 's'} of this ${returning === 1 ? 'is' : 'are'} already on the way back from a return — check Returns to process instead of reordering.`
+        : '';
+    return {
+      ready: false,
+      reason: `Waiting on stock: ${label}${result.variantLabel ? ` (${result.variantLabel})` : ''} — ${shortBy} more unit${shortBy === 1 ? '' : 's'} needed (${free} free${incomingNote}).${returnsNote}`,
+    };
+  }
+
+  return { ready: true, reason: null };
 }

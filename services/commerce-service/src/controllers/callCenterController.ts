@@ -2,6 +2,7 @@ import type { Response } from 'express';
 import { getDb } from '../utils/db.js';
 import type { AuthenticatedRequest } from '../middleware/authMiddleware.js';
 import { resolveRange, bucketLabel, bucketIndexExpr, type TrendGranularity, type TrendWindow } from '../utils/dateRange.js';
+import { resolveActiveClaim } from '../utils/claim.js';
 import type {
   CallCenterAgentDTO,
   CallCenterHourlyVolumeDTO,
@@ -174,6 +175,7 @@ async function loadQueue(tenantId: string, storeId?: string): Promise<{ queue: C
       waitingMinutes,
       lastOutcome: lastCallEvent?.detail ?? null,
       isPriorityCall: doc.isPriorityCall ?? false,
+      ...resolveActiveClaim(doc),
     };
   });
   return { queue, slaBreachCount };

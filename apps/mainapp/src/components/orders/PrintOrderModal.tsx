@@ -1,7 +1,10 @@
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Package, Printer, Scissors, X } from 'lucide-react';
 import type { OrderDTO, OrderLineItemDTO } from '@zetsales/shared';
 import { useAuth } from '../../context/AuthContext';
+import { bulkUpdateOrders } from '../../lib/commerceApi';
+import { useToast } from '../ui/ToastProvider';
 import { formatAbsoluteDateTime } from './time';
 import { resolveBin, type BinLookup } from './binLookup';
 import { Barcode } from './Barcode';
@@ -14,6 +17,11 @@ interface PrintOrderModalProps {
   orders: OrderDTO[];
   docType: PrintDocType;
   binLookup?: BinLookup;
+  // Called after a packing-slip/combined print advances one or more Confirmed orders to
+  // Processing, so the caller can refresh its own order list/detail. Omitted entirely for callers
+  // that don't need to react (there currently are none, but this stays optional rather than
+  // required so a future print-only caller isn't forced to pass a no-op).
+  onOrdersProcessed?: () => void;
 }
 
 const DOC_LABEL: Record<PrintDocType, string> = { invoice: 'Invoice', packingSlip: 'Packing Slip', combined: 'Invoice + Slip' };
@@ -237,9 +245,125 @@ function CombinedDocumentPage({ order, binLookup, businessName }: { order: Order
   );
 }
 
-export function PrintOrderModal({ open, onClose, orders, docType, binLookup }: PrintOrderModalProps) {
+// One order's items as a tight block within the shared list below — no header/DocMeta/full-page
+// treatment, just enough to tell a packer where one order ends and the next begins. `break-inside:
+// avoid` (inline, since Tailwind's break-inside utility isn't reliably in this build) keeps a single
+// order's rows from splitting across a page boundary, without forcing a break between orders the
+// way DocumentPage's `print-page-break` does — that's the whole point of this layout.
+function CompactPackingListOrder({ order, binLookup }: { order: OrderDTO; binLookup?: BinLookup }) {
+  return (
+    <div className="mb-4" style={{ breakInside: 'avoid' }}>
+      <div className="mb-1 flex items-center justify-between gap-3 border-b border-slate-300 pb-1">
+        <span className="text-sm font-bold text-slate-900">
+          {order.number} <span className="font-medium text-slate-500">— {order.customerName || 'No name'}</span>
+        </span>
+        {order.paymentStatus === 'COD Pending' && (
+          <span className="shrink-0 text-xs font-semibold text-amber-700">
+            COD: {order.currency} {order.total.toLocaleString()}
+          </span>
+        )}
+      </div>
+      <table className="w-full border-collapse text-xs">
+        <tbody>
+          {order.lineItems.map((li, i) => (
+            <tr key={i} className="even:bg-slate-50/60">
+              <td className="py-1 pl-3 pr-2 text-slate-700">
+                {li.title}
+                {li.variant ? <span className="text-slate-400"> · {li.variant}</span> : null}
+              </td>
+              <td className="w-16 py-1 px-2 text-center tabular-nums text-slate-600">x{li.quantity}</td>
+              <td className="w-24 py-1 pr-1 text-right text-slate-500">{resolveBin(binLookup, li.sku, order.fulfillmentWarehouseId)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// Bulk packing slips only — one continuous, densely-packed document (no page-per-order) so a batch
+// of orders takes as few printed pages as possible, still grouped by order so a packer can tell
+// which items belong in which box. A single-order packing slip keeps the full-page DocumentPage
+// treatment instead; there's nothing to save paper on for just one order.
+function CompactPackingListDocument({ orders, binLookup, businessName }: { orders: OrderDTO[]; binLookup?: BinLookup; businessName: string }) {
+  return (
+    <div className="bg-white p-8 text-slate-900">
+      <div className="mb-5 flex items-start justify-between border-b border-slate-200 pb-3">
+        <h1 className="text-xl font-bold tracking-tight text-slate-900">{businessName}</h1>
+        <div className="text-right text-xs text-slate-500">
+          <p className="font-semibold text-slate-700">
+            Packing list — {orders.length} order{orders.length === 1 ? '' : 's'}
+          </p>
+          <p>{formatAbsoluteDateTime(new Date().toISOString())}</p>
+        </div>
+      </div>
+      {orders.map((order) => (
+        <CompactPackingListOrder key={order.id} order={order} binLookup={binLookup} />
+      ))}
+    </div>
+  );
+}
+
+export function PrintOrderModal({ open, onClose, orders: liveOrders, docType, binLookup, onOrdersProcessed }: PrintOrderModalProps) {
   const { user } = useAuth();
+  const toast = useToast();
+
+  // Freezes the order list the instant this modal opens, instead of reading the live `orders`
+  // prop on every render. "Print & send to packing" triggers a background refresh of the
+  // underlying order list as a direct side effect of its own success — without this, the modal
+  // would visibly collapse mid-session: the very orders it just sent to packing stop being
+  // "Confirmed" moments later, which used to make the two-button choice disappear and fall back
+  // to a plain "Print" button while the modal was still sitting open. A print session should look
+  // and behave the same from open to close, independent of whatever state changes elsewhere as a
+  // result of using it.
+  const wasOpenRef = useRef(false);
+  const [orders, setOrders] = useState<OrderDTO[]>(liveOrders);
+  useEffect(() => {
+    if (open && !wasOpenRef.current) setOrders(liveOrders);
+    wasOpenRef.current = open;
+  }, [open, liveOrders]);
+
   if (!open) return null;
+
+  // A packing slip is the document that actually sends work to a packer — printing it (or the
+  // combined sheet, which includes one) is the real-world moment picking/packing starts. No
+  // browser exposes whether the user actually went through with printing or hit Cancel in the
+  // native dialog (and for "Save as PDF" specifically, that dialog can stay open for a while after
+  // window.print() returns) — so instead of guessing from an ambiguous, badly-timed signal, the
+  // decision is made explicit up front: two buttons when it's actually relevant, "Print & send to
+  // packing" vs. "Print only". Whichever the user picks is what happens, immediately, no
+  // after-the-fact detection involved. A plain invoice print never offers this at all — it gets
+  // reprinted for all sorts of unrelated reasons (a smudged copy, an accounting request) that have
+  // nothing to do with packing starting.
+  const eligibleIds = orders.filter((o) => o.stage === 'Confirmed').map((o) => o.id);
+  const canSendToPacking = docType !== 'invoice' && eligibleIds.length > 0;
+
+  const sendToPacking = async () => {
+    try {
+      const res = await bulkUpdateOrders(eligibleIds, { stage: 'Processing' });
+      const succeeded = res.results.filter((r) => r.success);
+      const blocked = res.results.filter((r) => !r.success);
+      if (succeeded.length > 0) {
+        toast.push(`${succeeded.length} order${succeeded.length === 1 ? '' : 's'} sent to packing.`, 'success');
+        onOrdersProcessed?.();
+      }
+      if (blocked.length > 0) {
+        toast.push(
+          blocked.length === 1
+            ? (blocked[0].error ?? 'One order could not be sent to packing.')
+            : `${blocked.length} orders could not be sent to packing — still waiting on stock.`,
+          'info'
+        );
+      }
+    } catch {
+      toast.push('Printed, but could not send those orders to packing.', 'info');
+    }
+  };
+
+  const handlePrint = (thenSendToPacking: boolean) => {
+    window.print();
+    if (thenSendToPacking) void sendToPacking();
+  };
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4 print:static print:block print:h-auto print:p-0">
@@ -251,15 +375,34 @@ export function PrintOrderModal({ open, onClose, orders, docType, binLookup }: P
               {DOC_LABEL[docType]}
               {orders.length > 1 ? `s (${orders.length})` : ''}
             </h2>
-            <p className="mt-0.5 text-sm text-slate-500">Preview below, then print.</p>
+            <p className="mt-0.5 text-sm text-slate-500">
+              {canSendToPacking ? 'Preview below, then choose how to print.' : 'Preview below, then print.'}
+            </p>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => window.print()}
-              className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-slate-800"
-            >
-              <Printer size={14} /> Print
-            </button>
+            {canSendToPacking ? (
+              <>
+                <button
+                  onClick={() => handlePrint(false)}
+                  className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Print only
+                </button>
+                <button
+                  onClick={() => handlePrint(true)}
+                  className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+                >
+                  <Printer size={14} /> Print &amp; send to packing
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => handlePrint(false)}
+                className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+              >
+                <Printer size={14} /> Print
+              </button>
+            )}
             <button onClick={onClose} className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
               <X size={16} />
             </button>
@@ -272,6 +415,8 @@ export function PrintOrderModal({ open, onClose, orders, docType, binLookup }: P
             orders.map((order) => (
               <CombinedDocumentPage key={order.id} order={order} binLookup={binLookup} businessName={user?.businessName || 'Your Business'} />
             ))
+          ) : docType === 'packingSlip' && orders.length > 1 ? (
+            <CompactPackingListDocument orders={orders} binLookup={binLookup} businessName={user?.businessName || 'Your Business'} />
           ) : (
             orders.map((order) => (
               <DocumentPage key={order.id} order={order} docType={docType} binLookup={binLookup} businessName={user?.businessName || 'Your Business'} />
