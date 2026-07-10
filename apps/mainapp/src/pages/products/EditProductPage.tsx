@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ShoppingBag, Store as StoreIcon } from 'lucide-react';
+import { ArrowLeft, Loader2, ShoppingBag, Store as StoreIcon } from 'lucide-react';
 import type { ProductPushResultDTO } from '@zetsales/shared';
 import { getProduct, updateProduct, type ProductStoreRef } from '../../lib/commerceApi';
 import { ProductFormFields, EMPTY_PRODUCT_FORM, type ProductFormState } from '../../components/products/ProductFormFields';
 import { ProductPushSummary } from '../../components/products/ProductPushSummary';
 import { useToast } from '../../components/ui/ToastProvider';
+import { useRotatingMessages } from '../../hooks/useRotatingMessages';
+
+const PUSH_MESSAGES = ['Saving changes...', 'Pushing to your stores...', 'Uploading images...', 'Still working — this can take a moment...'];
 
 const PLATFORM_META = {
   shopify: { label: 'Shopify', color: 'bg-[#95BF47]', icon: ShoppingBag },
@@ -24,6 +27,7 @@ export function EditProductPage() {
   const [siblings, setSiblings] = useState<ProductStoreRef[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState<ProductPushResultDTO[] | null>(null);
+  const pushMessage = useRotatingMessages(PUSH_MESSAGES, submitting);
 
   useEffect(() => {
     if (!id) return;
@@ -152,9 +156,10 @@ export function EditProductPage() {
             <button
               onClick={handleSubmit}
               disabled={!canSubmit}
-              className="w-full rounded-lg bg-slate-900 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {submitting ? 'Saving...' : 'Save changes'}
+              {submitting && <Loader2 size={15} className="animate-spin" />}
+              {submitting ? pushMessage : 'Save changes'}
             </button>
           </div>
         )}

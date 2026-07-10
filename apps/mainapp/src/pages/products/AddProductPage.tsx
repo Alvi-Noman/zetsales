@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Package, ShoppingBag, Store as StoreIcon } from 'lucide-react';
+import { ArrowLeft, Loader2, Package, ShoppingBag, Store as StoreIcon } from 'lucide-react';
 import clsx from 'clsx';
 import type { StoreDTO } from '@zetsales/shared';
 import { createProduct, listStores } from '../../lib/commerceApi';
 import { ProductFormFields, EMPTY_PRODUCT_FORM, type ProductFormState } from '../../components/products/ProductFormFields';
 import { useToast } from '../../components/ui/ToastProvider';
+import { useRotatingMessages } from '../../hooks/useRotatingMessages';
+
+const PUSH_MESSAGES = ['Creating product...', 'Pushing to your stores...', 'Uploading images...', 'Still working — this can take a moment...'];
 
 const PLATFORM_META = {
   shopify: { label: 'Shopify', color: 'bg-[#95BF47]', icon: ShoppingBag },
@@ -20,6 +23,7 @@ export function AddProductPage() {
   const [form, setForm] = useState<ProductFormState>(EMPTY_PRODUCT_FORM);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
+  const pushMessage = useRotatingMessages(PUSH_MESSAGES, submitting);
 
   useEffect(() => {
     (async () => {
@@ -145,9 +149,10 @@ export function AddProductPage() {
             <button
               onClick={handleSubmit}
               disabled={!canSubmit}
-              className="w-full rounded-lg bg-slate-900 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {submitting ? 'Pushing...' : `Create & push to ${selected.size} store${selected.size === 1 ? '' : 's'}`}
+              {submitting && <Loader2 size={15} className="animate-spin" />}
+              {submitting ? pushMessage : `Create & push to ${selected.size} store${selected.size === 1 ? '' : 's'}`}
             </button>
           </div>
         )}
