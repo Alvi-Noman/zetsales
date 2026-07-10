@@ -73,6 +73,10 @@ export interface WooOrderWebhook {
   number: string;
   status: string;
   date_created: string;
+  // WooCommerce's `date_created` is in the store's local timezone, not UTC — parsing it directly
+  // with `new Date()` silently mis-shifts it by the site's UTC offset. `date_created_gmt` is the
+  // true UTC equivalent WooCommerce also includes on every order; prefer it when present.
+  date_created_gmt?: string;
   total: string;
   shipping_total?: string | null;
   currency: string;

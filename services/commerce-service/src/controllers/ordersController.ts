@@ -185,14 +185,14 @@ export async function upsertShopifyOrder(tenantId: string, storeId: string, orde
     if (autoCancelReason) setFields.cancelReason = 'Blocked customer';
   }
 
-  const update: Record<string, unknown> = {
-    $set: setFields,
-    $setOnInsert: {
-      tenantId, storeId, externalId: String(order.id), platform: 'shopify',
-      ...SEED_FIELDS,
-      history: [{ label: 'Order placed', detail: 'Synced from Shopify', at: new Date(order.created_at) }],
-    },
-  };
+  // $setOnInsert and $push can't both target the same top-level path ('history') in one update —
+  // MongoDB rejects the whole operation with a path-conflict error even though only one of them
+  // would ever actually apply to a given document (insert vs. an existing doc's stage changing).
+  // Only include history in $setOnInsert when this really is a fresh insert.
+  const setOnInsert: Record<string, unknown> = { tenantId, storeId, externalId: String(order.id), platform: 'shopify', ...SEED_FIELDS };
+  if (!existing) setOnInsert.history = [{ label: 'Order placed', detail: 'Synced from Shopify', at: new Date(order.created_at) }];
+
+  const update: Record<string, unknown> = { $set: setFields, $setOnInsert: setOnInsert };
   if (existing && stageChanging) {
     update.$push = { history: { label: newStage, detail: autoCancelReason || autoFlagReason || 'Synced from Shopify', at: now } };
   }
@@ -231,7 +231,7 @@ export async function upsertWooOrder(tenantId: string, storeId: string, order: W
     customerEmail: order.billing?.email || null,
     address: wooOrderAddress(order),
     lineItems: order.line_items.map((li) => ({ title: li.name, variant: null, quantity: li.quantity, price: li.price, sku: li.sku })),
-    createdAt: new Date(order.date_created),
+    createdAt: new Date(order.date_created_gmt || order.date_created),
     updatedAt: now,
   };
 
@@ -257,14 +257,12 @@ export async function upsertWooOrder(tenantId: string, storeId: string, order: W
     if (autoCancelReason) setFields.cancelReason = 'Blocked customer';
   }
 
-  const update: Record<string, unknown> = {
-    $set: setFields,
-    $setOnInsert: {
-      tenantId, storeId, externalId: String(order.id), platform: 'woocommerce',
-      ...SEED_FIELDS,
-      history: [{ label: 'Order placed', detail: 'Synced from WooCommerce', at: new Date(order.date_created) }],
-    },
-  };
+  // See the identical comment in upsertShopifyOrder above — $setOnInsert and $push can't both
+  // target 'history' in one update without MongoDB rejecting it as a path conflict.
+  const setOnInsert: Record<string, unknown> = { tenantId, storeId, externalId: String(order.id), platform: 'woocommerce', ...SEED_FIELDS };
+  if (!existing) setOnInsert.history = [{ label: 'Order placed', detail: 'Synced from WooCommerce', at: new Date(order.date_created_gmt || order.date_created) }];
+
+  const update: Record<string, unknown> = { $set: setFields, $setOnInsert: setOnInsert };
   if (existing && stageChanging) {
     update.$push = { history: { label: newStage, detail: autoCancelReason || autoFlagReason || 'Synced from WooCommerce', at: now } };
   }
