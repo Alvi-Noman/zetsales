@@ -110,12 +110,21 @@ export function wooOrderShippingFee(order: WooOrderWebhook): number {
   return Number(order.shipping_total) || 0;
 }
 
+// WooCommerce sets 'processing' immediately on placement for Cash on Delivery orders — COD has no
+// separate payment-confirmation step, so it never passes through 'pending' the way an
+// online-gateway order does. Without this check, every COD order (the majority of orders for a
+// COD-oriented business) would skip straight past the confirmation-call stage new orders are
+// meant to sit in, landing directly in "Packing" like an order that's already been confirmed.
+function isWooCod(order: WooOrderWebhook): boolean {
+  return normalizePaymentMethod(order.payment_method_title) === 'Cash on Delivery';
+}
+
 export function mapWooOrderStage(order: WooOrderWebhook): MappedStage {
   switch (order.status) {
     case 'on-hold':
       return 'On Hold';
     case 'processing':
-      return 'Processing';
+      return isWooCod(order) ? 'Pending' : 'Processing';
     case 'completed':
       return 'Delivered';
     case 'cancelled':
@@ -131,6 +140,7 @@ export function mapWooOrderStage(order: WooOrderWebhook): MappedStage {
 export function mapWooPaymentStatus(order: WooOrderWebhook): MappedPaymentStatus {
   switch (order.status) {
     case 'processing':
+      return isWooCod(order) ? 'COD Pending' : 'Paid';
     case 'completed':
       return 'Paid';
     case 'refunded':
