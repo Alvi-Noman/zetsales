@@ -14,8 +14,9 @@ const logger = createLogger({
   level: process.env.LOG_LEVEL || 'info',
   format: format.combine(
     format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
-    format.printf(({ level, message, timestamp }) => {
-      return `[${timestamp}] ${level.toUpperCase()}: ${message}`;
+    format.printf(({ level, message, timestamp, stack, reason }) => {
+      const extra = stack ? `\n${stack}` : reason !== undefined ? ` reason=${JSON.stringify(reason)}` : '';
+      return `[${timestamp}] ${level.toUpperCase()}: ${message}${extra}`;
     })
   ),
   transports: [

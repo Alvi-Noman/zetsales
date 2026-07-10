@@ -15,22 +15,40 @@ async function startServer() {
       logger.info(`Commerce service running on port ${PORT}`);
     });
   } catch (err) {
-    logger.error('Failed to start server:', err as Error);
+    logger.error('Failed to start server', { stack: (err as Error)?.stack, message: (err as Error)?.message });
     process.exit(1);
   }
 }
 
+let shuttingDown = false;
+
+// server.close()'s callback only fires once every open connection ends — a single long-lived
+// SSE stream (product push progress, store import) left open would otherwise stall this forever,
+// leaving the process neither serving requests nor actually exited, so Docker's restart policy
+// (which only triggers on a real exit) never kicks in. The hard timeout guarantees the process
+// always exits so the container gets restarted even if a stream never gracefully closes.
 async function shutdown(signal: string) {
-  logger.info(`${signal} received. Closing MongoDB connection...`);
-  await client.close();
-  logger.info('MongoDB connection closed.');
-  if (server) {
-    logger.info('Closing HTTP server...');
-    server.close(() => {
-      logger.info('HTTP server closed. Exiting process.');
-      process.exit(0);
-    });
-  } else {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  logger.info(`${signal} received. Shutting down...`);
+
+  const forceExit = setTimeout(() => {
+    logger.error('Graceful shutdown timed out — forcing exit');
+    process.exit(1);
+  }, 8_000);
+  forceExit.unref();
+
+  try {
+    if (server) {
+      await new Promise<void>((resolve) => server!.close(() => resolve()));
+      logger.info('HTTP server closed.');
+    }
+    await client.close();
+    logger.info('MongoDB connection closed.');
+  } catch (err) {
+    logger.error('Error during shutdown', { stack: (err as Error)?.stack, message: (err as Error)?.message });
+  } finally {
+    clearTimeout(forceExit);
     process.exit(0);
   }
 }
@@ -38,8 +56,9 @@ async function shutdown(signal: string) {
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+process.on('unhandledRejection', (reason) => {
+  const err = reason instanceof Error ? reason : undefined;
+  logger.error('Unhandled Rejection', { stack: err?.stack, reason: err ? undefined : String(reason) });
   shutdown('unhandledRejection');
 });
 
