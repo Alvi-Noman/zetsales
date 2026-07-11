@@ -2246,7 +2246,7 @@ function ReservedCell({ level }: { level: InventoryLevelDTO }) {
     return (
       <div>
         <p className="font-semibold tabular-nums text-slate-400">0</p>
-        <p className="text-slate-400">reserved</p>
+        <p className="text-slate-400">booked</p>
       </div>
     );
   }
@@ -2281,7 +2281,7 @@ function ReservedCell({ level }: { level: InventoryLevelDTO }) {
           >
             {level.reserved}
           </p>
-          <p className="text-slate-400">reserved</p>
+          <p className="text-slate-400">booked</p>
         </button>
       )}
     >
