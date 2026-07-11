@@ -1073,7 +1073,7 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
 
             <div className="flex flex-wrap gap-2 border-t border-slate-200 px-6 py-4">
               {primaryAction && (
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col items-start gap-1">
                   <button
                     onClick={() => {
                       if (fulfillmentBlocked) return;
@@ -1096,7 +1096,12 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                   >
                     <primaryAction.icon size={14} /> {primaryAction.label}
                   </button>
-                  {fulfillmentBlocked && fulfillmentStatus?.reason && <p className="max-w-xs text-[11px] text-amber-700">{fulfillmentStatus.reason}</p>}
+                  {fulfillmentBlocked && fulfillmentStatus?.reason && (
+                    <p className="max-w-[220px] text-[11px] text-amber-700" title={fulfillmentStatus.reason}>
+                      {/* the item name/variant is already shown in the Items section above, so only surface the short-by count here */}
+                      {fulfillmentStatus.reason.replace(/^Waiting on stock: .*? — /, '')}
+                    </p>
+                  )}
                 </div>
               )}
               {detail.stage === 'Out for Delivery' && (
