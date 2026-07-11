@@ -17,7 +17,7 @@ import {
   type ShopifyProduct,
 } from '../integrations/shopifyClient.js';
 import { getValidShopifyAccessToken } from '../integrations/shopifyAuth.js';
-import { fetchWooProducts, createWooProduct, updateWooProduct, deleteWooProduct, fetchWooCategories } from '../integrations/wooClient.js';
+import { fetchWooProducts, createWooProduct, updateWooProduct, deleteWooProduct, fetchWooCategories, type WooProduct } from '../integrations/wooClient.js';
 import { mapShopifyProduct, mapWooProduct, type NormalizedProduct } from '../integrations/productMapper.js';
 import { previewAlibabaProduct } from '../integrations/alibabaImporter.js';
 
@@ -189,8 +189,11 @@ async function ensureVariantsTracked(
       bin: override?.bin?.trim() || 'Unassigned',
       // Priority: an explicit quantity entered in the Add Product form, then the platform's own
       // reported count when it's actually tracking stock (Shopify with inventory managed by
-      // Shopify, a WooCommerce product/variation with stock management on), then 0.
-      onHand: override?.quantity ?? v.inventory ?? 0,
+      // Shopify, a WooCommerce product/variation with stock management on), then 0. Clamped at 0 —
+      // Shopify/WooCommerce can report a negative count when overselling is allowed and it actually
+      // sold past zero; packing/confirming would still correctly block on a raw negative number,
+      // but showing it as-is on the Inventory page reads as confusing rather than useful.
+      onHand: override?.quantity ?? (v.inventory != null ? Math.max(0, v.inventory) : 0),
       reserved: 0,
       inbound: 0,
       unitCost: null,
@@ -252,6 +255,25 @@ export async function upsertShopifyProductFromWebhook(tenantId: string, storeId:
 // admin (outside ZetSales) doesn't linger here as a ghost record — only removes this store's own
 // copy, leaving any matched copies on other stores untouched.
 export async function deleteShopifyProductFromWebhook(tenantId: string, storeId: string, externalId: string) {
+  const db = getDb();
+  await db.collection('products').deleteOne({ tenantId, storeId, externalId: String(externalId) });
+  const productCount = await db.collection('products').countDocuments({ tenantId, storeId });
+  await db.collection('stores').updateOne({ _id: new ObjectId(storeId) }, { $set: { productCount } });
+}
+
+// Called from the WooCommerce product.created and product.updated webhooks — mirrors
+// upsertShopifyProductFromWebhook above. Needs the store's own keys (unlike the Shopify version,
+// which gets everything inline in the webhook payload) because a variable product's variations
+// have to be fetched separately (see mapWooProduct).
+export async function upsertWooProductFromWebhook(tenantId: string, storeId: string, siteUrl: string, consumerKey: string, consumerSecret: string, product: WooProduct) {
+  const db = getDb();
+  await upsertProduct(tenantId, storeId, await mapWooProduct(product, siteUrl, consumerKey, consumerSecret));
+  const productCount = await db.collection('products').countDocuments({ tenantId, storeId });
+  await db.collection('stores').updateOne({ _id: new ObjectId(storeId) }, { $set: { productCount } });
+}
+
+// Called from the WooCommerce product.deleted webhook — mirrors deleteShopifyProductFromWebhook.
+export async function deleteWooProductFromWebhook(tenantId: string, storeId: string, externalId: string) {
   const db = getDb();
   await db.collection('products').deleteOne({ tenantId, storeId, externalId: String(externalId) });
   const productCount = await db.collection('products').countDocuments({ tenantId, storeId });
