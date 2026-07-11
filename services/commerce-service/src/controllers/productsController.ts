@@ -256,7 +256,10 @@ export async function upsertShopifyProductFromWebhook(tenantId: string, storeId:
 // copy, leaving any matched copies on other stores untouched.
 export async function deleteShopifyProductFromWebhook(tenantId: string, storeId: string, externalId: string) {
   const db = getDb();
-  await db.collection('products').deleteOne({ tenantId, storeId, externalId: String(externalId) });
+  const deleted = await db.collection('products').findOneAndDelete({ tenantId, storeId, externalId: String(externalId) });
+  // See the matching comment in deleteProduct above — same cleanup, just for a deletion that
+  // happened directly on Shopify rather than through ZetSales.
+  if (deleted) await db.collection('inventoryLevels').deleteMany({ tenantId, productId: deleted._id.toString() });
   const productCount = await db.collection('products').countDocuments({ tenantId, storeId });
   await db.collection('stores').updateOne({ _id: new ObjectId(storeId) }, { $set: { productCount } });
 }
@@ -275,7 +278,8 @@ export async function upsertWooProductFromWebhook(tenantId: string, storeId: str
 // Called from the WooCommerce product.deleted webhook — mirrors deleteShopifyProductFromWebhook.
 export async function deleteWooProductFromWebhook(tenantId: string, storeId: string, externalId: string) {
   const db = getDb();
-  await db.collection('products').deleteOne({ tenantId, storeId, externalId: String(externalId) });
+  const deleted = await db.collection('products').findOneAndDelete({ tenantId, storeId, externalId: String(externalId) });
+  if (deleted) await db.collection('inventoryLevels').deleteMany({ tenantId, productId: deleted._id.toString() });
   const productCount = await db.collection('products').countDocuments({ tenantId, storeId });
   await db.collection('stores').updateOne({ _id: new ObjectId(storeId) }, { $set: { productCount } });
 }
@@ -1010,6 +1014,10 @@ export async function deleteProduct(req: AuthenticatedRequest, res: Response) {
         if (!alreadyGone) throw err;
       }
       await db.collection('products').deleteOne({ _id: target._id });
+      // Removes the live stock record along with the product it's no longer tied to — but not
+      // inventoryMovements, which is accounting/audit history (COGS, valuation) that should survive
+      // the product being deleted, same as an order keeps its own snapshot after this.
+      await db.collection('inventoryLevels').deleteMany({ tenantId, productId: target._id.toString() });
       await db.collection('stores').updateOne({ _id: store._id }, { $inc: { productCount: -1 } });
       results.push({ storeId: store._id.toString(), displayName: store.displayName, platform: store.platform as StorePlatform, success: true });
     } catch (err) {
