@@ -3,7 +3,7 @@ import { ObjectId } from 'mongodb';
 import { z } from 'zod';
 import { getDb } from '../utils/db.js';
 import type { AuthenticatedRequest } from '../middleware/authMiddleware.js';
-import { applyInventoryStageEffect, resolveInventoryState } from '../integrations/inventoryEffects.js';
+import { applyInventoryStageEffect, resolveInventoryState, RESERVED_STAGES } from '../integrations/inventoryEffects.js';
 import type { OrderStage } from '@zetsales/shared';
 
 const countSchema = z.object({
@@ -418,22 +418,44 @@ export async function listInventory(req: AuthenticatedRequest, res: Response) {
     { onHand: 0, inbound: 0, value: 0 }
   );
 
+  // A variant stocked at more than one warehouse/bin can't get the automatic cycle-count
+  // correction (order line items don't carry a location) — flagging it needs comparing counts
+  // across every one of a variant's locations, not just the current page, so it has to be computed
+  // from the same full (light) pass everything else here already uses. Returned as just the id
+  // list, not full documents — the one piece of "the answer needs the whole catalog" that's
+  // actually cheap to ship back.
+  const locationCountByVariantId = new Map<string, number>();
+  for (const l of allLevelsLight) {
+    if (!l.variantId) continue;
+    locationCountByVariantId.set(l.variantId, (locationCountByVariantId.get(l.variantId) ?? 0) + 1);
+  }
+  const multiLocationVariantIds = [...locationCountByVariantId.entries()].filter(([, count]) => count > 1).map(([variantId]) => variantId);
+
   res.json({
     success: true,
     levels: pageLevels.map(levelDto),
-    allLevels: allLevelsLight.map(levelDto),
     total,
     page,
     pageSize,
     counts,
     summary,
+    multiLocationVariantIds,
     movements: movements.map(movementDto),
     velocityByVariantId,
   });
 }
 
-// Pre-confirm demand that cannot be covered by free stock. This stays in Inventory because the
-// output is a supplier purchase need, even though the source signal is open orders.
+// Open demand (not yet delivered/returned) that cannot be covered by physical on-hand stock. This
+// stays in Inventory because the output is a supplier purchase need, even though the source signal
+// is orders. Walks Pending/Flagged orders *and* RESERVED_STAGES orders (Confirmed, Processing,
+// Shipped, Out for Delivery, RTO Initiated, QC Pending) against raw onHand — not onHand minus
+// reserved — because every one of those orders is now enumerated explicitly as a competing claim
+// on the same stock; subtracting `reserved` first and then walking these same orders again would
+// double-count them. Oldest-first walk means an order that was confirmed against real stock (so
+// the ones ahead of it in time already consumed onHand) reads as covered, while a later one
+// confirmed with nothing left (oversold, continueSellingWhenOutOfStock allowed the confirm through
+// anyway) correctly reads as short even after confirmation, instead of silently disappearing from
+// this view once its stage left Pending.
 function normalizeComparable(value: unknown) {
   return String(value ?? '').trim().toLowerCase();
 }
@@ -459,8 +481,8 @@ export async function listStockShortfalls(req: AuthenticatedRequest, res: Respon
       tenantId,
       'lineItems.sku': { $exists: true, $nin: [null, ''] },
       $or: [
-        { stage: { $in: ['Pending', 'Flagged'] } },
-        { stage: 'On Hold', heldFromStage: { $in: ['Pending', 'Flagged'] } },
+        { stage: { $in: ['Pending', 'Flagged', ...RESERVED_STAGES] } },
+        { stage: 'On Hold', heldFromStage: { $in: ['Pending', 'Flagged', ...RESERVED_STAGES] } },
       ],
     })
     .project({
@@ -563,8 +585,15 @@ export async function listStockShortfalls(req: AuthenticatedRequest, res: Respon
   const rows = [];
   for (const group of groups.values()) {
     const locations = group.levels.map((level) => {
-      const free = Math.max(0, (level.onHand ?? 0) - (level.reserved ?? 0));
+      // Raw onHand, not onHand minus reserved: every reserved-stage order competing for this stock
+      // is now walked explicitly below, so `reserved` must not also be subtracted here or those
+      // orders' demand would be counted twice.
+      const free = Math.max(0, level.onHand ?? 0);
       return {
+        // The inventoryLevels document's own id — lets the client act on this exact location (e.g.
+        // marking incoming stock received) without needing a separate lookup into some full
+        // inventory list it may not even be holding in memory anymore.
+        id: level._id.toString(),
         warehouseId: level.warehouseId,
         warehouseName: level.warehouseName,
         bin: level.bin,
@@ -1173,6 +1202,24 @@ async function computeInTransitContext(db: ReturnType<typeof getDb>, tenantId: s
   }
 
   return { physicallyAbsentQuantity, awaitingQcHereQuantity, isMultiLocation };
+}
+
+// Every location a specific variant is stocked at, with onHand > 0 — backs Transfer stock's "From"
+// location picker. A dedicated, tightly-scoped lookup rather than something the client derives
+// from a full inventory list it's holding in memory: at real catalog scale that full list either
+// doesn't exist client-side anymore or is prohibitively expensive to keep around just for this.
+export async function listVariantLocations(req: AuthenticatedRequest, res: Response) {
+  const productId = typeof req.query.productId === 'string' ? req.query.productId : '';
+  const variantId = typeof req.query.variantId === 'string' ? req.query.variantId : '';
+  if (!productId || !variantId) {
+    res.status(400).json({ success: false, message: 'productId and variantId are required.' });
+    return;
+  }
+
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const levels = await db.collection('inventoryLevels').find({ tenantId, productId, variantId, onHand: { $gt: 0 } }).sort({ onHand: -1 }).toArray();
+  res.json({ success: true, levels: levels.map(levelDto) });
 }
 
 // What a cycle count should actually expect to find at a specific SKU + warehouse + bin, right now

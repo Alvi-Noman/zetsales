@@ -50,6 +50,7 @@ import {
   listMovements,
   listBins,
   listInventory,
+  listVariantLocations,
   listInventorySkuOptions,
   listSuppliers,
   listWarehouses,
@@ -117,10 +118,6 @@ function ageLabel(value: string) {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h`;
   return `${Math.floor(hours / 24)}d`;
-}
-
-function textKey(value: string | null | undefined) {
-  return (value ?? '').trim().toLowerCase();
 }
 
 function dateLabel(value: string | null) {
@@ -273,12 +270,12 @@ function hasRealBins(bins: string[]): boolean {
 // warehouse itself, or just historically typed into a count). A transfer is a move between two
 // locations, not specifically between two warehouses, so this is what should actually gate the
 // feature rather than warehouse count alone.
-function canTransferBetweenLocations(warehouses: WarehouseDTO[], levels: InventoryLevelDTO[]): boolean {
+function canTransferBetweenLocations(warehouses: WarehouseDTO[]): boolean {
   if (warehouses.length >= 2) return true;
-  return warehouses.some((warehouse) => {
-    const bins = new Set([...warehouse.bins, ...levels.filter((level) => level.warehouseId === warehouse.id).map((level) => level.bin)]);
-    return bins.size > 1;
-  });
+  // systemBins already covers bins that are genuinely in use but never manually predefined, so a
+  // single warehouse's own bins/systemBins are enough to tell "more than one real shelf" without
+  // needing any inventory data.
+  return warehouses.some((warehouse) => new Set([...warehouse.bins, ...warehouse.systemBins]).size > 1);
 }
 
 function MetricCard({
@@ -963,7 +960,6 @@ function LandedCostFields({
 
 function NewCountModal({
   open,
-  levels,
   warehouses,
   suppliers,
   onClose,
@@ -973,7 +969,6 @@ function NewCountModal({
   initialQuantity,
 }: {
   open: boolean;
-  levels: InventoryLevelDTO[];
   warehouses: WarehouseDTO[];
   suppliers: SupplierDTO[];
   onClose: () => void;
@@ -1069,7 +1064,23 @@ function NewCountModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reason]);
 
-  const matchedLevel = sku ? levels.find((l) => l.productId === sku.productId && l.variantId === sku.variantId) : null;
+  // Fetched on demand for just this one variant rather than derived from a full inventory list —
+  // same reasoning as Transfer stock's location picker.
+  const [skuLevels, setSkuLevels] = useState<InventoryLevelDTO[]>([]);
+  useEffect(() => {
+    if (!sku) {
+      setSkuLevels([]);
+      return;
+    }
+    let cancelled = false;
+    void listVariantLocations(sku.productId, sku.variantId).then((res) => {
+      if (!cancelled) setSkuLevels(res.levels);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [sku]);
+  const matchedLevel = skuLevels[0] ?? null;
   const currentOnHand = matchedLevel?.onHand ?? 0;
   const absoluteMode = isAbsoluteReason(reason);
 
@@ -1905,14 +1916,12 @@ function BulkInboundModal({
 // sides atomically in one submit.
 function TransferStockModal({
   open,
-  levels,
   warehouses,
   onClose,
   onSaved,
   onManageWarehouses,
 }: {
   open: boolean;
-  levels: InventoryLevelDTO[];
   warehouses: WarehouseDTO[];
   onClose: () => void;
   onSaved: () => void;
@@ -1934,28 +1943,36 @@ function TransferStockModal({
 
   // Where this SKU actually IS right now — a transfer can only ever move real stock, so "From"
   // shouldn't be a free pick the way "To" is (a destination can reasonably be a brand-new bin
-  // nobody's used yet; a source can't be, or there'd be nothing there to move). Locations with zero
-  // on hand are excluded outright: picking one would just be picking a place to fail from.
-  const stockLocations = useMemo(
-    () =>
-      sku
-        ? levels.filter((l) => l.productId === sku.productId && l.variantId === sku.variantId && l.onHand > 0).sort((a, b) => b.onHand - a.onHand)
-        : [],
-    [sku, levels]
-  );
+  // nobody's used yet; a source can't be, or there'd be nothing there to move). Fetched on demand
+  // for just this one variant rather than derived from a full inventory list held in memory —
+  // at real catalog scale that list either doesn't exist client-side anymore or is too expensive to
+  // keep around just for this one lookup.
+  const [stockLocations, setStockLocations] = useState<InventoryLevelDTO[]>([]);
+  useEffect(() => {
+    if (!sku) {
+      setStockLocations([]);
+      return;
+    }
+    let cancelled = false;
+    void listVariantLocations(sku.productId, sku.variantId).then((res) => {
+      if (!cancelled) setStockLocations(res.levels.filter((l) => l.onHand > 0).sort((a, b) => b.onHand - a.onHand));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [sku]);
 
   // Same "Unassigned doesn't count as a real shelf" rule as the main table — a warehouse that's
   // never had a real bin named shouldn't show "— Unassigned" tacked onto every location here either.
+  // `systemBins` already covers bins that are genuinely in use but never manually predefined, so
+  // this doesn't need any inventory data of its own beyond what listWarehouses already returned.
   const warehousesWithRealBins = useMemo(() => {
     const set = new Set<string>();
     for (const warehouse of warehouses) {
-      if (hasRealBins(warehouse.bins)) set.add(warehouse.id);
-    }
-    for (const level of levels) {
-      if (level.bin !== 'Unassigned') set.add(level.warehouseId);
+      if (hasRealBins([...warehouse.bins, ...warehouse.systemBins])) set.add(warehouse.id);
     }
     return set;
-  }, [warehouses, levels]);
+  }, [warehouses]);
   const locationLabel = (loc: InventoryLevelDTO) => (warehousesWithRealBins.has(loc.warehouseId) ? `${loc.warehouseName} — ${loc.bin}` : loc.warehouseName);
 
   // Single real location — lock straight to it, no dropdown, nothing to pick wrong. More than one —
@@ -2038,7 +2055,7 @@ function TransferStockModal({
     }
   };
 
-  if (open && !canTransferBetweenLocations(warehouses, levels)) {
+  if (open && !canTransferBetweenLocations(warehouses)) {
     return (
       <Modal open={open} onClose={onClose} title="Transfer stock" subtitle="Move stock between two of your own locations in one step." widthClass="max-w-2xl">
         <WarehouseRequiredNotice
@@ -3725,17 +3742,22 @@ function WarehouseSettingsModal({
 export function InventoryPage() {
   const toast = useToast();
   const [view, setView] = useState<PageView>('stock');
-  // Light detail across every row matching the search filter (not warehouse/bin/focus) — backs
-  // filter-tab counts, bin options, multi-location detection, and cross-tab lookups, never
-  // rendered directly as a big list. `pageLevels` below is the actual table content: full detail,
-  // one page at a time. Splitting these is what keeps this page fast at real catalog scale (see
-  // listInventory on the server).
-  const [levels, setLevels] = useState<InventoryLevelDTO[]>([]);
+  // The current page's rows, full detail — the actual table content. Counts, the summary tiles,
+  // the velocity map, and multi-location detection all come from the server already computed
+  // across the whole matching set (see listInventory) rather than the client holding — and
+  // re-fetching on every filter change — every one of a tenant's inventory records just to derive
+  // a handful of numbers from them.
   const [pageLevels, setPageLevels] = useState<InventoryLevelDTO[]>([]);
   const [levelsTotal, setLevelsTotal] = useState(0);
   const [levelsCounts, setLevelsCounts] = useState<InventoryLevelCounts>({ all: 0, reorder: 0, overdue: 0, reserved: 0, dead: 0, inbound: 0 });
   const [levelsSummary, setLevelsSummary] = useState({ onHand: 0, inbound: 0, value: 0 });
+  const [multiLocationVariantIds, setMultiLocationVariantIds] = useState<Set<string>>(new Set());
   const [levelsLoading, setLevelsLoading] = useState(false);
+  // Distinct from levelsTotal (which reflects the current search/focus/warehouse/bin filters) —
+  // this only ever reflects whether the tenant has tracked *anything* at all, ever, so a search
+  // that happens to match nothing doesn't wrongly show the "log your first count" onboarding
+  // empty state instead of an ordinary "no results" one.
+  const [hasAnyInventory, setHasAnyInventory] = useState(true);
   const [movements, setMovements] = useState<InventoryMovementDTO[]>([]);
   const [velocityByVariantId, setVelocityByVariantId] = useState<Record<string, number>>({});
   const [skuOptions, setSkuOptions] = useState<InventorySkuOptionDTO[]>([]);
@@ -3838,11 +3860,12 @@ export function InventoryPage() {
         page: targetPage,
         pageSize: PAGE_SIZE,
       });
-      setLevels(res.allLevels);
       setPageLevels(res.levels);
       setLevelsTotal(res.total);
       setLevelsCounts(res.counts);
       setLevelsSummary(res.summary);
+      if (!search.trim() && warehouseFilter === 'all' && binFilter === 'all') setHasAnyInventory(res.counts.all > 0);
+      setMultiLocationVariantIds(new Set(res.multiLocationVariantIds));
       setMovements(res.movements);
       setVelocityByVariantId(res.velocityByVariantId);
       setPage(targetPage);
@@ -4026,27 +4049,37 @@ export function InventoryPage() {
   // Only worth offering once a warehouse is actually picked (a bin name means nothing across
   // multiple warehouses at once) and once that warehouse has stock spread across more than one bin
   // — a single bin isn't something worth filtering by, and most businesses on this system never
-  // name bins at all, so the dropdown would otherwise show up as permanent, useless clutter.
-  const binFilterOptions = useMemo(() => {
-    if (warehouseFilter === 'all') return [];
-    const bins = new Set(levels.filter((level) => level.warehouseId === warehouseFilter).map((level) => level.bin));
-    return bins.size > 1 ? [...bins].sort() : [];
-  }, [levels, warehouseFilter]);
+  // name bins at all, so the dropdown would otherwise show up as permanent, useless clutter. Fetched
+  // via the same dedicated bins lookup the count/transfer modals already use, rather than derived
+  // from a full inventory list.
+  const [binFilterOptions, setBinFilterOptions] = useState<string[]>([]);
+  useEffect(() => {
+    if (warehouseFilter === 'all') {
+      setBinFilterOptions([]);
+      return;
+    }
+    let cancelled = false;
+    void listBins(warehouseFilter).then((res) => {
+      if (!cancelled) setBinFilterOptions(res.bins.length > 1 ? res.bins : []);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [warehouseFilter]);
 
   // Which warehouses have a real, deliberately-named shelf on record — same "Unassigned doesn't
   // count" rule as everywhere else bin-tracking turns on. Drives whether the main table's Location
   // column shows a bin line at all: a warehouse nobody's ever shelved anything in shouldn't show
-  // "Unassigned" under every single row as if that were meaningful shelf information.
+  // "Unassigned" under every single row as if that were meaningful shelf information. systemBins
+  // already covers bins genuinely in use but never manually predefined, so this needs nothing
+  // beyond what listWarehouses already returned.
   const warehousesWithRealBins = useMemo(() => {
     const set = new Set<string>();
     for (const warehouse of warehouses) {
-      if (hasRealBins(warehouse.bins)) set.add(warehouse.id);
-    }
-    for (const level of levels) {
-      if (level.bin !== 'Unassigned') set.add(level.warehouseId);
+      if (hasRealBins([...warehouse.bins, ...warehouse.systemBins])) set.add(warehouse.id);
     }
     return set;
-  }, [warehouses, levels]);
+  }, [warehouses]);
 
   useEffect(() => {
     setBinFilter('all');
@@ -4079,12 +4112,31 @@ export function InventoryPage() {
     return map;
   }, [openShipments]);
 
-  const levelForShortfallLocation = (row: StockShortfallRowDTO, location: StockShortfallLocationDTO) =>
-    levels.find((level) => {
-      if (level.warehouseId !== location.warehouseId || level.bin !== location.bin) return false;
-      if (row.variantId) return level.variantId === row.variantId;
-      return level.sku === row.sku && textKey(level.variantLabel) === textKey(row.variantLabel);
-    }) ?? null;
+  // Built directly from the row/location data the shortfalls endpoint already returned (it embeds
+  // each location's own inventoryLevels id) — no lookup into a separate inventory list needed.
+  // unitCost/pendingUnitCost/timestamps are never read by anything this feeds (IncomingCell only
+  // needs id/inbound; onReceived swaps in the server's fresh copy anyway), so they're left as
+  // harmless placeholders rather than fetched.
+  const levelForShortfallLocation = (row: StockShortfallRowDTO, location: StockShortfallLocationDTO): InventoryLevelDTO => ({
+    id: location.id,
+    productId: row.productId,
+    variantId: row.variantId,
+    sku: row.sku,
+    productTitle: row.productTitle,
+    productImage: row.productImage,
+    variantLabel: row.variantLabel,
+    warehouseId: location.warehouseId,
+    warehouseName: location.warehouseName,
+    bin: location.bin,
+    onHand: location.onHand,
+    reserved: location.reserved,
+    inbound: location.inbound,
+    unitCost: null,
+    pendingUnitCost: null,
+    reorderPoint: location.reorderPoint,
+    updatedAt: new Date(0).toISOString(),
+    createdAt: new Date(0).toISOString(),
+  });
 
   const shortfallRowKey = (row: StockShortfallRowDTO) => `${row.productId ?? row.sku}-${row.variantId ?? row.variantLabel ?? ''}`;
 
@@ -4155,21 +4207,13 @@ export function InventoryPage() {
 
   const movementRows = movements.slice(0, 8);
 
-  // A variant stocked at more than one warehouse/bin can't get the automatic cycle-count
-  // correction (see New Count → Cycle count) — order line items don't carry a location, so the
-  // system can't safely tell which location's in-transit units belong to which shelf. Flagging it
-  // here means nobody's surprised by a false-looking discrepancy without knowing why.
-  const multiLocationVariantIds = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const l of levels) {
-      if (!l.variantId) continue;
-      counts.set(l.variantId, (counts.get(l.variantId) ?? 0) + 1);
-    }
-    return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([variantId]) => variantId));
-  }, [levels]);
+  // multiLocationVariantIds itself is now server-provided (see loadStockLevel) — a variant stocked
+  // at more than one warehouse/bin can't get the automatic cycle-count correction (order line items
+  // don't carry a location), and knowing that needs comparing counts across a variant's locations
+  // everywhere in the catalog, not just the current page.
 
   const applyLevelUpdate = (updated: InventoryLevelDTO) => {
-    setLevels((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+    setPageLevels((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
     void loadOpenShipments();
     // Covers the inbound write-off action (a shrinkage source) along with plain reorder-point edits
     // and ordinary "mark received" (which aren't) — cheap and harmless to over-trigger since it's a
@@ -4206,7 +4250,7 @@ export function InventoryPage() {
           >
             <Truck size={14} /> Incoming Stock
           </button>
-          {canTransferBetweenLocations(warehouses, levels) && (
+          {canTransferBetweenLocations(warehouses) && (
             <button onClick={() => setTransferModalOpen(true)} className="flex items-center gap-1.5 rounded-lg bg-violet-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-violet-700">
               <ArrowLeftRight size={14} /> Transfer stock
             </button>
@@ -4931,7 +4975,7 @@ export function InventoryPage() {
         </div>
       ) : loading ? (
         <div className="flex h-64 items-center justify-center text-sm text-slate-400">Loading inventory...</div>
-      ) : levels.length === 0 ? (
+      ) : !hasAnyInventory ? (
         <div className="flex h-64 flex-col items-center justify-center gap-2 px-8 text-center">
           <Warehouse size={30} className="text-slate-300" />
           <p className="text-sm font-semibold text-slate-700">No SKUs tracked yet</p>
@@ -5275,7 +5319,6 @@ export function InventoryPage() {
       )}
       <NewCountModal
         open={countModalOpen}
-        levels={levels}
         warehouses={warehouses}
         suppliers={suppliers}
         onClose={() => {
@@ -5339,7 +5382,6 @@ export function InventoryPage() {
       />
       <TransferStockModal
         open={transferModalOpen}
-        levels={levels}
         warehouses={warehouses}
         onClose={() => setTransferModalOpen(false)}
         onSaved={() => {

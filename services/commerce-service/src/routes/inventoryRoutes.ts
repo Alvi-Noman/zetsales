@@ -27,6 +27,7 @@ import {
   transferStock,
   getCountContext,
   listBins,
+  listVariantLocations,
   getOpenShipments,
   getOverdueShipments,
 } from '../controllers/inventoryController.js';
@@ -38,6 +39,7 @@ router.get('/inventory', requireAuth, requireTenant, requireInventory, listInven
 router.get('/inventory/stock-shortfalls', requireAuth, requireTenant, requireInventory, listStockShortfalls);
 router.get('/inventory/skus', requireAuth, requireTenant, requireInventory, listInventorySkus);
 router.get('/inventory/bins', requireAuth, requireTenant, requireInventory, listBins);
+router.get('/inventory/variant-locations', requireAuth, requireTenant, requireInventory, listVariantLocations);
 router.get('/inventory/shrinkage', requireAuth, requireTenant, requireInventory, getShrinkageReport);
 router.get('/inventory/movements', requireAuth, requireTenant, requireInventory, listMovements);
 router.get('/inventory/open-shipments', requireAuth, requireTenant, requireInventory, getOpenShipments);

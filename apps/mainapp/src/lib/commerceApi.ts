@@ -331,6 +331,7 @@ export interface InventorySkuOptionDTO {
 }
 
 export interface StockShortfallLocationDTO {
+  id: string;
   warehouseId: string;
   warehouseName: string;
   bin: string;
@@ -404,20 +405,24 @@ export async function listInventory(params: ListInventoryParams = {}) {
   const res = await api.get('/commerce/inventory', { params });
   return res.data as {
     success: boolean;
-    // The current page only, full detail — what the table actually renders.
+    // The current page only, full detail — what the table actually renders. Everything else here
+    // (counts, summary, velocity, multi-location ids) is computed server-side across the whole
+    // matching set — the full set of documents itself is never shipped back.
     levels: InventoryLevelDTO[];
-    // Every row matching the search filter (not warehouse/bin/focus), light detail only — backs
-    // filter-tab counts, cross-tab lookups (Transfer stock's location picker, bin options,
-    // multi-location detection), never rendered directly as a big list itself.
-    allLevels: InventoryLevelDTO[];
     total: number;
     page: number;
     pageSize: number;
     counts: InventoryLevelCounts;
     summary: { onHand: number; inbound: number; value: number };
+    multiLocationVariantIds: string[];
     movements: InventoryMovementDTO[];
     velocityByVariantId: Record<string, number>;
   };
+}
+
+export async function listVariantLocations(productId: string, variantId: string) {
+  const res = await api.get('/commerce/inventory/variant-locations', { params: { productId, variantId } });
+  return res.data as { success: boolean; levels: InventoryLevelDTO[] };
 }
 
 export async function listStockShortfalls(params: { search?: string; page?: number; pageSize?: number } = {}) {
