@@ -6,7 +6,7 @@ export type InventoryState = 'none' | 'reserved' | 'consumed';
 // 'RTO Initiated' and 'QC Pending' cover a failed delivery working its way back to the warehouse —
 // stock stays held (not restocked, not resellable) through both, and only actually releases back
 // to available on the final move to 'Returned', once someone's confirmed it's really back and fine.
-const RESERVED_STAGES: OrderStage[] = ['Confirmed', 'Processing', 'Shipped', 'Out for Delivery', 'RTO Initiated', 'QC Pending'];
+export const RESERVED_STAGES: OrderStage[] = ['Confirmed', 'Processing', 'Shipped', 'Out for Delivery', 'RTO Initiated', 'QC Pending'];
 const CONSUMED_STAGES: OrderStage[] = ['Delivered', 'Partial Delivered'];
 
 // 'On Hold' freezes whatever state the order was in before being held — it isn't a state of its
