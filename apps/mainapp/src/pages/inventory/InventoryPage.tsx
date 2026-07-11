@@ -2239,6 +2239,7 @@ function ReorderPointCell({ level, unitsPerDay, onSaved }: { level: InventoryLev
 // system, not here. Lazy-loads the drill-down only when opened, since most rows are never clicked.
 function ReservedCell({ level }: { level: InventoryLevelDTO }) {
   const [orders, setOrders] = useState<ReservationDTO[] | null>(null);
+  const [oversoldTotal, setOversoldTotal] = useState(0);
   const [loading, setLoading] = useState(false);
 
   if (level.reserved <= 0) {
@@ -2250,11 +2251,19 @@ function ReservedCell({ level }: { level: InventoryLevelDTO }) {
     );
   }
 
+  // A reservation is written the moment an order is confirmed, whether or not there's real stock
+  // behind it (oversell is allowed by default) — this is the one place that flags when `reserved`
+  // has outrun `onHand`, since nothing else about the number looks any different otherwise.
+  const isOversold = level.reserved > (level.onHand ?? 0);
+
   const load = () => {
     if (orders || loading) return;
     setLoading(true);
     getLevelReservations(level.id)
-      .then((res) => setOrders(res.orders))
+      .then((res) => {
+        setOrders(res.orders);
+        setOversoldTotal(res.oversoldTotal);
+      })
       .finally(() => setLoading(false));
   };
 
@@ -2264,7 +2273,14 @@ function ReservedCell({ level }: { level: InventoryLevelDTO }) {
       widthClass="w-72"
       trigger={() => (
         <button type="button" onClick={load} className="text-left hover:opacity-70">
-          <p className="font-semibold tabular-nums text-indigo-700 underline decoration-dotted underline-offset-2">{level.reserved}</p>
+          <p
+            className={clsx(
+              'font-semibold tabular-nums underline decoration-dotted underline-offset-2',
+              isOversold ? 'text-rose-600' : 'text-indigo-700'
+            )}
+          >
+            {level.reserved}
+          </p>
           <p className="text-slate-400">reserved</p>
         </button>
       )}
@@ -2277,17 +2293,27 @@ function ReservedCell({ level }: { level: InventoryLevelDTO }) {
           ) : !orders || orders.length === 0 ? (
             <p className="py-3 text-center text-sm text-slate-400">No matching orders found.</p>
           ) : (
-            <div className="space-y-2">
-              {orders.map((o) => (
-                <div key={o.orderId} className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 px-2.5 py-2 text-xs">
-                  <div className="min-w-0">
-                    <p className="truncate font-semibold text-slate-700">{o.orderNumber}</p>
-                    <p className="truncate text-slate-400">{o.customerName ?? 'Unknown customer'} · {STAGE_LABEL[o.stage as OrderStage] ?? o.stage}</p>
+            <>
+              {oversoldTotal > 0 && (
+                <p className="mb-2 rounded-lg bg-rose-50 px-2.5 py-2 text-[11px] font-semibold text-rose-700">
+                  {oversoldTotal} of these unit{oversoldTotal === 1 ? ' is' : 's are'} reserved with no stock to back it — need to buy.
+                </p>
+              )}
+              <div className="space-y-2">
+                {orders.map((o) => (
+                  <div key={o.orderId} className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 px-2.5 py-2 text-xs">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-slate-700">{o.orderNumber}</p>
+                      <p className="truncate text-slate-400">{o.customerName ?? 'Unknown customer'} · {STAGE_LABEL[o.stage as OrderStage] ?? o.stage}</p>
+                    </div>
+                    <span className={clsx('shrink-0 font-bold tabular-nums', o.oversoldQuantity > 0 ? 'text-rose-600' : 'text-indigo-700')}>
+                      {o.quantity}
+                      {o.oversoldQuantity > 0 && <span className="ml-1 text-[10px] font-semibold text-rose-500">({o.oversoldQuantity} short)</span>}
+                    </span>
                   </div>
-                  <span className="shrink-0 font-bold tabular-nums text-indigo-700">{o.quantity}</span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            </>
           )}
         </div>
       )}

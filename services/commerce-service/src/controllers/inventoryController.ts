@@ -300,23 +300,7 @@ async function computeVelocityByVariantId(db: ReturnType<typeof getDb>, tenantId
   return velocityByVariantId;
 }
 
-const STOCK_STATUS = (l: any): 'out' | 'reorder' | 'ok' | 'unset' => {
-  const available = (l.onHand ?? 0) - (l.reserved ?? 0);
-  if (available <= 0) return 'out';
-  if (l.reorderPoint == null) return 'unset';
-  return available <= l.reorderPoint ? 'reorder' : 'ok';
-};
-
 const DEAD_STOCK_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
-function isDeadLevel(l: any, unitsPerDay: number | undefined): boolean {
-  if ((l.onHand ?? 0) <= 0) return false;
-  if (Date.now() - new Date(l.createdAt).getTime() < DEAD_STOCK_WINDOW_MS) return false;
-  return !unitsPerDay || unitsPerDay <= 0;
-}
-
-function levelLocationKey(l: any): string {
-  return `${l.productId}::${l.variantId}::${l.warehouseId}::${l.bin}`;
-}
 
 // This page used to fetch and ship every one of a tenant's inventoryLevels documents on every
 // load, full detail included (image URLs, cost history, everything) — fine when a tenant had a
@@ -349,87 +333,128 @@ export async function listInventory(req: AuthenticatedRequest, res: Response) {
     searchMatch.$or = [{ sku: re }, { productTitle: re }, { variantLabel: re }];
   }
 
-  const [allLevelsLight, movements] = await Promise.all([
-    db
-      .collection('inventoryLevels')
-      .find(searchMatch)
-      .project({
-        productId: 1, variantId: 1, sku: 1, productTitle: 1, variantLabel: 1,
-        warehouseId: 1, warehouseName: 1, bin: 1, onHand: 1, reserved: 1, inbound: 1,
-        unitCost: 1, reorderPoint: 1, createdAt: 1, updatedAt: 1,
-      })
-      .toArray(),
-    db.collection('inventoryMovements').find({ tenantId }).sort({ createdAt: -1 }).limit(50).toArray(),
-  ]);
+  const locationMatch: Record<string, unknown> = {};
+  if (warehouseId) locationMatch.warehouseId = warehouseId;
+  if (bin) locationMatch.bin = bin;
 
-  const velocityByVariantId = await computeVelocityByVariantId(db, tenantId, allLevelsLight);
+  // Same key shape as the frontend's overdueKeys builder
+  // (`${productId}::${variantId}::${warehouseId}::${bin}`) so an $in against the client-supplied
+  // list lines up exactly with what a JS template literal would have produced, `undefined` included.
+  const keyExpr = {
+    $concat: [
+      { $toString: { $ifNull: ['$productId', 'undefined'] } }, '::',
+      { $toString: { $ifNull: ['$variantId', 'undefined'] } }, '::',
+      { $toString: { $ifNull: ['$warehouseId', 'undefined'] } }, '::',
+      { $toString: { $ifNull: ['$bin', 'undefined'] } },
+    ],
+  };
+  const overdueKeysArray = [...overdueKeys];
+  const overdueMatch = { $expr: { $in: [keyExpr, overdueKeysArray] } };
 
-  const counts = { all: 0, reorder: 0, overdue: 0, reserved: 0, dead: 0, inbound: 0 };
-  const matchesLocation = (l: any) => (!warehouseId || l.warehouseId === warehouseId) && (!bin || l.bin === bin);
-  for (const l of allLevelsLight) {
-    if (!matchesLocation(l)) continue;
-    counts.all++;
-    if (['reorder', 'out'].includes(STOCK_STATUS(l))) counts.reorder++;
-    if (overdueKeys.has(levelLocationKey(l))) counts.overdue++;
-    if ((l.reserved ?? 0) > 0) counts.reserved++;
-    if (isDeadLevel(l, l.variantId ? velocityByVariantId[l.variantId] : undefined)) counts.dead++;
-    if ((l.inbound ?? 0) > 0) counts.inbound++;
-  }
-
-  const matchesFocus = (l: any) => {
-    if (!matchesLocation(l)) return false;
-    switch (focus) {
-      case 'reorder':
-        return ['reorder', 'out'].includes(STOCK_STATUS(l));
-      case 'overdue':
-        return overdueKeys.has(levelLocationKey(l));
-      case 'reserved':
-        return (l.reserved ?? 0) > 0;
-      case 'dead':
-        return isDeadLevel(l, l.variantId ? velocityByVariantId[l.variantId] : undefined);
-      case 'inbound':
-        return (l.inbound ?? 0) > 0;
-      default:
-        return true;
-    }
+  const reorderMatch = {
+    $expr: {
+      $let: {
+        vars: { avail: { $subtract: [{ $ifNull: ['$onHand', 0] }, { $ifNull: ['$reserved', 0] }] } },
+        in: {
+          $or: [
+            { $lte: ['$$avail', 0] },
+            { $and: [{ $ne: [{ $ifNull: ['$reorderPoint', null] }, null] }, { $lte: ['$$avail', '$reorderPoint'] }] },
+          ],
+        },
+      },
+    },
   };
 
-  const tableCandidates = allLevelsLight.filter(matchesFocus);
-  tableCandidates.sort((a, b) => {
-    if (sortMode === 'onHand') return (b.onHand ?? 0) - (a.onHand ?? 0);
-    const nameOf = (l: any) => String(l.productTitle ?? l.variantLabel ?? '').toLowerCase();
-    return nameOf(a).localeCompare(nameOf(b));
-  });
-  const total = tableCandidates.length;
-  const pageIds = tableCandidates.slice((page - 1) * pageSize, page * pageSize).map((l: any) => l._id);
+  const movements = await db.collection('inventoryMovements').find({ tenantId }).sort({ createdAt: -1 }).limit(50).toArray();
+
+  // Velocity is computed from `orders`, not `inventoryLevels`, so it's already cheap (bounded by
+  // recent order activity, not catalog size) and untouched by the pagination work below.
+  const velocitySeedLevels = await db
+    .collection('inventoryLevels')
+    .find(searchMatch)
+    .project({ sku: 1, variantId: 1, variantLabel: 1 })
+    .toArray();
+  const velocityByVariantId = await computeVelocityByVariantId(db, tenantId, velocitySeedLevels);
+  const liveVariantIds = Object.entries(velocityByVariantId)
+    .filter(([, unitsPerDay]) => (unitsPerDay ?? 0) > 0)
+    .map(([variantId]) => variantId);
+
+  const cutoffDate = new Date(Date.now() - DEAD_STOCK_WINDOW_MS);
+  const deadMatch = { onHand: { $gt: 0 }, createdAt: { $lt: cutoffDate }, variantId: { $nin: liveVariantIds } };
+
+  const focusMatch: Record<string, unknown> =
+    focus === 'reorder' ? reorderMatch :
+    focus === 'overdue' ? overdueMatch :
+    focus === 'reserved' ? { reserved: { $gt: 0 } } :
+    focus === 'dead' ? deadMatch :
+    focus === 'inbound' ? { inbound: { $gt: 0 } } :
+    {};
+
+  const sortStage: Record<string, 1 | -1> =
+    sortMode === 'onHand' ? { onHand: -1, _id: 1 } : { _sortKey: 1, _id: 1 };
+
+  const [agg] = await db
+    .collection('inventoryLevels')
+    .aggregate([
+      { $match: searchMatch },
+      {
+        $facet: {
+          countAll: [{ $match: locationMatch }, { $count: 'n' }],
+          countReorder: [{ $match: { ...locationMatch, ...reorderMatch } }, { $count: 'n' }],
+          countReserved: [{ $match: { ...locationMatch, reserved: { $gt: 0 } } }, { $count: 'n' }],
+          countInbound: [{ $match: { ...locationMatch, inbound: { $gt: 0 } } }, { $count: 'n' }],
+          countDead: [{ $match: { ...locationMatch, ...deadMatch } }, { $count: 'n' }],
+          countOverdue: [{ $match: { ...locationMatch, ...overdueMatch } }, { $count: 'n' }],
+          summary: [
+            { $match: locationMatch },
+            {
+              $group: {
+                _id: null,
+                onHand: { $sum: { $ifNull: ['$onHand', 0] } },
+                inbound: { $sum: { $ifNull: ['$inbound', 0] } },
+                value: { $sum: { $multiply: [{ $ifNull: ['$onHand', 0] }, { $ifNull: ['$unitCost', 0] }] } },
+              },
+            },
+          ],
+          multiLocation: [
+            { $match: { variantId: { $nin: [null, ''] } } },
+            { $group: { _id: '$variantId', count: { $sum: 1 } } },
+            { $match: { count: { $gt: 1 } } },
+          ],
+          pageTotal: [{ $match: { ...locationMatch, ...focusMatch } }, { $count: 'n' }],
+          page: [
+            { $match: { ...locationMatch, ...focusMatch } },
+            { $addFields: { _sortKey: { $toLower: { $ifNull: ['$productTitle', { $ifNull: ['$variantLabel', ''] }] } } } },
+            { $sort: sortStage },
+            { $skip: (page - 1) * pageSize },
+            { $limit: pageSize },
+            { $project: { _id: 1 } },
+          ],
+        },
+      },
+    ])
+    .toArray();
+
+  const counts = {
+    all: agg.countAll[0]?.n ?? 0,
+    reorder: agg.countReorder[0]?.n ?? 0,
+    overdue: agg.countOverdue[0]?.n ?? 0,
+    reserved: agg.countReserved[0]?.n ?? 0,
+    dead: agg.countDead[0]?.n ?? 0,
+    inbound: agg.countInbound[0]?.n ?? 0,
+  };
+  const summary = {
+    onHand: agg.summary[0]?.onHand ?? 0,
+    inbound: agg.summary[0]?.inbound ?? 0,
+    value: agg.summary[0]?.value ?? 0,
+  };
+  const multiLocationVariantIds: string[] = agg.multiLocation.map((r: any) => r._id);
+  const total = agg.pageTotal[0]?.n ?? 0;
+  const pageIds = agg.page.map((r: any) => r._id);
 
   const pageLevels = pageIds.length > 0 ? await db.collection('inventoryLevels').find({ _id: { $in: pageIds } }).toArray() : [];
-  const orderById = new Map(pageIds.map((id: any, i: number) => [id.toString(), i]));
+  const orderById = new Map<string, number>(pageIds.map((id: any, i: number) => [id.toString(), i]));
   pageLevels.sort((a, b) => (orderById.get(a._id.toString()) ?? 0) - (orderById.get(b._id.toString()) ?? 0));
-
-  const summary = allLevelsLight.reduce(
-    (acc, l) => {
-      if (!matchesLocation(l)) return acc;
-      acc.onHand += l.onHand ?? 0;
-      acc.inbound += l.inbound ?? 0;
-      acc.value += l.unitCost != null ? (l.onHand ?? 0) * l.unitCost : 0;
-      return acc;
-    },
-    { onHand: 0, inbound: 0, value: 0 }
-  );
-
-  // A variant stocked at more than one warehouse/bin can't get the automatic cycle-count
-  // correction (order line items don't carry a location) — flagging it needs comparing counts
-  // across every one of a variant's locations, not just the current page, so it has to be computed
-  // from the same full (light) pass everything else here already uses. Returned as just the id
-  // list, not full documents — the one piece of "the answer needs the whole catalog" that's
-  // actually cheap to ship back.
-  const locationCountByVariantId = new Map<string, number>();
-  for (const l of allLevelsLight) {
-    if (!l.variantId) continue;
-    locationCountByVariantId.set(l.variantId, (locationCountByVariantId.get(l.variantId) ?? 0) + 1);
-  }
-  const multiLocationVariantIds = [...locationCountByVariantId.entries()].filter(([, count]) => count > 1).map(([variantId]) => variantId);
 
   res.json({
     success: true,
@@ -1099,6 +1124,14 @@ export async function transferStock(req: AuthenticatedRequest, res: Response) {
 // order-lifecycle inventory effect already relies on (order line items only carry sku and a
 // free-text variant title, not a stable variant id) so the orders shown here are consistent with
 // what's actually driving the number, not a different, disconnected guess at it.
+//
+// `reserved` is written unconditionally at confirm time (see applyInventoryStageEffect) — it never
+// checks whether onHand can actually back the hold, so a reservation can exist against stock that
+// was never there (oversell allowed via continueSellingWhenOutOfStock). That leaves no record of
+// *which* reservation is the unfulfillable one, so this walks the same orders oldest-first and
+// assigns onHand to them in that order — the earliest-confirmed orders are assumed to have claimed
+// whatever stock existed, and whatever's left unassigned is reported as oversoldQuantity per order,
+// with the level-level oversold total surfaced alongside so the UI can flag it without a second call.
 export async function getLevelReservations(req: AuthenticatedRequest, res: Response) {
   if (!ObjectId.isValid(req.params.id)) {
     res.status(400).json({ success: false, message: 'Invalid inventory level.' });
@@ -1109,26 +1142,35 @@ export async function getLevelReservations(req: AuthenticatedRequest, res: Respo
   const tenantId = req.user!.tenantId!;
   const level = await db.collection('inventoryLevels').findOne({ _id: new ObjectId(req.params.id), tenantId });
   if (!level || !level.sku) {
-    res.json({ success: true, orders: [] });
+    res.json({ success: true, orders: [], oversoldTotal: 0 });
     return;
   }
 
   const candidates = await db
     .collection('orders')
-    .find({ tenantId, 'lineItems.sku': level.sku }, { projection: { number: 1, stage: 1, heldFromStage: 1, customerName: 1, lineItems: 1 } })
+    .find(
+      { tenantId, 'lineItems.sku': level.sku },
+      { projection: { number: 1, stage: 1, heldFromStage: 1, customerName: 1, lineItems: 1, createdAt: 1 } }
+    )
+    .sort({ createdAt: 1 })
     .toArray();
 
-  const orders: { orderId: string; orderNumber: string; stage: string; customerName: string | null; quantity: number }[] = [];
+  const orders: { orderId: string; orderNumber: string; stage: string; customerName: string | null; quantity: number; oversoldQuantity: number }[] = [];
+  let remainingOnHand = Math.max(0, level.onHand ?? 0);
   for (const order of candidates) {
     if (resolveInventoryState(order.stage, order.heldFromStage) !== 'reserved') continue;
     const quantity = (order.lineItems ?? [])
       .filter((li: any) => li.sku === level.sku && (!level.variantLabel || !li.variant || li.variant.toLowerCase() === level.variantLabel.toLowerCase()))
       .reduce((sum: number, li: any) => sum + li.quantity, 0);
     if (quantity <= 0) continue;
-    orders.push({ orderId: order._id.toString(), orderNumber: order.number, stage: order.stage, customerName: order.customerName ?? null, quantity });
+    const covered = Math.min(quantity, remainingOnHand);
+    remainingOnHand -= covered;
+    const oversoldQuantity = quantity - covered;
+    orders.push({ orderId: order._id.toString(), orderNumber: order.number, stage: order.stage, customerName: order.customerName ?? null, quantity, oversoldQuantity });
   }
 
-  res.json({ success: true, orders });
+  const oversoldTotal = orders.reduce((sum, o) => sum + o.oversoldQuantity, 0);
+  res.json({ success: true, orders, oversoldTotal });
 }
 
 // Stages where the physical item has left whatever shelf it's normally kept on — a courier has it

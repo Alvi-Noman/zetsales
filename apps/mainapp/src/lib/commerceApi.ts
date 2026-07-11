@@ -611,11 +611,12 @@ export interface ReservationDTO {
   stage: string;
   customerName: string | null;
   quantity: number;
+  oversoldQuantity: number;
 }
 
 export async function getLevelReservations(levelId: string) {
   const res = await api.get(`/commerce/inventory/levels/${levelId}/reservations`);
-  return res.data as { success: boolean; orders: ReservationDTO[] };
+  return res.data as { success: boolean; orders: ReservationDTO[]; oversoldTotal: number };
 }
 
 export interface CountContextDTO {
