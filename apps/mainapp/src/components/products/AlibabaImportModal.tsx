@@ -18,6 +18,9 @@ interface AlibabaImportModalProps {
   stores: StoreDTO[];
   onClose: () => void;
   onImported: () => void;
+  // Pre-fills the review screen and skips the URL/preview step — used when the browser extension
+  // has already extracted a draft client-side and handed it off via a pending-draft id.
+  initialDraft?: SupplierProductDraftDTO | null;
 }
 
 function formFromDraft(draft: SupplierProductDraftDTO): ProductFormState {
@@ -38,6 +41,8 @@ function formFromDraft(draft: SupplierProductDraftDTO): ProductFormState {
       optionValues: v.optionValues,
       continueSellingWhenOutOfStock: v.continueSellingWhenOutOfStock ?? true,
       title: v.optionValues.join(' / '),
+      imageUrl: v.image ?? null,
+      initialQuantity: '',
     })),
   };
 }
@@ -47,7 +52,7 @@ function storeTargetCount(results: ProductPushResultDTO[] | null) {
   return results.filter((r) => r.success).length;
 }
 
-export function AlibabaImportModal({ open, stores, onClose, onImported }: AlibabaImportModalProps) {
+export function AlibabaImportModal({ open, stores, onClose, onImported, initialDraft }: AlibabaImportModalProps) {
   const toast = useToast();
   const [url, setUrl] = useState('');
   const [previewing, setPreviewing] = useState(false);
@@ -64,6 +69,12 @@ export function AlibabaImportModal({ open, stores, onClose, onImported }: Alibab
     if (!open) return;
     setSelected(new Set(stores.map((store) => store.id)));
   }, [open, stores]);
+
+  useEffect(() => {
+    if (!open || !initialDraft) return;
+    setDraft(initialDraft);
+    setForm(formFromDraft(initialDraft));
+  }, [open, initialDraft]);
 
   useEffect(() => {
     if (!open || stores.length === 0) return;
@@ -145,6 +156,7 @@ export function AlibabaImportModal({ open, stores, onClose, onImported }: Alibab
           compareAtPrice: v.compareAtPrice.trim() ? Number(v.compareAtPrice) : undefined,
           optionValues: v.optionValues,
           continueSellingWhenOutOfStock: v.continueSellingWhenOutOfStock,
+          image: v.imageUrl,
         })),
         storeTargets: [...selected].map((storeId) => ({
           storeId,

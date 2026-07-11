@@ -135,13 +135,19 @@ async function getOrCreateDefaultWarehouse(db: ReturnType<typeof getDb>, tenantI
 // genuinely out-of-stock item now reads as "0 free", not invisible. Only variants that aren't
 // tracked *anywhere* yet get a new record — an edit to an already-tracked product never touches its
 // existing stock numbers.
+// Keyed by the same option-value signature reattachContinueSelling already uses to match a
+// submitted variant back to its store-assigned one — a brand-new variant's real id isn't known
+// until the store's create/update response comes back, so overrides can't be keyed by id yet.
+type VariantQuantityOverride = { quantity: number; warehouseId?: string; bin?: string };
+
 async function ensureVariantsTracked(
   db: ReturnType<typeof getDb>,
   tenantId: string,
   productId: string,
   productTitle: string,
   productImage: string | null,
-  variants: { id: string; sku: string | null; title: string; optionValues: string[]; inventory?: number | null }[]
+  variants: { id: string; sku: string | null; title: string; optionValues: string[]; inventory?: number | null }[],
+  overrides?: Map<string, VariantQuantityOverride>
 ) {
   if (variants.length === 0) return;
   const variantIds = variants.map((v) => v.id);
@@ -154,10 +160,23 @@ async function ensureVariantsTracked(
   const untracked = variants.filter((v) => !tracked.has(v.id));
   if (untracked.length === 0) return;
 
-  const warehouse = await getOrCreateDefaultWarehouse(db, tenantId);
+  const defaultWarehouse = await getOrCreateDefaultWarehouse(db, tenantId);
+  const warehouseCache = new Map<string, { id: string; name: string }>([[defaultWarehouse.id, defaultWarehouse]]);
+  async function resolveWarehouse(id: string | undefined) {
+    if (!id) return defaultWarehouse;
+    if (warehouseCache.has(id)) return warehouseCache.get(id)!;
+    const doc = await db.collection<WarehouseDoc>('warehouses').findOne({ _id: id, tenantId });
+    const resolved = doc ? { id: doc._id, name: doc.name } : defaultWarehouse;
+    warehouseCache.set(id, resolved);
+    return resolved;
+  }
+
   const now = new Date();
-  await db.collection('inventoryLevels').insertMany(
-    untracked.map((v) => ({
+  const docs = [];
+  for (const v of untracked) {
+    const override = overrides?.get(v.optionValues.join('|'));
+    const warehouse = await resolveWarehouse(override?.warehouseId);
+    docs.push({
       tenantId,
       productId,
       variantId: v.id,
@@ -167,11 +186,11 @@ async function ensureVariantsTracked(
       variantLabel: v.optionValues?.length ? v.optionValues.join(' / ') : v.title,
       warehouseId: warehouse.id,
       warehouseName: warehouse.name,
-      bin: 'Unassigned',
-      // The platform's own reported count when it's actually tracking stock (Shopify with
-      // inventory managed by Shopify, a WooCommerce product/variation with stock management on) —
-      // otherwise 0, same as a product with no stock signal at all.
-      onHand: v.inventory ?? 0,
+      bin: override?.bin?.trim() || 'Unassigned',
+      // Priority: an explicit quantity entered in the Add Product form, then the platform's own
+      // reported count when it's actually tracking stock (Shopify with inventory managed by
+      // Shopify, a WooCommerce product/variation with stock management on), then 0.
+      onHand: override?.quantity ?? v.inventory ?? 0,
       reserved: 0,
       inbound: 0,
       unitCost: null,
@@ -179,11 +198,12 @@ async function ensureVariantsTracked(
       reorderPoint: null,
       createdAt: now,
       updatedAt: now,
-    }))
-  );
+    });
+  }
+  await db.collection('inventoryLevels').insertMany(docs);
 }
 
-async function upsertProduct(tenantId: string, storeId: string, p: NormalizedProduct, groupId?: string) {
+async function upsertProduct(tenantId: string, storeId: string, p: NormalizedProduct, groupId?: string, quantityOverrides?: Map<string, VariantQuantityOverride>) {
   const db = getDb();
   const now = new Date();
   const existing = await db.collection('products').findOne({ tenantId, storeId, externalId: p.externalId });
@@ -215,7 +235,7 @@ async function upsertProduct(tenantId: string, storeId: string, p: NormalizedPro
     { upsert: true, returnDocument: 'after' }
   );
   const productId = result!._id.toString();
-  await ensureVariantsTracked(db, tenantId, productId, p.title, p.images[0] ?? null, p.variants);
+  await ensureVariantsTracked(db, tenantId, productId, p.title, p.images[0] ?? null, p.variants, quantityOverrides);
   return productId;
 }
 
@@ -504,6 +524,10 @@ const productVariantInputSchema = z.object({
   optionValues: z.array(z.string()),
   continueSellingWhenOutOfStock: z.boolean().optional(),
   image: z.string().trim().url().optional().nullable(),
+  // Only meaningful on create (see createProductSchema) — an explicit starting stock count entered
+  // in the Add Product form, as opposed to the 0/platform-reported default every variant otherwise
+  // gets (see ensureVariantsTracked).
+  initialQuantity: z.number().nonnegative().optional(),
 });
 
 const productPublishTargetSchema = z.object({
@@ -537,7 +561,15 @@ const variantCheckMessage = { message: 'Each variant must specify a unique value
 
 const productWriteSchema = z.object(productBaseFields).refine(variantsMatchOptions, variantCheckMessage);
 const createProductSchema = z
-  .object({ ...productBaseFields, storeIds: z.array(z.string()).optional(), storeTargets: z.array(productPublishTargetSchema).optional() })
+  .object({
+    ...productBaseFields,
+    storeIds: z.array(z.string()).optional(),
+    storeTargets: z.array(productPublishTargetSchema).optional(),
+    // Where a variant's initialQuantity (above) actually lands. Both optional — omitting them
+    // falls back to the tenant's default warehouse and bin 'Unassigned', same as auto-tracking.
+    warehouseId: z.string().trim().optional(),
+    bin: z.string().trim().optional(),
+  })
   .refine((data) => Boolean(data.storeTargets?.length || data.storeIds?.length), { message: 'At least one store is required' })
   .refine(variantsMatchOptions, variantCheckMessage);
 
@@ -726,7 +758,7 @@ export async function createProduct(req: AuthenticatedRequest, res: Response) {
 
   const db = getDb();
   const tenantId = req.user!.tenantId!;
-  const { storeIds, storeTargets, ...rawData } = parsed.data;
+  const { storeIds, storeTargets, warehouseId, bin, ...rawData } = parsed.data;
   const data = await fillMissingSkus(tenantId, rawData);
   const targets = storeTargets?.length ? storeTargets : (storeIds ?? []).map((storeId) => ({ storeId, collectionIds: [] }));
   const targetByStoreId = new Map(targets.map((target) => [target.storeId, target.collectionIds ?? []]));
@@ -737,6 +769,13 @@ export async function createProduct(req: AuthenticatedRequest, res: Response) {
     res.status(404).json({ success: false, message: 'No matching stores found' });
     return;
   }
+
+  // Keyed by option-value signature (see ensureVariantsTracked) so it can be matched back to
+  // whichever real variant id each store assigns once the push actually completes.
+  const quantityOverridesEntries = data.variants
+    .filter((v) => v.initialQuantity != null)
+    .map((v) => [v.optionValues.join('|'), { quantity: v.initialQuantity!, warehouseId, bin }] as const);
+  const quantityOverrides = quantityOverridesEntries.length > 0 ? new Map(quantityOverridesEntries) : undefined;
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -758,7 +797,7 @@ export async function createProduct(req: AuthenticatedRequest, res: Response) {
     try {
       const collectionIds = targetByStoreId.get(storeId) ?? [];
       const normalized = withSubmittedMetadata(reattachContinueSelling(await pushToStore(store, input, collectionIds), data.variants), data, data.sourcePlatform, data.sourceUrl, collectionIds);
-      const productId = await upsertProduct(tenantId, storeId, normalized, groupId);
+      const productId = await upsertProduct(tenantId, storeId, normalized, groupId, quantityOverrides);
       const result: ProductPushResultDTO = { storeId, displayName, platform, success: true, productId };
       results.push(result);
       send({ type: 'store:done', ...result });

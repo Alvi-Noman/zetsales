@@ -17,7 +17,7 @@ export interface ProductFormState {
   variants: VariantFormRow[];
 }
 
-const EMPTY_VARIANT: VariantFormRow = { sku: '', price: '', compareAtPrice: '', optionValues: [], continueSellingWhenOutOfStock: true, title: '' };
+const EMPTY_VARIANT: VariantFormRow = { sku: '', price: '', compareAtPrice: '', optionValues: [], continueSellingWhenOutOfStock: true, title: '', imageUrl: null, initialQuantity: '' };
 
 export const EMPTY_PRODUCT_FORM: ProductFormState = {
   title: '',
@@ -37,9 +37,10 @@ function cartesianProduct(arrays: string[][]): string[][] {
 interface ProductFormFieldsProps {
   value: ProductFormState;
   onChange: (next: ProductFormState) => void;
+  showInitialQuantity?: boolean;
 }
 
-export function ProductFormFields({ value, onChange }: ProductFormFieldsProps) {
+export function ProductFormFields({ value, onChange, showInitialQuantity }: ProductFormFieldsProps) {
   const setText = (key: 'title' | 'description' | 'category') => (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     onChange({ ...value, [key]: e.target.value });
 
@@ -118,7 +119,13 @@ export function ProductFormFields({ value, onChange }: ProductFormFieldsProps) {
 
       <OptionsBuilder options={value.options} onChange={handleOptionsChange} />
 
-      <VariantTable options={value.options} variants={value.variants} onChange={(variants) => onChange({ ...value, variants })} />
+      <VariantTable
+        options={value.options}
+        variants={value.variants}
+        productImages={value.images}
+        onChange={(variants) => onChange({ ...value, variants })}
+        showInitialQuantity={showInitialQuantity}
+      />
     </div>
   );
 }

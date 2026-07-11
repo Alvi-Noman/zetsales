@@ -273,6 +273,8 @@ export interface ProductVariantDTO {
   // drawer. False routes it to Flagged instead of Confirmed, so a human has to clear it by hand
   // before it can proceed.
   continueSellingWhenOutOfStock: boolean;
+  // Distinct from the product's shared images[] gallery — e.g. a color variant's own swatch photo.
+  image?: string | null;
 }
 
 export interface ProductDTO {
@@ -302,6 +304,9 @@ export interface ProductVariantInputDTO {
   compareAtPrice?: number;
   optionValues: string[];
   continueSellingWhenOutOfStock?: boolean;
+  image?: string | null;
+  // Only meaningful on create — an explicit starting stock count entered in the Add Product form.
+  initialQuantity?: number;
 }
 
 export interface ProductWritePayload {
@@ -315,6 +320,9 @@ export interface ProductWritePayload {
   sourcePlatform?: ProductSourcePlatform;
   options: ProductOptionDTO[];
   variants: ProductVariantInputDTO[];
+  // Where a variant's initialQuantity (above) lands — only used on create.
+  warehouseId?: string;
+  bin?: string;
 }
 
 export interface ProductPublishTargetDTO {

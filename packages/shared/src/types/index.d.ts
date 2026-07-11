@@ -162,6 +162,7 @@ export interface ProductVariantDTO {
     inventory: number | null;
     optionValues: string[];
     continueSellingWhenOutOfStock: boolean;
+    image?: string | null;
 }
 export interface ProductDTO {
     id: string;
@@ -188,6 +189,8 @@ export interface ProductVariantInputDTO {
     compareAtPrice?: number;
     optionValues: string[];
     continueSellingWhenOutOfStock?: boolean;
+    image?: string | null;
+    initialQuantity?: number;
 }
 export interface ProductWritePayload {
     title: string;
@@ -200,6 +203,8 @@ export interface ProductWritePayload {
     sourcePlatform?: ProductSourcePlatform;
     options: ProductOptionDTO[];
     variants: ProductVariantInputDTO[];
+    warehouseId?: string;
+    bin?: string;
 }
 export interface ProductPublishTargetDTO {
     storeId: string;

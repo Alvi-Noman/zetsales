@@ -50,6 +50,8 @@ export function EditProductPage() {
             optionValues: v.optionValues,
             continueSellingWhenOutOfStock: v.continueSellingWhenOutOfStock,
             title: v.title,
+            imageUrl: v.image ?? null,
+            initialQuantity: '',
           })),
         };
         setForm(loaded);
@@ -91,6 +93,7 @@ export function EditProductPage() {
             compareAtPrice: v.compareAtPrice.trim() ? Number(v.compareAtPrice) : undefined,
             optionValues: v.optionValues,
             continueSellingWhenOutOfStock: v.continueSellingWhenOutOfStock,
+            image: v.imageUrl,
           })),
         },
         (event) => {

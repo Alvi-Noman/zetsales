@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Loader2, Package, ShoppingBag, Store as StoreIcon } from 'lucide-react';
 import clsx from 'clsx';
 import type { StoreDTO } from '@zetsales/shared';
-import { createProduct, listStores } from '../../lib/commerceApi';
+import { createProduct, listStores, listWarehouses, type WarehouseDTO } from '../../lib/commerceApi';
 import { ProductFormFields, EMPTY_PRODUCT_FORM, type ProductFormState } from '../../components/products/ProductFormFields';
 import { ProductPushProgress, pushProgressLabel, type PushProgressItem } from '../../components/products/ProductPushProgress';
 import { useToast } from '../../components/ui/ToastProvider';
@@ -22,13 +22,18 @@ export function AddProductPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
   const [pushItems, setPushItems] = useState<PushProgressItem[] | null>(null);
+  const [warehouses, setWarehouses] = useState<WarehouseDTO[]>([]);
+  const [warehouseId, setWarehouseId] = useState('');
+  const [bin, setBin] = useState('');
 
   useEffect(() => {
     (async () => {
       try {
-        const list = await listStores();
+        const [list, warehouseRes] = await Promise.all([listStores(), listWarehouses()]);
         setStores(list);
         setSelected(new Set(list.map((s) => s.id)));
+        setWarehouses(warehouseRes.warehouses);
+        setWarehouseId(warehouseRes.warehouses[0]?.id ?? '');
       } catch {
         toast.push('Could not load your connected stores.', 'info');
       } finally {
@@ -37,6 +42,10 @@ export function AddProductPage() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The warehouse/bin picker is only relevant once a starting quantity is actually entered for
+  // some variant — no point asking where to put stock nobody said exists yet.
+  const hasInitialQuantity = form.variants.some((v) => Number(v.initialQuantity) > 0);
 
   const toggleStore = (id: string) => {
     setSelected((prev) => {
@@ -72,8 +81,12 @@ export function AddProductPage() {
             compareAtPrice: v.compareAtPrice.trim() ? Number(v.compareAtPrice) : undefined,
             optionValues: v.optionValues,
             continueSellingWhenOutOfStock: v.continueSellingWhenOutOfStock,
+            image: v.imageUrl,
+            initialQuantity: v.initialQuantity.trim() ? Number(v.initialQuantity) : undefined,
           })),
           storeIds: [...selected],
+          warehouseId: hasInitialQuantity ? warehouseId || undefined : undefined,
+          bin: hasInitialQuantity ? bin.trim() || undefined : undefined,
         },
         (event) => {
           if (event.type === 'store:start') {
@@ -134,7 +147,36 @@ export function AddProductPage() {
           </div>
         ) : (
           <div className="space-y-6">
-            <ProductFormFields value={form} onChange={setForm} />
+            <ProductFormFields value={form} onChange={setForm} showInitialQuantity />
+
+            {hasInitialQuantity && (
+              <div className="grid gap-3 sm:grid-cols-[1fr_1fr]">
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold text-slate-600">Warehouse</label>
+                  <select
+                    value={warehouseId}
+                    onChange={(e) => setWarehouseId(e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15"
+                  >
+                    {warehouses.length === 0 && <option value="">Main Warehouse (created automatically)</option>}
+                    {warehouses.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold text-slate-600">Bin</label>
+                  <input
+                    value={bin}
+                    onChange={(e) => setBin(e.target.value)}
+                    placeholder="Optional"
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15"
+                  />
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="mb-1.5 block text-xs font-semibold text-slate-600">Push to</label>
