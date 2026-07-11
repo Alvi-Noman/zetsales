@@ -269,7 +269,12 @@ export async function listBins(req: AuthenticatedRequest, res: Response) {
 // (not a stable variant id) — best-effort when a SKU is shared across sibling variants, which is
 // common in this catalog; falls back to matching by SKU alone when the variant label doesn't line
 // up (e.g. the platform's own line-item title formatting differs slightly from ours).
-async function computeVelocityByVariantId(db: ReturnType<typeof getDb>, tenantId: string, levels: any[]): Promise<Record<string, number>> {
+// Order line items only carry a sku + free-text variant label, not the level's real variantId, so
+// matching still needs a join against inventoryLevels — but doing that join as a $lookup (indexed on
+// tenantId+sku) keyed off the handful of distinct skus that sold in the last 30 days is a different
+// thing entirely from pulling every one of the tenant's tracked levels into Node to build that same
+// lookup by hand.
+async function computeVelocityByVariantId(db: ReturnType<typeof getDb>, tenantId: string): Promise<Record<string, number>> {
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const rows = await db
     .collection('orders')
@@ -278,24 +283,54 @@ async function computeVelocityByVariantId(db: ReturnType<typeof getDb>, tenantId
       { $unwind: '$lineItems' },
       { $match: { 'lineItems.sku': { $exists: true, $nin: [null, ''] } } },
       { $group: { _id: { sku: '$lineItems.sku', variant: '$lineItems.variant' }, totalQty: { $sum: '$lineItems.quantity' } } },
+      {
+        $lookup: {
+          from: 'inventoryLevels',
+          let: { sku: '$_id.sku' },
+          pipeline: [
+            { $match: { $expr: { $and: [{ $eq: ['$tenantId', tenantId] }, { $eq: ['$sku', '$$sku'] }] } } },
+            { $project: { _id: 0, variantId: 1, variantLabel: 1 } },
+          ],
+          as: 'candidates',
+        },
+      },
+      {
+        $addFields: {
+          matchedVariantId: {
+            $let: {
+              vars: {
+                exactMatch: {
+                  $arrayElemAt: [
+                    {
+                      $filter: {
+                        input: '$candidates',
+                        cond: {
+                          $eq: [
+                            { $toLower: { $ifNull: ['$$this.variantLabel', ''] } },
+                            { $toLower: { $ifNull: ['$_id.variant', ''] } },
+                          ],
+                        },
+                      },
+                    },
+                    0,
+                  ],
+                },
+                firstCandidate: { $arrayElemAt: ['$candidates', 0] },
+              },
+              in: { $ifNull: ['$$exactMatch.variantId', '$$firstCandidate.variantId'] },
+            },
+          },
+        },
+      },
+      { $match: { matchedVariantId: { $ne: null } } },
+      { $project: { _id: 0, variantId: '$matchedVariantId', totalQty: 1 } },
     ])
     .toArray();
 
-  const levelsBySku = new Map<string, any[]>();
-  for (const level of levels) {
-    if (!level.sku) continue;
-    const list = levelsBySku.get(level.sku) ?? [];
-    list.push(level);
-    levelsBySku.set(level.sku, list);
-  }
-
   const velocityByVariantId: Record<string, number> = {};
   for (const row of rows) {
-    const candidates = levelsBySku.get(row._id.sku) ?? [];
-    const match = candidates.find((c) => row._id.variant && c.variantLabel && c.variantLabel.toLowerCase() === String(row._id.variant).toLowerCase()) ?? candidates[0];
-    if (!match) continue;
     const unitsPerDay = Math.round((row.totalQty / 30) * 100) / 100;
-    velocityByVariantId[match.variantId] = (velocityByVariantId[match.variantId] ?? 0) + unitsPerDay;
+    velocityByVariantId[row.variantId] = (velocityByVariantId[row.variantId] ?? 0) + unitsPerDay;
   }
   return velocityByVariantId;
 }
@@ -367,14 +402,7 @@ export async function listInventory(req: AuthenticatedRequest, res: Response) {
 
   const movements = await db.collection('inventoryMovements').find({ tenantId }).sort({ createdAt: -1 }).limit(50).toArray();
 
-  // Velocity is computed from `orders`, not `inventoryLevels`, so it's already cheap (bounded by
-  // recent order activity, not catalog size) and untouched by the pagination work below.
-  const velocitySeedLevels = await db
-    .collection('inventoryLevels')
-    .find(searchMatch)
-    .project({ sku: 1, variantId: 1, variantLabel: 1 })
-    .toArray();
-  const velocityByVariantId = await computeVelocityByVariantId(db, tenantId, velocitySeedLevels);
+  const velocityByVariantId = await computeVelocityByVariantId(db, tenantId);
   const liveVariantIds = Object.entries(velocityByVariantId)
     .filter(([, unitsPerDay]) => (unitsPerDay ?? 0) > 0)
     .map(([variantId]) => variantId);
