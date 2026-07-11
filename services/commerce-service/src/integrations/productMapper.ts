@@ -27,6 +27,7 @@ export interface NormalizedProduct {
     // unset by both mappers below; the products controller attaches it after the push, matched
     // back from what was actually submitted in the write form.
     continueSellingWhenOutOfStock?: boolean;
+    image?: string | null;
   }[];
 }
 
@@ -38,6 +39,7 @@ export function mapShopifyProduct(p: ShopifyProduct, shopDomain: string): Normal
     .sort((a, b) => a.position - b.position)
     .map((o) => ({ name: o.name, values: o.values }));
   const images = p.images?.length ? p.images.map((i) => i.src) : p.image ? [p.image.src] : [];
+  const imageSrcById = new Map((p.images ?? []).map((i) => [i.id, i.src]));
 
   return {
     externalId: String(p.id),
@@ -56,8 +58,9 @@ export function mapShopifyProduct(p: ShopifyProduct, shopDomain: string): Normal
       title: v.title,
       price: Number(v.price) || 0,
       compareAtPrice: v.compare_at_price ? Number(v.compare_at_price) : null,
-      inventory: null,
+      inventory: v.inventory_management === 'shopify' ? v.inventory_quantity : null,
       optionValues: [v.option1, v.option2, v.option3].filter((x): x is string => x != null),
+      image: v.image_id != null ? (imageSrcById.get(v.image_id) ?? null) : null,
     })),
   };
 }
@@ -96,8 +99,9 @@ export async function mapWooProduct(p: WooProduct, siteUrl: string, consumerKey:
           title: optionValues.filter(Boolean).join(' / ') || p.name,
           price,
           compareAtPrice,
-          inventory: null,
+          inventory: v.stock_quantity ?? null,
           optionValues,
+          image: v.image?.src ?? null,
         };
       }),
     };

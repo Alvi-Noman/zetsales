@@ -131,17 +131,17 @@ async function getOrCreateDefaultWarehouse(db: ReturnType<typeof getDb>, tenantI
 // "Not tracked" and "tracked at 0" are deliberately treated differently everywhere else in the
 // system (Stock Shortfall, the packing fulfillment gate, the per-line-item stock badge) — a
 // variant with no inventoryLevels row at all silently bypasses all of them, since there's no number
-// to check against. Giving every variant a real (if empty) record the moment it's synced closes
-// that gap: a genuinely-out-of-stock item now reads as "0 free", not invisible. Only variants that
-// aren't tracked *anywhere* yet get a new record — an edit to an already-tracked product never
-// touches its existing stock numbers.
+// to check against. Giving every variant a real record the moment it's synced closes that gap: a
+// genuinely out-of-stock item now reads as "0 free", not invisible. Only variants that aren't
+// tracked *anywhere* yet get a new record — an edit to an already-tracked product never touches its
+// existing stock numbers.
 async function ensureVariantsTracked(
   db: ReturnType<typeof getDb>,
   tenantId: string,
   productId: string,
   productTitle: string,
   productImage: string | null,
-  variants: { id: string; sku: string | null; title: string; optionValues: string[] }[]
+  variants: { id: string; sku: string | null; title: string; optionValues: string[]; inventory?: number | null }[]
 ) {
   if (variants.length === 0) return;
   const variantIds = variants.map((v) => v.id);
@@ -168,7 +168,10 @@ async function ensureVariantsTracked(
       warehouseId: warehouse.id,
       warehouseName: warehouse.name,
       bin: 'Unassigned',
-      onHand: 0,
+      // The platform's own reported count when it's actually tracking stock (Shopify with
+      // inventory managed by Shopify, a WooCommerce product/variation with stock management on) —
+      // otherwise 0, same as a product with no stock signal at all.
+      onHand: v.inventory ?? 0,
       reserved: 0,
       inbound: 0,
       unitCost: null,
