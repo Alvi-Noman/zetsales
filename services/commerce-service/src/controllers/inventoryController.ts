@@ -300,17 +300,136 @@ async function computeVelocityByVariantId(db: ReturnType<typeof getDb>, tenantId
   return velocityByVariantId;
 }
 
+const STOCK_STATUS = (l: any): 'out' | 'reorder' | 'ok' | 'unset' => {
+  const available = (l.onHand ?? 0) - (l.reserved ?? 0);
+  if (available <= 0) return 'out';
+  if (l.reorderPoint == null) return 'unset';
+  return available <= l.reorderPoint ? 'reorder' : 'ok';
+};
+
+const DEAD_STOCK_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+function isDeadLevel(l: any, unitsPerDay: number | undefined): boolean {
+  if ((l.onHand ?? 0) <= 0) return false;
+  if (Date.now() - new Date(l.createdAt).getTime() < DEAD_STOCK_WINDOW_MS) return false;
+  return !unitsPerDay || unitsPerDay <= 0;
+}
+
+function levelLocationKey(l: any): string {
+  return `${l.productId}::${l.variantId}::${l.warehouseId}::${l.bin}`;
+}
+
+// This page used to fetch and ship every one of a tenant's inventoryLevels documents on every
+// load, full detail included (image URLs, cost history, everything) — fine when a tenant had a
+// handful of tracked variants, but once every synced product started getting a real inventory
+// record (see productsController.ts's ensureVariantsTracked), a real catalog means tens of
+// thousands of documents on every single page view. Two things fix that: (1) the "light" pass
+// below only ever pulls the handful of fields needed to compute filter-tab counts, the velocity
+// map, and cross-tab lookups (Transfer stock's location picker, Stock Shortfalls' location
+// cross-reference) — never the heavy display-only fields; (2) the actual table only ever fetches
+// full documents for the one page of rows currently being shown, not the whole matching set.
 export async function listInventory(req: AuthenticatedRequest, res: Response) {
   const db = getDb();
   const tenantId = req.user!.tenantId!;
 
-  const [levels, movements] = await Promise.all([
-    db.collection('inventoryLevels').find({ tenantId }).sort({ productTitle: 1, variantLabel: 1 }).toArray(),
+  const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+  const warehouseId = typeof req.query.warehouseId === 'string' ? req.query.warehouseId.trim() : '';
+  const bin = typeof req.query.bin === 'string' ? req.query.bin.trim() : '';
+  const focus = typeof req.query.focus === 'string' ? req.query.focus : 'all';
+  const sortMode = req.query.sortMode === 'title' ? 'title' : 'onHand';
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const pageSize = Math.min(200, Math.max(1, Number(req.query.pageSize) || 50));
+  const overdueKeys = new Set(
+    typeof req.query.overdueKeys === 'string' && req.query.overdueKeys ? req.query.overdueKeys.split(',').filter(Boolean) : []
+  );
+
+  const searchMatch: Record<string, unknown> = { tenantId };
+  if (search) {
+    const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(escaped, 'i');
+    searchMatch.$or = [{ sku: re }, { productTitle: re }, { variantLabel: re }];
+  }
+
+  const [allLevelsLight, movements] = await Promise.all([
+    db
+      .collection('inventoryLevels')
+      .find(searchMatch)
+      .project({
+        productId: 1, variantId: 1, sku: 1, productTitle: 1, variantLabel: 1,
+        warehouseId: 1, warehouseName: 1, bin: 1, onHand: 1, reserved: 1, inbound: 1,
+        unitCost: 1, reorderPoint: 1, createdAt: 1, updatedAt: 1,
+      })
+      .toArray(),
     db.collection('inventoryMovements').find({ tenantId }).sort({ createdAt: -1 }).limit(50).toArray(),
   ]);
-  const velocityByVariantId = await computeVelocityByVariantId(db, tenantId, levels);
 
-  res.json({ success: true, levels: levels.map(levelDto), movements: movements.map(movementDto), velocityByVariantId });
+  const velocityByVariantId = await computeVelocityByVariantId(db, tenantId, allLevelsLight);
+
+  const counts = { all: 0, reorder: 0, overdue: 0, reserved: 0, dead: 0, inbound: 0 };
+  const matchesLocation = (l: any) => (!warehouseId || l.warehouseId === warehouseId) && (!bin || l.bin === bin);
+  for (const l of allLevelsLight) {
+    if (!matchesLocation(l)) continue;
+    counts.all++;
+    if (['reorder', 'out'].includes(STOCK_STATUS(l))) counts.reorder++;
+    if (overdueKeys.has(levelLocationKey(l))) counts.overdue++;
+    if ((l.reserved ?? 0) > 0) counts.reserved++;
+    if (isDeadLevel(l, l.variantId ? velocityByVariantId[l.variantId] : undefined)) counts.dead++;
+    if ((l.inbound ?? 0) > 0) counts.inbound++;
+  }
+
+  const matchesFocus = (l: any) => {
+    if (!matchesLocation(l)) return false;
+    switch (focus) {
+      case 'reorder':
+        return ['reorder', 'out'].includes(STOCK_STATUS(l));
+      case 'overdue':
+        return overdueKeys.has(levelLocationKey(l));
+      case 'reserved':
+        return (l.reserved ?? 0) > 0;
+      case 'dead':
+        return isDeadLevel(l, l.variantId ? velocityByVariantId[l.variantId] : undefined);
+      case 'inbound':
+        return (l.inbound ?? 0) > 0;
+      default:
+        return true;
+    }
+  };
+
+  const tableCandidates = allLevelsLight.filter(matchesFocus);
+  tableCandidates.sort((a, b) => {
+    if (sortMode === 'onHand') return (b.onHand ?? 0) - (a.onHand ?? 0);
+    const nameOf = (l: any) => String(l.productTitle ?? l.variantLabel ?? '').toLowerCase();
+    return nameOf(a).localeCompare(nameOf(b));
+  });
+  const total = tableCandidates.length;
+  const pageIds = tableCandidates.slice((page - 1) * pageSize, page * pageSize).map((l: any) => l._id);
+
+  const pageLevels = pageIds.length > 0 ? await db.collection('inventoryLevels').find({ _id: { $in: pageIds } }).toArray() : [];
+  const orderById = new Map(pageIds.map((id: any, i: number) => [id.toString(), i]));
+  pageLevels.sort((a, b) => (orderById.get(a._id.toString()) ?? 0) - (orderById.get(b._id.toString()) ?? 0));
+
+  const summary = allLevelsLight.reduce(
+    (acc, l) => {
+      if (!matchesLocation(l)) return acc;
+      acc.onHand += l.onHand ?? 0;
+      acc.inbound += l.inbound ?? 0;
+      acc.value += l.unitCost != null ? (l.onHand ?? 0) * l.unitCost : 0;
+      return acc;
+    },
+    { onHand: 0, inbound: 0, value: 0 }
+  );
+
+  res.json({
+    success: true,
+    levels: pageLevels.map(levelDto),
+    allLevels: allLevelsLight.map(levelDto),
+    total,
+    page,
+    pageSize,
+    counts,
+    summary,
+    movements: movements.map(movementDto),
+    velocityByVariantId,
+  });
 }
 
 // Pre-confirm demand that cannot be covered by free stock. This stays in Inventory because the
@@ -334,31 +453,35 @@ export async function listStockShortfalls(req: AuthenticatedRequest, res: Respon
   const tenantId = req.user!.tenantId!;
   const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
 
-  const [orders, levels] = await Promise.all([
-    db
-      .collection('orders')
-      .find({
-        tenantId,
-        'lineItems.sku': { $exists: true, $nin: [null, ''] },
-        $or: [
-          { stage: { $in: ['Pending', 'Flagged'] } },
-          { stage: 'On Hold', heldFromStage: { $in: ['Pending', 'Flagged'] } },
-        ],
-      })
-      .project({
-        number: 1,
-        stage: 1,
-        heldFromStage: 1,
-        customerName: 1,
-        customerPhone: 1,
-        lineItems: 1,
-        createdAt: 1,
-        updatedAt: 1,
-      })
-      .sort({ createdAt: 1 })
-      .toArray(),
-    db.collection('inventoryLevels').find({ tenantId, sku: { $exists: true, $nin: [null, ''] } }).toArray(),
-  ]);
+  const orders = await db
+    .collection('orders')
+    .find({
+      tenantId,
+      'lineItems.sku': { $exists: true, $nin: [null, ''] },
+      $or: [
+        { stage: { $in: ['Pending', 'Flagged'] } },
+        { stage: 'On Hold', heldFromStage: { $in: ['Pending', 'Flagged'] } },
+      ],
+    })
+    .project({
+      number: 1,
+      stage: 1,
+      heldFromStage: 1,
+      customerName: 1,
+      customerPhone: 1,
+      lineItems: 1,
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    .sort({ createdAt: 1 })
+    .toArray();
+
+  // A shortfall can only ever involve a SKU that's actually sitting in one of these open orders —
+  // scoping the inventoryLevels lookup to just those SKUs (usually a handful) instead of the whole
+  // tenant catalog (which can now be tens of thousands of rows post-sync) is what actually made
+  // this endpoint slow; the orders fetch above was already this narrow.
+  const openOrderSkus = [...new Set(orders.flatMap((o) => (o.lineItems ?? []).map((li: any) => li.sku).filter(Boolean)))];
+  const levels = openOrderSkus.length > 0 ? await db.collection('inventoryLevels').find({ tenantId, sku: { $in: openOrderSkus } }).toArray() : [];
 
   const levelsBySku = new Map<string, any[]>();
   for (const level of levels) {
@@ -530,9 +653,16 @@ export async function listStockShortfalls(req: AuthenticatedRequest, res: Respon
   });
   const filteredAffectedOrders = new Set(filteredRows.flatMap((row) => row.orders.map((order) => order.orderId)));
 
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const pageSize = Math.min(200, Math.max(1, Number(req.query.pageSize) || 50));
+  const pagedRows = filteredRows.slice((page - 1) * pageSize, page * pageSize);
+
   res.json({
     success: true,
-    rows: filteredRows,
+    rows: pagedRows,
+    total: filteredRows.length,
+    page,
+    pageSize,
     summary: {
       skuCount: filteredRows.length,
       affectedOrderCount: filteredAffectedOrders.size,

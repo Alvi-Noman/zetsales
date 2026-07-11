@@ -69,6 +69,7 @@ import {
   type InboundWriteOffReason,
   type InventoryInboundPayload,
   type InventoryCountPayload,
+  type InventoryLevelCounts,
   type InventoryLevelDTO,
   type InventoryMovementDTO,
   type InventorySkuOptionDTO,
@@ -253,19 +254,9 @@ function levelStatus(level: InventoryLevelDTO): 'out' | 'reorder' | 'ok' | 'unse
   return available <= level.reorderPoint ? 'reorder' : 'ok';
 }
 
-// Capital sitting on a shelf with no buyers — stock you have, but haven't sold, not stock you
-// don't have. Matches the same trailing 30-day window sales velocity is already computed over
-// (see computeVelocityByVariantId server-side), so "0 units/day" and "dead stock" mean the same
-// 30 days consistently. Requires the level itself to be at least that old too — a variant counted
-// in only yesterday hasn't had a fair chance to sell yet, and shouldn't be flagged as dead on day one.
-const DEAD_STOCK_WINDOW_DAYS = 30;
-
-function isDeadStock(level: InventoryLevelDTO, unitsPerDay: number | undefined): boolean {
-  if (level.onHand <= 0) return false;
-  const ageDays = (Date.now() - new Date(level.createdAt).getTime()) / (24 * 60 * 60 * 1000);
-  if (ageDays < DEAD_STOCK_WINDOW_DAYS) return false;
-  return !unitsPerDay || unitsPerDay <= 0;
-}
+// "Dead stock" detection (capital sitting on a shelf with no buyers in the last 30 days) now lives
+// server-side in inventoryController.ts (isDeadLevel) — it needs the velocity map to classify rows
+// outside the current page too, for the filter-tab count, which only the server can do cheaply.
 
 // "Unassigned" is the silent placeholder used before any real shelf/bin exists — it gets created
 // automatically the first time a business saves a count or shipment, with no field ever shown for
@@ -3734,7 +3725,17 @@ function WarehouseSettingsModal({
 export function InventoryPage() {
   const toast = useToast();
   const [view, setView] = useState<PageView>('stock');
+  // Light detail across every row matching the search filter (not warehouse/bin/focus) — backs
+  // filter-tab counts, bin options, multi-location detection, and cross-tab lookups, never
+  // rendered directly as a big list. `pageLevels` below is the actual table content: full detail,
+  // one page at a time. Splitting these is what keeps this page fast at real catalog scale (see
+  // listInventory on the server).
   const [levels, setLevels] = useState<InventoryLevelDTO[]>([]);
+  const [pageLevels, setPageLevels] = useState<InventoryLevelDTO[]>([]);
+  const [levelsTotal, setLevelsTotal] = useState(0);
+  const [levelsCounts, setLevelsCounts] = useState<InventoryLevelCounts>({ all: 0, reorder: 0, overdue: 0, reserved: 0, dead: 0, inbound: 0 });
+  const [levelsSummary, setLevelsSummary] = useState({ onHand: 0, inbound: 0, value: 0 });
+  const [levelsLoading, setLevelsLoading] = useState(false);
   const [movements, setMovements] = useState<InventoryMovementDTO[]>([]);
   const [velocityByVariantId, setVelocityByVariantId] = useState<Record<string, number>>({});
   const [skuOptions, setSkuOptions] = useState<InventorySkuOptionDTO[]>([]);
@@ -3787,6 +3788,9 @@ export function InventoryPage() {
   const [shortfallsLoading, setShortfallsLoading] = useState(false);
   const [shortfallsLoaded, setShortfallsLoaded] = useState(false);
   const [shortfallsSearch, setShortfallsSearch] = useState('');
+  const [shortfallsPage, setShortfallsPage] = useState(1);
+  const [shortfallsTotal, setShortfallsTotal] = useState(0);
+  const SHORTFALLS_PAGE_SIZE = 50;
   // Carries a single shortfall row's suggested SKU/quantity/warehouse into the Incoming Stock
   // modal — the "Add incoming" shortcut button below sets this instead of making someone re-search
   // for a product they're already looking at.
@@ -3812,25 +3816,59 @@ export function InventoryPage() {
     returnsToProcessCurrentPage * RETURNS_TO_PROCESS_PAGE_SIZE
   );
 
+  // Takes an explicit shipments list rather than always reading `openShipments` state — the very
+  // first call happens from `load()` in the same tick it fetches shipments, before that state
+  // update has actually landed, so reading the state here would still see last render's (empty)
+  // value. Every later call (search/filter changes, Prev/Next) just relies on the default, since by
+  // then `openShipments` state is already current.
+  const loadStockLevel = async (targetPage: number, shipmentsForOverdue: OpenShipmentDTO[] = openShipments) => {
+    setLevelsLoading(true);
+    try {
+      const overdueKeys = shipmentsForOverdue
+        .filter((s) => s.daysOverdue != null)
+        .map((s) => `${s.productId}::${s.variantId}::${s.warehouseId}::${s.bin}`)
+        .join(',');
+      const res = await listInventory({
+        search: search.trim() || undefined,
+        warehouseId: warehouseFilter !== 'all' ? warehouseFilter : undefined,
+        bin: binFilter !== 'all' ? binFilter : undefined,
+        focus: focus !== 'all' ? focus : undefined,
+        sortMode,
+        overdueKeys: overdueKeys || undefined,
+        page: targetPage,
+        pageSize: PAGE_SIZE,
+      });
+      setLevels(res.allLevels);
+      setPageLevels(res.levels);
+      setLevelsTotal(res.total);
+      setLevelsCounts(res.counts);
+      setLevelsSummary(res.summary);
+      setMovements(res.movements);
+      setVelocityByVariantId(res.velocityByVariantId);
+      setPage(targetPage);
+    } catch {
+      toast.push('Could not load inventory.', 'info');
+    } finally {
+      setLevelsLoading(false);
+    }
+  };
+
   const load = async () => {
     setLoading(true);
     try {
-      const [inventoryRes, skusRes, supplierRes, warehouseRes, settingsRes, openShipmentsRes] = await Promise.all([
-        listInventory(),
+      const [skusRes, supplierRes, warehouseRes, settingsRes, openShipmentsRes] = await Promise.all([
         listInventorySkuOptions(),
         listSuppliers(),
         listWarehouses(),
         getInventorySettings(),
         getOpenShipments(),
       ]);
-      setLevels(inventoryRes.levels);
-      setMovements(inventoryRes.movements);
-      setVelocityByVariantId(inventoryRes.velocityByVariantId);
       setSkuOptions(skusRes.options);
       setSuppliers(supplierRes.suppliers);
       setWarehouses(warehouseRes.warehouses);
       setReturnsWorkflow(settingsRes.settings.returnsWorkflow);
       setOpenShipments(openShipmentsRes.shipments);
+      await loadStockLevel(1, openShipmentsRes.shipments);
     } catch {
       toast.push('Could not load inventory workspace.', 'info');
     } finally {
@@ -3884,12 +3922,14 @@ export function InventoryPage() {
     }
   };
 
-  const loadStockShortfalls = async (searchValue = shortfallsSearch) => {
+  const loadStockShortfalls = async (searchValue = shortfallsSearch, targetPage = 1) => {
     setShortfallsLoading(true);
     try {
-      const res = await listStockShortfalls({ search: searchValue.trim() || undefined });
+      const res = await listStockShortfalls({ search: searchValue.trim() || undefined, page: targetPage, pageSize: SHORTFALLS_PAGE_SIZE });
       setShortfalls(res.rows);
       setShortfallsSummary(res.summary);
+      setShortfallsTotal(res.total);
+      setShortfallsPage(targetPage);
       setShortfallsLoaded(true);
     } catch {
       toast.push('Could not load stock shortfalls.', 'info');
@@ -4084,65 +4124,33 @@ export function InventoryPage() {
   const selectAllShortfalls = () => setSelectedShortfallKeys(new Set(selectableShortfalls.map(shortfallRowKey)));
   const clearShortfallSelection = () => setSelectedShortfallKeys(new Set());
 
-  const filteredLevels = levels.filter((level) => {
-    const haystack = `${level.productTitle ?? ''} ${level.variantLabel ?? ''} ${level.sku ?? ''}`.toLowerCase();
-    const matchesSearch = haystack.includes(search.trim().toLowerCase());
-    const matchesFocus =
-      focus === 'all'
-        ? true
-        : focus === 'inbound'
-          ? level.inbound > 0
-          : focus === 'overdue'
-            ? overdueDaysByLevelKey.has(levelKey(level))
-            : focus === 'reserved'
-              ? level.reserved > 0
-              : focus === 'dead'
-                ? isDeadStock(level, level.variantId ? velocityByVariantId[level.variantId] : undefined)
-                : ['reorder', 'out'].includes(levelStatus(level));
-    const matchesWarehouse = warehouseFilter === 'all' || level.warehouseId === warehouseFilter;
-    const matchesBin = binFilter === 'all' || level.bin === binFilter;
-    return matchesSearch && matchesFocus && matchesWarehouse && matchesBin;
-  });
-
-  const sortedLevels = [...filteredLevels].sort((a, b) => {
-    if (sortMode === 'onHand') return b.onHand - a.onHand;
-    return (a.productTitle ?? a.variantLabel ?? '').localeCompare(b.productTitle ?? b.variantLabel ?? '');
-  });
-
-  const totalPages = Math.max(1, Math.ceil(sortedLevels.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(levelsTotal / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
-  const pageLevels = sortedLevels.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
+  // Search/focus/warehouse/bin/sort changes all restart on page 1 of a re-fetched result set — a
+  // stale page number from a previous, differently-filtered set wouldn't mean anything here. Search
+  // is debounced so typing doesn't fire a request per keystroke; the rest apply immediately since
+  // they're discrete picks (a button/dropdown choice), not something typed character by character.
   useEffect(() => {
-    setPage(1);
+    if (view !== 'stock' || loading) return;
+    const handle = setTimeout(() => void loadStockLevel(1), 250);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, focus, sortMode, warehouseFilter, binFilter]);
 
-  const summary = levels.reduce(
-    (acc, level) => {
-      acc.onHand += level.onHand;
-      acc.inbound += level.inbound;
-      acc.value += level.unitCost != null ? level.onHand * level.unitCost : 0;
-      return acc;
-    },
-    { onHand: 0, inbound: 0, value: 0 }
-  );
-
-  const inboundCount = levels.filter((l) => l.inbound > 0).length;
-  const overdueLevelsCount = levels.filter((l) => overdueDaysByLevelKey.has(levelKey(l))).length;
-  const reorderCount = levels.filter((l) => ['reorder', 'out'].includes(levelStatus(l))).length;
-  const reservedCount = levels.filter((l) => l.reserved > 0).length;
-  const deadCount = levels.filter((l) => isDeadStock(l, l.variantId ? velocityByVariantId[l.variantId] : undefined)).length;
+  const summary = levelsSummary;
+  const reorderCount = levelsCounts.reorder;
   // Ordered by urgency, not alphabetically or by when each filter was added — restock risk costs
   // sales today, an overdue shipment means a supplier commitment already slipped and needs chasing,
   // reserved stock is diagnostic ("why can't I sell this"), dead stock is capital tied up but not
   // urgent, incoming (on schedule, nothing wrong yet) is the least urgent of all.
   const focusOptions: { key: FocusMode; label: string; count: number }[] = [
-    { key: 'all', label: 'All items', count: levels.length },
-    { key: 'reorder', label: 'Low Stock', count: reorderCount },
-    { key: 'overdue', label: 'Late shipments', count: overdueLevelsCount },
-    { key: 'reserved', label: 'Booked for orders', count: reservedCount },
-    { key: 'dead', label: 'Dead stock', count: deadCount },
-    { key: 'inbound', label: 'Incoming stock', count: inboundCount },
+    { key: 'all', label: 'All items', count: levelsCounts.all },
+    { key: 'reorder', label: 'Low Stock', count: levelsCounts.reorder },
+    { key: 'overdue', label: 'Late shipments', count: levelsCounts.overdue },
+    { key: 'reserved', label: 'Booked for orders', count: levelsCounts.reserved },
+    { key: 'dead', label: 'Dead stock', count: levelsCounts.dead },
+    { key: 'inbound', label: 'Incoming stock', count: levelsCounts.inbound },
   ];
 
   const movementRows = movements.slice(0, 8);
@@ -4662,6 +4670,36 @@ export function InventoryPage() {
                   })}
                 </div>
               )}
+              {shortfallsTotal > SHORTFALLS_PAGE_SIZE && (
+                <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3">
+                  <span className="text-xs text-slate-400">
+                    Showing <span className="font-medium text-slate-600">{(shortfallsPage - 1) * SHORTFALLS_PAGE_SIZE + 1}</span>-
+                    <span className="font-medium text-slate-600">{Math.min(shortfallsTotal, shortfallsPage * SHORTFALLS_PAGE_SIZE)}</span> of{' '}
+                    <span className="font-medium text-slate-600">{shortfallsTotal.toLocaleString()}</span>
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => void loadStockShortfalls(shortfallsSearch, Math.max(1, shortfallsPage - 1))}
+                      disabled={shortfallsPage <= 1 || shortfallsLoading}
+                      className="flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <ArrowLeft size={12} /> Prev
+                    </button>
+                    <span className="min-w-[76px] text-center text-xs text-slate-400">
+                      Page {shortfallsPage} of {Math.max(1, Math.ceil(shortfallsTotal / SHORTFALLS_PAGE_SIZE))}
+                    </span>
+                    <button
+                      onClick={() =>
+                        void loadStockShortfalls(shortfallsSearch, Math.min(Math.max(1, Math.ceil(shortfallsTotal / SHORTFALLS_PAGE_SIZE)), shortfallsPage + 1))
+                      }
+                      disabled={shortfallsPage >= Math.ceil(shortfallsTotal / SHORTFALLS_PAGE_SIZE) || shortfallsLoading}
+                      className="flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Next <ArrowRight size={12} />
+                    </button>
+                  </div>
+                </div>
+              )}
             </section>
           </div>
         </div>
@@ -5159,20 +5197,20 @@ export function InventoryPage() {
                     })}
                   </tbody>
                 </table>
-                {sortedLevels.length === 0 && <div className="py-16 text-center text-sm text-slate-400">No inventory items match this view.</div>}
+                {levelsTotal === 0 && <div className="py-16 text-center text-sm text-slate-400">No inventory items match this view.</div>}
               </div>
 
-              {sortedLevels.length > 0 && (
+              {levelsTotal > 0 && (
                 <div className="flex items-center justify-between border-t border-slate-200 bg-white px-4 py-2.5">
                   <span className="text-xs text-slate-400">
                     Showing <span className="font-medium text-slate-600">{(currentPage - 1) * PAGE_SIZE + 1}</span>-
-                    <span className="font-medium text-slate-600">{Math.min(sortedLevels.length, currentPage * PAGE_SIZE)}</span> of{' '}
-                    <span className="font-medium text-slate-600">{sortedLevels.length.toLocaleString()}</span>
+                    <span className="font-medium text-slate-600">{Math.min(levelsTotal, currentPage * PAGE_SIZE)}</span> of{' '}
+                    <span className="font-medium text-slate-600">{levelsTotal.toLocaleString()}</span>
                   </span>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => setPage((p) => Math.max(1, p - 1))}
-                      disabled={currentPage <= 1}
+                      onClick={() => void loadStockLevel(Math.max(1, currentPage - 1))}
+                      disabled={currentPage <= 1 || levelsLoading}
                       className="flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       <ArrowLeft size={12} /> Prev
@@ -5181,8 +5219,8 @@ export function InventoryPage() {
                       Page {currentPage} of {totalPages}
                     </span>
                     <button
-                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                      disabled={currentPage >= totalPages}
+                      onClick={() => void loadStockLevel(Math.min(totalPages, currentPage + 1))}
+                      disabled={currentPage >= totalPages || levelsLoading}
                       className="flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       Next <ArrowRight size={12} />

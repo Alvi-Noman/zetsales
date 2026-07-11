@@ -380,14 +380,49 @@ export interface StockShortfallsSummaryDTO {
   incomingCoverageUnits: number;
 }
 
-export async function listInventory() {
-  const res = await api.get('/commerce/inventory');
-  return res.data as { success: boolean; levels: InventoryLevelDTO[]; movements: InventoryMovementDTO[]; velocityByVariantId: Record<string, number> };
+export interface InventoryLevelCounts {
+  all: number;
+  reorder: number;
+  overdue: number;
+  reserved: number;
+  dead: number;
+  inbound: number;
 }
 
-export async function listStockShortfalls(params: { search?: string } = {}) {
+export interface ListInventoryParams {
+  search?: string;
+  warehouseId?: string;
+  bin?: string;
+  focus?: string;
+  sortMode?: 'onHand' | 'title';
+  overdueKeys?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export async function listInventory(params: ListInventoryParams = {}) {
+  const res = await api.get('/commerce/inventory', { params });
+  return res.data as {
+    success: boolean;
+    // The current page only, full detail — what the table actually renders.
+    levels: InventoryLevelDTO[];
+    // Every row matching the search filter (not warehouse/bin/focus), light detail only — backs
+    // filter-tab counts, cross-tab lookups (Transfer stock's location picker, bin options,
+    // multi-location detection), never rendered directly as a big list itself.
+    allLevels: InventoryLevelDTO[];
+    total: number;
+    page: number;
+    pageSize: number;
+    counts: InventoryLevelCounts;
+    summary: { onHand: number; inbound: number; value: number };
+    movements: InventoryMovementDTO[];
+    velocityByVariantId: Record<string, number>;
+  };
+}
+
+export async function listStockShortfalls(params: { search?: string; page?: number; pageSize?: number } = {}) {
   const res = await api.get('/commerce/inventory/stock-shortfalls', { params });
-  return res.data as { success: boolean; rows: StockShortfallRowDTO[]; summary: StockShortfallsSummaryDTO };
+  return res.data as { success: boolean; rows: StockShortfallRowDTO[]; total: number; page: number; pageSize: number; summary: StockShortfallsSummaryDTO };
 }
 
 export interface ListMovementsParams {
