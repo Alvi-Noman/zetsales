@@ -15,6 +15,7 @@ import {
   Store as StoreIcon,
   Truck,
   Wallet,
+  XCircle,
 } from 'lucide-react';
 import clsx from 'clsx';
 import type { OrderDTO, OrderStatsDTO, OrderTabKey, OrderTrendsDTO, StoreDTO } from '@zetsales/shared';
@@ -202,6 +203,52 @@ export function HomePage() {
             formatValue={formatCount}
             onClick={() => navigate('/orders')}
           />
+        </div>
+
+        <div>
+          <h2 className="mb-3 text-sm font-semibold text-slate-700">Order status</h2>
+          <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+            <HomeKpiCard
+              icon={Clock}
+              tone="amber"
+              label="Pending Orders"
+              value={stats ? formatCount(stats.tabCounts.pending) : '-'}
+              metricKey="pending"
+              trends={trends}
+              formatValue={formatCount}
+              onClick={() => navigate('/orders')}
+            />
+            <HomeKpiCard
+              icon={CheckCircle2}
+              tone="sky"
+              label="Confirmed Orders"
+              value={stats ? formatCount(stats.tabCounts.confirmed) : '-'}
+              metricKey="confirmed"
+              trends={trends}
+              formatValue={formatCount}
+              onClick={() => navigate('/orders')}
+            />
+            <HomeKpiCard
+              icon={Wallet}
+              tone="emerald"
+              label="Confirmed Amount"
+              value={stats ? formatMoney(stats.confirmedAmount) : '-'}
+              metricKey="confirmedAmount"
+              trends={trends}
+              formatValue={formatMoney}
+              onClick={() => navigate('/orders')}
+            />
+            <HomeKpiCard
+              icon={XCircle}
+              tone="rose"
+              label="Cancelled Amount"
+              value={stats ? formatMoney(stats.cancelledAmount) : '-'}
+              metricKey="cancelledAmount"
+              trends={trends}
+              formatValue={formatMoney}
+              onClick={() => navigate('/orders')}
+            />
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

@@ -609,9 +609,13 @@ export async function getOrderStats(req: AuthenticatedRequest, res: Response) {
     deliveredTrend,
     rtoTrend,
     cancelledTrend,
+    confirmedAmountTrend,
+    cancelledAmountTrend,
     rtoCount,
     cancelledCount,
     codOutstandingAgg,
+    confirmedAmountAgg,
+    cancelledAmountAgg,
   ] = await Promise.all([
     volumeTrend(baseMatch, {}, now, d7, d14),
     volumeTrend(baseMatch, {}, now, d7, d14, 'total'),
@@ -621,6 +625,8 @@ export async function getOrderStats(req: AuthenticatedRequest, res: Response) {
     volumeTrend(baseMatch, tabMatch('delivered'), now, d7, d14),
     volumeTrend(baseMatch, { stage: 'Returned' }, now, d7, d14),
     volumeTrend(baseMatch, { stage: 'Cancelled' }, now, d7, d14),
+    volumeTrend(baseMatch, tabMatch('confirmed'), now, d7, d14, 'total'),
+    volumeTrend(baseMatch, { stage: 'Cancelled' }, now, d7, d14, 'total'),
     db.collection('orders').countDocuments({ ...scopedMatch, stage: 'Returned' }),
     db.collection('orders').countDocuments({ ...scopedMatch, stage: 'Cancelled' }),
     db
@@ -629,6 +635,14 @@ export async function getOrderStats(req: AuthenticatedRequest, res: Response) {
         { $match: { ...scopedMatch, paymentStatus: 'COD Pending', stage: { $nin: ['Cancelled', 'Returned'] } } },
         { $group: { _id: null, total: { $sum: '$total' } } },
       ])
+      .toArray(),
+    db
+      .collection('orders')
+      .aggregate([{ $match: { ...scopedMatch, ...tabMatch('confirmed') } }, { $group: { _id: null, total: { $sum: '$total' } } }])
+      .toArray(),
+    db
+      .collection('orders')
+      .aggregate([{ $match: { ...scopedMatch, stage: 'Cancelled' } }, { $group: { _id: null, total: { $sum: '$total' } } }])
       .toArray(),
   ]);
 
@@ -665,6 +679,10 @@ export async function getOrderStats(req: AuthenticatedRequest, res: Response) {
     cancelledOrders: cancelledCount,
     cancelledTrend,
     codOutstanding: codOutstandingAgg[0]?.total ?? 0,
+    confirmedAmount: confirmedAmountAgg[0]?.total ?? 0,
+    confirmedAmountTrend,
+    cancelledAmount: cancelledAmountAgg[0]?.total ?? 0,
+    cancelledAmountTrend,
     tabCounts,
     dailySeries,
   });
@@ -686,6 +704,8 @@ async function fetchTrendSeries(baseMatch: Record<string, unknown>, window: Tren
           processing: { $sum: { $cond: [{ $eq: ['$stage', 'Processing'] }, 1, 0] } },
           delivered: { $sum: { $cond: [{ $in: ['$stage', ['Delivered', 'Partial Delivered']] }, 1, 0] } },
           cancelled: { $sum: { $cond: [{ $in: ['$stage', ['Cancelled', 'Returned']] }, 1, 0] } },
+          confirmedAmount: { $sum: { $cond: [{ $eq: ['$stage', 'Confirmed'] }, '$total', 0] } },
+          cancelledAmount: { $sum: { $cond: [{ $eq: ['$stage', 'Cancelled'] }, '$total', 0] } },
         },
       },
     ])
@@ -706,6 +726,8 @@ async function fetchTrendSeries(baseMatch: Record<string, unknown>, window: Tren
       processing: found?.processing ?? 0,
       delivered: found?.delivered ?? 0,
       cancelled: found?.cancelled ?? 0,
+      confirmedAmount: found?.confirmedAmount ?? 0,
+      cancelledAmount: found?.cancelledAmount ?? 0,
     });
   }
   return { from: window.from.toISOString(), to: window.to.toISOString(), points };

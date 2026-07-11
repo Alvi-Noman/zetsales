@@ -547,6 +547,10 @@ export interface OrderStatsDTO {
   cancelledOrders: number;
   cancelledTrend: number | null;
   codOutstanding: number;
+  confirmedAmount: number;
+  confirmedAmountTrend: number | null;
+  cancelledAmount: number;
+  cancelledAmountTrend: number | null;
   tabCounts: Record<OrderTabKey, number>;
   dailySeries: OrderDailyStatDTO[];
 }
@@ -564,6 +568,8 @@ export interface TrendPointDTO {
   processing: number;
   delivered: number;
   cancelled: number;
+  confirmedAmount: number;
+  cancelledAmount: number;
 }
 
 export interface TrendSeriesDTO {

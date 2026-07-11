@@ -4,7 +4,7 @@ import type { OrderTrendsDTO, TrendPointDTO } from '@zetsales/shared';
 import { TrendChart, type TrendChartPoint } from '../orders/TrendChart';
 
 export type KpiTone = 'indigo' | 'emerald' | 'amber' | 'sky' | 'violet' | 'rose';
-type MetricKey = 'totalOrders' | 'totalRevenue' | 'pending' | 'confirmed' | 'processing' | 'delivered' | 'cancelled';
+type MetricKey = 'totalOrders' | 'totalRevenue' | 'pending' | 'confirmed' | 'processing' | 'delivered' | 'cancelled' | 'confirmedAmount' | 'cancelledAmount';
 
 const TONE_CLASSES: Record<KpiTone, { iconBg: string; text: string; line: string; wash: string; hoverBorder: string }> = {
   indigo: { iconBg: 'bg-gradient-to-br from-indigo-100 to-indigo-50', text: 'text-indigo-600', line: '#6366f1', wash: 'from-indigo-500/[0.06]', hoverBorder: 'hover:border-indigo-300' },
