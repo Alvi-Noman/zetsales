@@ -43,6 +43,10 @@ export async function connectDb() {
   await db.collection('analyticsLayouts').createIndex({ tenantId: 1, userId: 1 }, { unique: true });
   await db.collection('courierSettlements').createIndex({ tenantId: 1, courierId: 1, settledAt: -1 });
   await db.collection('courierHandovers').createIndex({ tenantId: 1, courierId: 1, handoverDate: -1 });
+  // Short-lived handoff from the browser extension to the web import modal — single-use, so a
+  // stale/abandoned one should disappear rather than linger.
+  await db.collection('pendingImportDrafts').createIndex({ tenantId: 1 });
+  await db.collection('pendingImportDrafts').createIndex({ createdAt: 1 }, { expireAfterSeconds: 60 * 60 });
   logger.info('Indexes ensured on MongoDB.');
 }
 

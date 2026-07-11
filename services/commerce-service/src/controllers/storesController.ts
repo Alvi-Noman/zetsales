@@ -77,6 +77,28 @@ async function registerWooOrderWebhooks(siteUrl: string, consumerKey: string, co
   }
 }
 
+// Mirrors registerShopifyProductWebhooks: without this, a product added or edited directly in
+// WooCommerce after the initial import never reaches ZetSales until the merchant manually re-runs
+// the import. Same best-effort/HTTPS-callback constraints as the order registration above.
+async function registerWooProductWebhooks(siteUrl: string, consumerKey: string, consumerSecret: string, storeId: string) {
+  const base = process.env.PUBLIC_COMMERCE_URL || 'http://localhost:8081/api/v1/commerce';
+  const address = `${base}/webhooks/woocommerce/${storeId}/products`;
+  const secret = process.env.WOOCOMMERCE_WEBHOOK_SECRET;
+  if (!secret) {
+    logger.warn(`[woocommerce] WOOCOMMERCE_WEBHOOK_SECRET not set — skipping product webhook registration for ${siteUrl}`);
+    return;
+  }
+  try {
+    await Promise.all([
+      registerWooWebhook(siteUrl, consumerKey, consumerSecret, 'product.created', address, secret),
+      registerWooWebhook(siteUrl, consumerKey, consumerSecret, 'product.updated', address, secret),
+      registerWooWebhook(siteUrl, consumerKey, consumerSecret, 'product.deleted', `${address}/delete`, secret),
+    ]);
+  } catch (err) {
+    logger.warn(`[woocommerce] Could not register product webhooks for ${siteUrl}: ${(err as Error).message}`);
+  }
+}
+
 function toStoreDto(doc: any, orderCount = 0, productCount = doc.productCount ?? 0): StoreDTO {
   return {
     id: doc._id.toString(),
@@ -321,6 +343,7 @@ export async function connectWooKeys(req: AuthenticatedRequest, res: Response) {
       { upsert: true, returnDocument: 'after' }
     );
 
+    await registerWooProductWebhooks(siteUrl, parsed.data.consumerKey, parsed.data.consumerSecret, result!._id.toString());
     await registerWooOrderWebhooks(siteUrl, parsed.data.consumerKey, parsed.data.consumerSecret, result!._id.toString());
 
     res.json({ success: true, store: toStoreDto(result) });
@@ -421,6 +444,7 @@ export async function wooAuthStatus(req: AuthenticatedRequest, res: Response) {
   );
 
   await db.collection('woo_auth_sessions').deleteOne({ _id: session._id });
+  await registerWooProductWebhooks(session.siteUrl, consumerKey, consumerSecret, result!._id.toString());
   await registerWooOrderWebhooks(session.siteUrl, consumerKey, consumerSecret, result!._id.toString());
 
   res.json({ success: true, status: 'connected', store: toStoreDto(result) });

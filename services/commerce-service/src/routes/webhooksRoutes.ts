@@ -2,7 +2,7 @@ import { Router } from 'express';
 import express from 'express';
 import {
   shopifyOrderWebhook, shopifyProductWebhook, shopifyProductDeleteWebhook, wooOrderWebhook,
-  steadfastWebhook, pathaoWebhook,
+  wooProductWebhook, wooProductDeleteWebhook, steadfastWebhook, pathaoWebhook,
 } from '../controllers/webhooksController.js';
 
 const router: Router = Router();
@@ -15,6 +15,8 @@ router.post('/webhooks/shopify/:storeId/orders', rawJson, shopifyOrderWebhook);
 router.post('/webhooks/shopify/:storeId/products', rawJson, shopifyProductWebhook);
 router.post('/webhooks/shopify/:storeId/products/delete', rawJson, shopifyProductDeleteWebhook);
 router.post('/webhooks/woocommerce/:storeId/orders', rawJson, wooOrderWebhook);
+router.post('/webhooks/woocommerce/:storeId/products', rawJson, wooProductWebhook);
+router.post('/webhooks/woocommerce/:storeId/products/delete', rawJson, wooProductDeleteWebhook);
 router.post('/webhooks/steadfast', rawJson, steadfastWebhook);
 router.post('/webhooks/pathao', rawJson, pathaoWebhook);
 

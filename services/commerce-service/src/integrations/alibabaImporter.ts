@@ -1,5 +1,59 @@
 import axios from 'axios';
+import { chromium } from 'playwright-extra';
+import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import type { SupplierProductDraftDTO } from '@zetsales/shared';
+
+chromium.use(StealthPlugin());
+
+const REQUEST_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept-Language': 'en-US,en;q=0.9',
+};
+
+// Alibaba serves a "punish-component" CAPTCHA gate to scripted requests instead of the real
+// product page. Detecting it lets us fail loudly rather than silently returning an empty draft.
+function isBlockedHtml(html: string) {
+  return /punish-component|awsc\.js|baxia-icbu|access denied/i.test(html);
+}
+
+async function fetchViaProxyApi(url: string): Promise<string | null> {
+  const apiKey = process.env.SCRAPER_API_KEY;
+  if (!apiKey) return null;
+  const proxyUrl = `https://api.scraperapi.com?api_key=${encodeURIComponent(apiKey)}&url=${encodeURIComponent(url)}&render=true`;
+  const res = await axios.get(proxyUrl, { timeout: 60_000 });
+  return String(res.data ?? '');
+}
+
+async function fetchViaPlaywright(url: string): Promise<string> {
+  const executablePath = process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined;
+  const browser = await chromium.launch({
+    headless: true,
+    executablePath,
+    args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'],
+  });
+  try {
+    const page = await browser.newPage({ userAgent: REQUEST_HEADERS['User-Agent'], locale: 'en-US' });
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    await page.waitForTimeout(2_000);
+    return await page.content();
+  } finally {
+    await browser.close();
+  }
+}
+
+async function fetchAlibabaHtml(url: string): Promise<string> {
+  const viaProxy = await fetchViaProxyApi(url).catch(() => null);
+  if (viaProxy && !isBlockedHtml(viaProxy)) return viaProxy;
+
+  const viaBrowser = await fetchViaPlaywright(url);
+  if (isBlockedHtml(viaBrowser)) {
+    throw new Error(
+      'Alibaba blocked this request with a CAPTCHA challenge. Please fill in the product details manually.',
+    );
+  }
+  return viaBrowser;
+}
 
 function decodeHtml(value: string) {
   return value
@@ -108,16 +162,7 @@ function normalizeAlibabaUrl(input: string) {
 
 export async function previewAlibabaProduct(inputUrl: string): Promise<SupplierProductDraftDTO> {
   const sourceUrl = normalizeAlibabaUrl(inputUrl);
-  const res = await axios.get(sourceUrl, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (compatible; ZetSalesImporter/1.0; +https://zetsales.local)',
-      Accept: 'text/html,application/xhtml+xml',
-    },
-    timeout: 20_000,
-    maxRedirects: 5,
-  });
-
-  const html = String(res.data ?? '');
+  const html = await fetchAlibabaHtml(sourceUrl);
   const products = jsonLdProducts(html);
   const product = products[0] ?? {};
   const title = decodeHtml(String(product.name ?? meta(html, 'og:title') ?? pageTitle(html) ?? 'Imported Alibaba product')).replace(/\s*\|\s*Alibaba\.com.*$/i, '');

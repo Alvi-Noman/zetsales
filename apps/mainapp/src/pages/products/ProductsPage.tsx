@@ -21,8 +21,8 @@ import {
   UploadCloud,
 } from 'lucide-react';
 import clsx from 'clsx';
-import type { ProductListItemDTO, StoreDTO } from '@zetsales/shared';
-import { listProducts, listStores } from '../../lib/commerceApi';
+import type { ProductListItemDTO, StoreDTO, SupplierProductDraftDTO } from '@zetsales/shared';
+import { listProducts, listStores, fetchPendingImportDraft } from '../../lib/commerceApi';
 import { ProductDetailDrawer } from '../../components/products/ProductDetailDrawer';
 import { ImportProductsModal } from '../../components/integrations/ImportProductsModal';
 import { DeleteProductModal } from '../../components/products/DeleteProductModal';
@@ -145,6 +145,7 @@ export function ProductsPage() {
   const [autoImport, setAutoImport] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string; image: string | null } | null>(null);
   const [alibabaImportOpen, setAlibabaImportOpen] = useState(false);
+  const [extensionDraft, setExtensionDraft] = useState<SupplierProductDraftDTO | null>(null);
 
   const loadStores = async () => {
     setStoresLoading(true);
@@ -205,6 +206,23 @@ export function ProductsPage() {
     setSearchParams(searchParams, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stores]);
+
+  // Handoff from the browser extension: it POSTs an extracted draft to the backend, gets a
+  // pending-draft id back, then opens this page with ?importDraftId=<id>. Fetch it once and drop
+  // straight into the review/publish screen instead of the URL-paste flow.
+  useEffect(() => {
+    const importDraftId = searchParams.get('importDraftId');
+    if (!importDraftId) return;
+    searchParams.delete('importDraftId');
+    setSearchParams(searchParams, { replace: true });
+    fetchPendingImportDraft(importDraftId)
+      .then((res) => {
+        setExtensionDraft(res.draft);
+        setAlibabaImportOpen(true);
+      })
+      .catch(() => toast.push('Could not load the product extracted by the extension — it may have expired.', 'info'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const storeById = useMemo(() => new Map(stores.map((s) => [s.id, s])), [stores]);
   const unimportedStores = useMemo(() => stores.filter((store) => store.productCount === 0), [stores]);
@@ -584,7 +602,16 @@ export function ProductsPage() {
         onImported={handleImported}
       />
       <DeleteProductModal product={deleteTarget} onClose={() => setDeleteTarget(null)} onDeleted={handleImported} />
-      <AlibabaImportModal open={alibabaImportOpen} stores={stores} onClose={() => setAlibabaImportOpen(false)} onImported={handleImported} />
+      <AlibabaImportModal
+        open={alibabaImportOpen}
+        stores={stores}
+        initialDraft={extensionDraft}
+        onClose={() => {
+          setAlibabaImportOpen(false);
+          setExtensionDraft(null);
+        }}
+        onImported={handleImported}
+      />
     </div>
   );
 }

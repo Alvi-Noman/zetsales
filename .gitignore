@@ -12,6 +12,7 @@ services/commerce-service/uploads/
 !.env.example
 *.timestamp-*.mjs
 *.log
+*.zip
 .vscode/
 .idea/
 .DS_Store

@@ -49,6 +49,7 @@ services:
       PUBLIC_COMMERCE_URL: ${PUBLIC_COMMERCE_URL:-http://localhost:8081/api/v1/commerce}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000,http://localhost:8081,http://127.0.0.1:3000,http://149.28.135.115:3000}
       UPLOAD_DIR: /app/uploads
+      SCRAPER_API_KEY: ${SCRAPER_API_KEY:-}
     working_dir: /app/services/commerce-service
     ports:
       - "3012:3002"

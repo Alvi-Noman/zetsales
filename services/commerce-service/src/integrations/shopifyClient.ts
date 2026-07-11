@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import type { ShopifyOrderWebhook } from './orderStatusMapper.js';
 import { UPLOAD_DIR } from '../middleware/upload.js';
+import logger from '../utils/logger.js';
 
 export const SHOPIFY_API_VERSION = '2026-04';
 export const SHOPIFY_SCOPES = ['read_products', 'write_products', 'read_orders', 'read_customers'];
@@ -12,6 +13,7 @@ export interface ProductWriteVariantInput {
   price: number;
   compareAtPrice: number | null;
   optionValues: string[];
+  image: string | null;
 }
 
 export interface ProductWriteInput {
@@ -130,6 +132,58 @@ function shopifyWeightFields(input: ProductWriteInput) {
   return { weight: input.weight, weight_unit: input.weightUnit };
 }
 
+// A variant's image may not already be part of the product's own gallery (e.g. an imported
+// swatch photo distinct from the main product photos) — union it in here, not in the shared
+// toPushInput, so WooCommerce and the UI's product-level gallery aren't polluted with variant-only
+// images that were never meant to appear there.
+function shopifyProductImages(input: ProductWriteInput) {
+  const urls = [...input.images, ...input.variants.map((v) => v.image).filter((v): v is string => Boolean(v))];
+  return [...new Set(urls)].map(shopifyImageEntry);
+}
+
+// Shopify's REST API requires a variant's image_id to reference an image id that already exists on
+// the product — for brand-new images that id isn't known until the create/update response comes
+// back, so images are assigned in a follow-up pass rather than in the same request. Pre-request id
+// maps (used to match submitted variants to existing ones) aren't reusable here since they map old
+// ids, not the ids in this response — variants are matched to the response by their option-value
+// signature instead, the only stable identity a brand-new variant has. Only variants whose target
+// image actually differs from what the response already shows are returned, so a typical push with
+// no variant images touches zero extra API calls.
+function matchVariantImages(responseVariants: ShopifyProduct['variants'], inputVariants: ProductWriteVariantInput[], responseImages: ShopifyProduct['images']) {
+  const imageIdBySrc = new Map<string, number>();
+  for (const img of responseImages) {
+    if (!imageIdBySrc.has(img.src)) imageIdBySrc.set(img.src, img.id);
+  }
+
+  const matchKey = (values: (string | null)[]) => values.filter((v) => v != null).join(' ');
+  const inputByKey = new Map(inputVariants.map((v) => [matchKey(v.optionValues), v]));
+
+  return responseVariants
+    .map((rv) => {
+      const input = inputByKey.get(matchKey([rv.option1, rv.option2, rv.option3]));
+      const targetImageId = input?.image ? (imageIdBySrc.get(input.image) ?? null) : null;
+      return { variantId: rv.id, targetImageId, currentImageId: rv.image_id ?? null };
+    })
+    .filter((v) => v.currentImageId !== v.targetImageId);
+}
+
+// A failed attach shouldn't roll back or fail an otherwise-successful product push — the base
+// product/variant data already landed. Sequential, not batched: parallel PUTs risk tripping
+// Shopify's REST rate limit, worse than one slower pass for what's normally very few calls.
+async function attachShopifyVariantImages(shopDomain: string, accessToken: string, assignments: { variantId: number; targetImageId: number | null }[]) {
+  for (const { variantId, targetImageId } of assignments) {
+    try {
+      await axios.put(
+        adminUrl(shopDomain, `/variants/${variantId}.json`),
+        { variant: { id: variantId, image_id: targetImageId } },
+        { headers: { 'X-Shopify-Access-Token': accessToken }, timeout: 15_000 }
+      );
+    } catch (err) {
+      logger.warn(`Failed to attach image to Shopify variant ${variantId}: ${(err as Error).message}`);
+    }
+  }
+}
+
 async function syncShopifyCollections(shopDomain: string, accessToken: string, productId: number, collectionIds: string[] = []) {
   const uniqueIds = [...new Set(collectionIds.filter(Boolean))];
   if (uniqueIds.length === 0) return;
@@ -173,7 +227,7 @@ export async function createShopifyProduct(shopDomain: string, accessToken: stri
         title: input.title,
         body_html: input.description || undefined,
         product_type: input.category || undefined,
-        images: input.images.map(shopifyImageEntry),
+        images: shopifyProductImages(input),
         ...(hasOptions ? { options: input.options.map((o) => ({ name: o.name, values: o.values })) } : {}),
         variants: input.variants.map((v) => ({ ...shopifyVariantPayload(v, hasOptions), ...shopifyWeightFields(input) })),
       },
@@ -182,6 +236,17 @@ export async function createShopifyProduct(shopDomain: string, accessToken: stri
   );
   const product = res.data.product as ShopifyProduct;
   await syncShopifyCollections(shopDomain, accessToken, product.id, collectionIds);
+
+  const assignments = matchVariantImages(product.variants, input.variants, product.images);
+  if (assignments.length > 0) {
+    await attachShopifyVariantImages(shopDomain, accessToken, assignments);
+    // The response above predates the attach calls, so patch it locally with what was just set —
+    // otherwise the immediate mapShopifyProduct() call right after this returns shows the pre-attach
+    // (unset) image, and the caller only sees the real state on the next unrelated fetch.
+    const targetById = new Map(assignments.map((a) => [a.variantId, a.targetImageId]));
+    product.variants = product.variants.map((v) => (targetById.has(v.id) ? { ...v, image_id: targetById.get(v.id)! } : v));
+  }
+
   return product;
 }
 
@@ -220,7 +285,7 @@ export async function updateShopifyProduct(
         title: input.title,
         body_html: input.description || undefined,
         product_type: input.category || undefined,
-        images: input.images.map(shopifyImageEntry),
+        images: shopifyProductImages(input),
         ...(hasOptions ? { options: input.options.map((o) => ({ name: o.name, values: o.values })) } : {}),
         variants,
       },
@@ -229,6 +294,14 @@ export async function updateShopifyProduct(
   );
   const product = res.data.product as ShopifyProduct;
   await syncShopifyCollections(shopDomain, accessToken, product.id, collectionIds);
+
+  const assignments = matchVariantImages(product.variants, input.variants, product.images);
+  if (assignments.length > 0) {
+    await attachShopifyVariantImages(shopDomain, accessToken, assignments);
+    const targetById = new Map(assignments.map((a) => [a.variantId, a.targetImageId]));
+    product.variants = product.variants.map((v) => (targetById.has(v.id) ? { ...v, image_id: targetById.get(v.id)! } : v));
+  }
+
   return product;
 }
 
@@ -294,7 +367,7 @@ export interface ShopifyProduct {
   body_html: string | null;
   product_type: string | null;
   image: { src: string } | null;
-  images: { src: string }[];
+  images: { id: number; src: string }[];
   options: { name: string; position: number; values: string[] }[];
   variants: {
     id: number;
@@ -305,10 +378,14 @@ export interface ShopifyProduct {
     option2: string | null;
     option3: string | null;
     inventory_quantity: number | null;
+    // Only 'shopify' means Shopify itself is tracking this variant's stock — anything else (a
+    // third-party fulfillment service, or not managed at all) means inventory_quantity isn't a
+    // real count and shouldn't be trusted as one.
     inventory_management: string | null;
     inventory_item_id: number;
     weight?: number | null;
     weight_unit?: 'kg' | 'g' | 'lb' | 'oz' | null;
     title: string;
+    image_id: number | null;
   }[];
 }

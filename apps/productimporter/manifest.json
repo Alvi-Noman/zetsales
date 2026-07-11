@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "ZetSales Product Importer",
+  "version": "0.1.0",
+  "description": "Import product listings from Alibaba into ZetSales without leaving the page.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png"
+    },
+    "default_title": "ZetSales Product Importer"
+  },
+  "options_page": "options.html",
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.alibaba.com/product-detail/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "host_permissions": [
+    "https://zetsales.online/*",
+    "http://localhost:8081/*"
+  ],
+  "permissions": ["storage"]
+}

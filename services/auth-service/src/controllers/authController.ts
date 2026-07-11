@@ -8,8 +8,14 @@ import { getDb } from '../utils/db.js';
 import type { AuthenticatedRequest } from '../middleware/authMiddleware.js';
 import type { TeamRole, UserDTO } from '@zetsales/shared';
 
-export function signToken(id: string, email: string, tenantId: string | null, role: TeamRole | null) {
-  return jwt.sign({ id, email, tenantId, role }, env.JWT_SECRET, { expiresIn: '7d' });
+export function signToken(
+  id: string,
+  email: string,
+  tenantId: string | null,
+  role: TeamRole | null,
+  expiresIn: jwt.SignOptions['expiresIn'] = '7d'
+) {
+  return jwt.sign({ id, email, tenantId, role }, env.JWT_SECRET, { expiresIn });
 }
 
 export function setAuthCookie(res: Response, token: string) {
@@ -100,7 +106,7 @@ export async function signup(req: Request, res: Response) {
 
 export async function login(req: Request, res: Response) {
   try {
-    const { email, password } = req.body;
+    const { email, password, longLived } = req.body;
 
     if (!email || !password) {
       res.status(400).json({ success: false, message: 'Email and password are required' });
@@ -120,11 +126,14 @@ export async function login(req: Request, res: Response) {
       return;
     }
 
+    // longLived is used by the browser extension's own login (not the web app's cookie session),
+    // so a user doesn't have to re-authenticate the extension every week.
     const token = signToken(
       user._id.toString(),
       user.email,
       user.tenantId ? user.tenantId.toString() : null,
-      (user.role as TeamRole | undefined) || null
+      (user.role as TeamRole | undefined) || null,
+      longLived === true ? '60d' : ('7d' as const)
     );
     setAuthCookie(res, token);
 

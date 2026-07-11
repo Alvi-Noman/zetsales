@@ -6,8 +6,9 @@ import { decryptSecret } from '../utils/crypto.js';
 import logger from '../utils/logger.js';
 import type { ShopifyOrderWebhook, WooOrderWebhook } from '../integrations/orderStatusMapper.js';
 import { upsertShopifyOrder, upsertWooOrder, applyCourierStatusUpdate } from './ordersController.js';
-import { upsertShopifyProductFromWebhook, deleteShopifyProductFromWebhook } from './productsController.js';
+import { upsertShopifyProductFromWebhook, deleteShopifyProductFromWebhook, upsertWooProductFromWebhook, deleteWooProductFromWebhook } from './productsController.js';
 import type { ShopifyProduct } from '../integrations/shopifyClient.js';
+import type { WooProduct } from '../integrations/wooClient.js';
 import { mapSteadfastStatus, mapPathaoStatus } from '../integrations/courierStatusMapper.js';
 import { findCourierByWebhookSecret } from './couriersController.js';
 
@@ -141,6 +142,62 @@ export async function wooOrderWebhook(req: Request, res: Response) {
   }
 
   await upsertWooOrder(store.tenantId, storeId, order);
+
+  res.status(200).send('ok');
+}
+
+// Handles both product.created and product.updated — same normalize-and-upsert either way,
+// mirroring shopifyProductWebhook above.
+export async function wooProductWebhook(req: Request, res: Response) {
+  const raw = req.body;
+  const secret = process.env.WOOCOMMERCE_WEBHOOK_SECRET || '';
+  const signature = req.header('X-WC-Webhook-Signature');
+
+  if (!secret || !verifyHmac(raw, signature, secret)) {
+    logger.warn('[webhook] WooCommerce signature verification failed');
+    res.status(401).send('Invalid signature');
+    return;
+  }
+
+  const { storeId } = req.params;
+  const db = getDb();
+  const store = await db.collection('stores').findOne({ _id: new ObjectId(storeId) });
+  if (!store) {
+    res.status(404).send('Unknown store');
+    return;
+  }
+
+  const product = JSON.parse(raw.toString('utf8')) as WooProduct;
+  const consumerKey = decryptSecret(store.credentials.consumerKey);
+  const consumerSecret = decryptSecret(store.credentials.consumerSecret);
+  await upsertWooProductFromWebhook(store.tenantId, storeId, store.shopDomain, consumerKey, consumerSecret, product);
+
+  res.status(200).send('ok');
+}
+
+// Fires when a product is deleted directly in WooCommerce's admin — mirrors
+// shopifyProductDeleteWebhook. WooCommerce's "deleted" payload only carries the id.
+export async function wooProductDeleteWebhook(req: Request, res: Response) {
+  const raw = req.body;
+  const secret = process.env.WOOCOMMERCE_WEBHOOK_SECRET || '';
+  const signature = req.header('X-WC-Webhook-Signature');
+
+  if (!secret || !verifyHmac(raw, signature, secret)) {
+    logger.warn('[webhook] WooCommerce signature verification failed');
+    res.status(401).send('Invalid signature');
+    return;
+  }
+
+  const { storeId } = req.params;
+  const db = getDb();
+  const store = await db.collection('stores').findOne({ _id: new ObjectId(storeId) });
+  if (!store) {
+    res.status(404).send('Unknown store');
+    return;
+  }
+
+  const { id } = JSON.parse(raw.toString('utf8')) as { id: number };
+  await deleteWooProductFromWebhook(store.tenantId, storeId, String(id));
 
   res.status(200).send('ok');
 }

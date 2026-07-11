@@ -21,7 +21,10 @@ const CORS_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:3000,http://1
 app.use(
   cors({
     origin: (origin, cb) => {
-      if (!origin || CORS_ORIGINS.includes(origin)) return cb(null, true);
+      // chrome-extension:// origins can only be sent by an actual installed extension (a webpage
+      // can't spoof one), so the ZetSales Product Importer extension is allowed unconditionally
+      // rather than requiring its per-install extension id to be added to CORS_ORIGIN.
+      if (!origin || CORS_ORIGINS.includes(origin) || origin.startsWith('chrome-extension://')) return cb(null, true);
       logger.warn(`[CORS] blocked origin: ${origin}`);
       return cb(null, false);
     },
