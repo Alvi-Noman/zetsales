@@ -49,7 +49,7 @@ export async function oauthCallback(req: Request, res: Response) {
     // the install itself completing.
     try {
       const webhookRes = await axios.post(
-        `${COMMERCE_URL()}/api/v1/apps/zetSalesAds/webhooks`,
+        `${COMMERCE_URL()}/api/v1/commerce/apps/zetSalesAds/webhooks`,
         { webhookUrl: `${SELF_URL()}/webhooks/inbound`, topics: ['orders/confirmed'] },
         { headers: { Authorization: `Bearer ${access_token}` } }
       );
