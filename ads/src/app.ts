@@ -7,6 +7,8 @@ import cors from 'cors';
 import installRoutes from './routes/installRoutes.js';
 import adAccountsRoutes from './routes/adAccountsRoutes.js';
 import embedRoutes from './routes/embedRoutes.js';
+import blockRoutes from './routes/blockRoutes.js';
+import webhookRoutes from './routes/webhookRoutes.js';
 import logger from './utils/logger.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -22,7 +24,10 @@ app.use(cors({ origin: true, credentials: false }));
 
 app.get('/health', (_req: Request, res: Response) => res.status(200).json({ status: 'ok' }));
 
-app.use(express.json());
+// Captures the exact raw bytes alongside the parsed body — webhookController.ts needs the raw
+// bytes to reproduce dispatchAppWebhook's HMAC signature; re-serializing req.body via
+// JSON.stringify isn't guaranteed to match byte-for-byte.
+app.use(express.json({ verify: (req, _res, buf) => { (req as express.Request & { rawBody?: Buffer }).rawBody = buf; } }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(morgan('combined', { stream: { write: (message: string) => logger.http(message.trim()) } }));
@@ -40,6 +45,8 @@ app.use('/api/v1/ads', apiLimiter);
 app.use('/api/v1/ads', installRoutes);
 app.use('/api/v1/ads', adAccountsRoutes);
 app.use('/api/v1/ads', embedRoutes);
+app.use('/api/v1/ads', blockRoutes);
+app.use('/api/v1/ads', webhookRoutes);
 
 if (!isProd) {
   app.use('/', (req: Request, res: Response) => {

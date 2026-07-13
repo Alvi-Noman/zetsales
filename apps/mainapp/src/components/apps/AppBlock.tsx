@@ -48,7 +48,10 @@ function AppBlockFrame({ appKey, homepageUrl, target, context }: AppBlockFramePr
 
   if (!sessionToken) return null;
 
-  const url = new URL(target.replace(/\./g, '/'), homepageUrl);
+  // Plain concatenation, not new URL(path, base) — the latter resolves relative to homepageUrl's
+  // *directory*, silently dropping its last path segment (e.g. the "/ads" in ".../api/v1/ads")
+  // since homepageUrl never has a trailing slash. Matches AppHostPage.tsx's convention.
+  const url = new URL(`${homepageUrl}/${target.replace(/\./g, '/')}`);
   url.searchParams.set('session_token', sessionToken);
 
   return (
@@ -62,9 +65,7 @@ function AppBlockFrame({ appKey, homepageUrl, target, context }: AppBlockFramePr
 }
 
 // Renders a block-extension slot: every installed oauth-type app that declares `target` in its
-// manifest gets one AppBlockFrame here. Zero apps are oauth-type today (all 4 official apps are
-// still embedded/first-party), so this renders nothing yet — it's real, working plumbing for
-// Phase 2 and any future 3rd party, not a stub.
+// manifest gets one AppBlockFrame here.
 export function AppBlock({ target, context = {} }: { target: AppExtensionTarget; context?: Record<string, unknown> }) {
   const { data: apps } = useInstalledApps();
   const matches = (apps ?? []).filter((a) => a.manifest.authType === 'oauth' && a.install?.status === 'installed' && a.manifest.extensions.includes(target) && a.manifest.homepageUrl);

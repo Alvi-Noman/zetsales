@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { env } from '@zetsales/config/validateEnv';
 import { listAdAccounts } from './adAccountsController.js';
+import { getDb } from '../utils/db.js';
 
 // All internal links must carry the full /api/v1/ads prefix — the iframe's origin is this
 // service's own external URL (see PUBLIC_ADS_URL), so a bare "/oauth/..." relative link would
@@ -94,6 +95,19 @@ export async function overview(req: Request, res: Response) {
     }</div></div></div>${
       configured[platform] ? `<a class="btn" href="${BASE}/oauth/${platform}/start?adsToken=${encodeURIComponent(adsToken)}">Connect</a>` : '<span class="btn btn-ghost">Not configured</span>'
     }</div>`;
+  }
+
+  const webhookEvents = await getDb()
+    .collection('ads_webhook_events')
+    .find({ tenantId })
+    .sort({ receivedAt: -1 })
+    .limit(5)
+    .toArray();
+  if (webhookEvents.length > 0) {
+    body += '<h2>Recent webhook events</h2>';
+    for (const e of webhookEvents) {
+      body += `<div class="card"><div class="row"><div><div class="title">${escapeHtml(e.topic ?? 'unknown')}</div><div class="muted">${new Date(e.receivedAt).toLocaleString()}</div></div></div></div>`;
+    }
   }
 
   if (accounts.length > 0) {

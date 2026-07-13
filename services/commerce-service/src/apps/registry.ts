@@ -59,7 +59,9 @@ export const APP_MANIFESTS: AppManifestDTO[] = [
     icon: 'rocket',
     authType: 'oauth',
     isEmbeddedApp: true,
-    extensions: [],
+    // admin.order-details.block: the first real extension target any oauth-type app has
+    // declared — proves AppBlock.tsx's iframe mechanism end-to-end (see ads/src/controllers/blockController.ts).
+    extensions: ['admin.order-details.block'],
     homepageUrl: process.env.PUBLIC_ADS_URL || 'http://localhost:8081/api/v1/ads',
     clientId: process.env.ADS_APP_CLIENT_ID,
   },

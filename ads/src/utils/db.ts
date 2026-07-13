@@ -15,6 +15,7 @@ export async function connectDb() {
   const db = client.db();
 
   await db.collection('ads_installs').createIndex({ tenantId: 1 }, { unique: true });
+  await db.collection('ads_webhook_events').createIndex({ tenantId: 1, receivedAt: -1 });
   await db.collection('adAccounts').createIndex({ tenantId: 1 });
   await db.collection('adAccounts').createIndex({ tenantId: 1, platform: 1, externalAccountId: 1 }, { unique: true });
 

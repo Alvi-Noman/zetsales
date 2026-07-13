@@ -44,6 +44,21 @@ export async function oauthCallback(req: Request, res: Response) {
       { upsert: true }
     );
 
+    // Registers this install as a real webhook subscriber — proves dispatchAppWebhook actually
+    // delivers, not just that the endpoint exists. Best-effort: a failure here shouldn't block
+    // the install itself completing.
+    try {
+      const webhookRes = await axios.post(
+        `${COMMERCE_URL()}/api/v1/apps/zetSalesAds/webhooks`,
+        { webhookUrl: `${SELF_URL()}/webhooks/inbound`, topics: ['orders/confirmed'] },
+        { headers: { Authorization: `Bearer ${access_token}` } }
+      );
+      const { webhookSecret } = webhookRes.data as { webhookSecret: string };
+      await getDb().collection('ads_installs').updateOne({ tenantId }, { $set: { webhookSecret: encryptSecret(webhookSecret) } });
+    } catch (webhookErr) {
+      logger.error(`[install] webhook registration failed: ${(webhookErr as Error).message}`);
+    }
+
     res.redirect(`${APP_URL()}/apps/zetSalesAds`);
   } catch (err) {
     logger.error(`[install] OAuth callback failed: ${(err as Error).message}`);
