@@ -33,6 +33,7 @@ import { AdPerformancePage } from './pages/adPerformance/AdPerformancePage';
 import { CallCenterPage } from './pages/callCenter/CallCenterPage';
 import { AppHostPage } from './pages/apps/AppHostPage';
 import { AppsPage } from './pages/settings/AppsPage';
+import { AppDetailPage } from './pages/settings/AppDetailPage';
 import { NAV_ITEMS, NAV_FOOTER_ITEMS } from './nav/navigation';
 
 const routeEntries = new Map<string, string>();
@@ -121,6 +122,7 @@ function AppRoutes() {
         <Route path="/ad-performance" element={<AdPerformancePage />} />
         <Route path="/call-center" element={<CallCenterPage />} />
         <Route path="/settings/apps" element={<AppsPage />} />
+        <Route path="/settings/apps/:appKey" element={<AppDetailPage />} />
         <Route path="/apps/:appKey" element={<AppHostPage />} />
         {[...routeEntries.entries()].map(([path, label]) => (
           <Route key={path} path={path} element={<PlaceholderPage title={label} />} />
