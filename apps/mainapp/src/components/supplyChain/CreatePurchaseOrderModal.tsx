@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Package, Plus, Trash2 } from 'lucide-react';
-import type { InventorySkuOptionDTO, WarehouseDTO } from '../../lib/commerceApi';
-import { listBins, listWarehouses, createPurchaseOrder, updatePurchaseOrder, type PurchaseOrderDTO, type PurchaseOrderLinePayload } from '../../lib/commerceApi';
-import { SkuPicker, WarehousePicker, BinPicker } from '../../pages/inventory/InventoryPage';
+import type { InventorySkuOptionDTO, SupplierDTO, WarehouseDTO } from '../../lib/commerceApi';
+import { createSupplier, listBins, listSuppliers, listWarehouses, createPurchaseOrder, updatePurchaseOrder, type PurchaseOrderDTO, type PurchaseOrderLinePayload } from '../../lib/commerceApi';
+import { SkuPicker, SupplierPicker, WarehousePicker, BinPicker } from '../../pages/inventory/InventoryPage';
 import { Modal } from '../ui/Modal';
 import { useToast } from '../ui/ToastProvider';
 
@@ -27,18 +27,23 @@ function money(value: number) {
 interface CreatePurchaseOrderModalProps {
   open: boolean;
   mode: 'create' | 'edit';
-  supplierId: string;
-  supplierName: string;
+  // Omit both when there's no fixed supplier context (e.g. opened from the Suppliers list rather
+  // than a specific supplier's page) — a SupplierPicker (same one the Incoming Stock modal uses,
+  // "Create new supplier" included) appears in the modal instead.
+  supplierId?: string;
+  supplierName?: string;
   initial?: PurchaseOrderDTO | null;
   onClose: () => void;
-  onSaved: () => void;
+  // Receives the PO's supplier id, so a caller with no fixed supplier context (the Suppliers list)
+  // can navigate to wherever that supplier's own Purchase Orders section lives.
+  onSaved: (supplierId: string) => void;
 }
 
 // Draft-only editor — a sent/received/cancelled PO is never passed in as `initial` here (the
 // Purchase Orders section only opens this for drafts). Reuses the exact product/warehouse/bin
 // pickers the Inventory "Log incoming stock" flow already uses (see InventoryPage.tsx) rather than
 // rebuilding them, since a PO line is the same shape as an inbound-stock line plus a per-line cost.
-export function CreatePurchaseOrderModal({ open, mode, supplierId, supplierName, initial, onClose, onSaved }: CreatePurchaseOrderModalProps) {
+export function CreatePurchaseOrderModal({ open, mode, supplierId: fixedSupplierId, supplierName: fixedSupplierName, initial, onClose, onSaved }: CreatePurchaseOrderModalProps) {
   const toast = useToast();
   const [warehouses, setWarehouses] = useState<WarehouseDTO[]>([]);
   const [warehouseId, setWarehouseId] = useState('');
@@ -47,14 +52,22 @@ export function CreatePurchaseOrderModal({ open, mode, supplierId, supplierName,
   const [expectedAt, setExpectedAt] = useState('');
   const [binOptions, setBinOptions] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [suppliers, setSuppliers] = useState<SupplierDTO[]>([]);
+  const [pickedSupplierId, setPickedSupplierId] = useState('');
+  const [newSupplierName, setNewSupplierName] = useState('');
 
   useEffect(() => {
     if (!open) return;
     void listWarehouses().then((res) => setWarehouses(res.warehouses));
-  }, [open]);
+    if (!fixedSupplierId) void listSuppliers().then((res) => setSuppliers(res.suppliers));
+  }, [open, fixedSupplierId]);
 
   useEffect(() => {
     if (!open) return;
+    if (!fixedSupplierId) {
+      setPickedSupplierId(mode === 'edit' && initial ? initial.supplierId : '');
+      setNewSupplierName('');
+    }
     if (mode === 'edit' && initial) {
       setWarehouseId(initial.warehouseId);
       setNotes(initial.notes ?? '');
@@ -83,7 +96,7 @@ export function CreatePurchaseOrderModal({ open, mode, supplierId, supplierName,
       setExpectedAt('');
       setLines([emptyLine()]);
     }
-  }, [open, mode, initial]);
+  }, [open, mode, initial, fixedSupplierId]);
 
   useEffect(() => {
     if (!warehouseId) {
@@ -103,8 +116,11 @@ export function CreatePurchaseOrderModal({ open, mode, supplierId, supplierName,
     return sum + qty * price + (Number(l.shippingCost) || 0) + (Number(l.dutiesCost) || 0);
   }, 0);
 
+  const supplierReady = fixedSupplierId ? true : pickedSupplierId === '__new' ? newSupplierName.trim().length > 0 : pickedSupplierId.trim().length > 0;
+
   const canSave =
     !saving &&
+    supplierReady &&
     warehouseId.trim().length > 0 &&
     lines.length > 0 &&
     lines.every((l) => l.sku && Number(l.quantity) > 0 && l.unitPrice.trim() !== '' && Number(l.unitPrice) >= 0);
@@ -113,6 +129,20 @@ export function CreatePurchaseOrderModal({ open, mode, supplierId, supplierName,
     if (!canSave) return;
     setSaving(true);
     try {
+      let supplierId = fixedSupplierId ?? '';
+      let supplierName = fixedSupplierName ?? '';
+      if (!fixedSupplierId) {
+        if (pickedSupplierId === '__new') {
+          const created = await createSupplier({ name: newSupplierName.trim() });
+          supplierId = created.supplier.id;
+          supplierName = created.supplier.name;
+        } else {
+          const picked = suppliers.find((s) => s.id === pickedSupplierId);
+          supplierId = pickedSupplierId;
+          supplierName = picked?.name ?? '';
+        }
+      }
+
       const warehouse = warehouses.find((w) => w.id === warehouseId);
       const payloadLines: PurchaseOrderLinePayload[] = lines.map((l) => ({
         productId: l.sku!.productId,
@@ -146,7 +176,7 @@ export function CreatePurchaseOrderModal({ open, mode, supplierId, supplierName,
         await createPurchaseOrder(payload);
       }
       toast.push(mode === 'edit' ? 'Purchase order updated.' : 'Purchase order created.', 'success');
-      onSaved();
+      onSaved(supplierId);
       onClose();
     } catch (err) {
       toast.push((err as Error).message || 'Could not save this purchase order.', 'info');
@@ -160,10 +190,25 @@ export function CreatePurchaseOrderModal({ open, mode, supplierId, supplierName,
       open={open}
       onClose={onClose}
       title={mode === 'edit' ? 'Edit purchase order' : 'New purchase order'}
-      subtitle={`For ${supplierName} — stays a draft until you confirm it.`}
+      subtitle={fixedSupplierName ? `For ${fixedSupplierName} — stays a draft until you confirm it.` : 'Stays a draft until you confirm it.'}
       widthClass="max-w-2xl"
     >
       <div className="space-y-5">
+        {!fixedSupplierId && (
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-slate-600">Supplier</label>
+            <SupplierPicker suppliers={suppliers} value={pickedSupplierId} onChange={setPickedSupplierId} />
+            {pickedSupplierId === '__new' && (
+              <input
+                autoFocus
+                value={newSupplierName}
+                onChange={(e) => setNewSupplierName(e.target.value)}
+                placeholder="New supplier name"
+                className="mt-2 h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900 outline-none focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15"
+              />
+            )}
+          </div>
+        )}
         <div>
           <label className="mb-1.5 block text-xs font-semibold text-slate-600">Receiving warehouse</label>
           <WarehousePicker warehouses={warehouses} value={warehouseId} onChange={setWarehouseId} placeholder="Select warehouse" />

@@ -15,6 +15,7 @@ import {
   Plug,
   Plus,
   Search,
+  ShieldAlert,
   Store as StoreIcon,
   UserX,
   X,
@@ -22,9 +23,11 @@ import {
 import clsx from 'clsx';
 import type { CancelReason, CourierAccountDTO, HoldReason, OrderDTO, OrderPaymentStatus, OrderStatsDTO, OrderTabKey, StoreDTO } from '@zetsales/shared';
 import { useAuth } from '../../context/AuthContext';
+import { AppBlock } from '../../components/apps/AppBlock';
 import {
   blockCustomer,
   bulkMarkPaymentCollected,
+  bulkRecheckFraud,
   bulkUpdateOrders,
   getOrderStats,
   listAllInventoryLevels,
@@ -468,6 +471,28 @@ export function OrdersPage() {
     }
   };
 
+  // Fills the admin.orders.index.bulk-action extension target's "Re-check fraud" button — its own
+  // dedicated endpoint since it re-runs a heuristic, not a normal stage/hold/cancel patch.
+  const handleBulkRecheckFraud = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    setBulkBusy(true);
+    try {
+      const res = await bulkRecheckFraud(ids);
+      setSelected(new Set());
+      refreshAll();
+      toast.push(
+        res.flaggedCount > 0
+          ? `Flagged ${res.flaggedCount} of ${res.checked} checked order${res.checked === 1 ? '' : 's'} as suspicious.`
+          : `Checked ${res.checked} order${res.checked === 1 ? '' : 's'} — none flagged.`,
+        'success'
+      );
+    } catch {
+      toast.push('Could not re-check those orders.', 'info');
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   // Block/unblock aren't part of the order patch schema — blocking is a customer-level fact (by
   // phone), not a field on this one order — so they go through their own dedicated endpoints rather
   // than runBulk/bulkUpdateOrders.
@@ -578,6 +603,8 @@ export function OrdersPage() {
   const collectibleSelectedIds = selectedOrders
     .filter((o) => o.paymentMethod === 'Cash on Delivery' && o.paymentStatus !== 'Collected' && ['Delivered', 'Partial Delivered'].includes(o.stage))
     .map((o) => o.id);
+  // Fraud Checker's auto-flag heuristic only ever applies to still-Pending orders.
+  const recheckableSelectedIds = selectedOrders.filter((o) => o.stage === 'Pending').map((o) => o.id);
 
   // Same reasoning as collectibleSelectedIds above — an action shouldn't be offered (or silently
   // applied) for orders it doesn't make sense for. Confirm only ever applies to Pending/Flagged;
@@ -927,6 +954,12 @@ export function OrdersPage() {
                                     <UserX size={13} />
                                   </span>
                                 )}
+                                {user?.installedPlugins?.includes('fraudChecker') && order.stage === 'Flagged' && (
+                                  <span title={order.flagReason ?? 'Flagged by Fraud Checker'} className="text-rose-500">
+                                    <ShieldAlert size={13} />
+                                  </span>
+                                )}
+                                <AppBlock target="admin.orders.index.row-badge" context={{ orderId: order.id }} />
                                 {order.number}
                                 <button onClick={(e) => copyOrderId(order, e)} title="Copy order ID" className="text-slate-300 hover:text-slate-500">
                                   {copiedOrderId === order.id ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
@@ -1070,6 +1103,11 @@ export function OrdersPage() {
             : undefined
         }
         onMarkCollected={collectibleSelectedIds.length > 0 ? () => void handleBulkMarkCollected(collectibleSelectedIds) : undefined}
+        onRecheckFraud={
+          user?.installedPlugins?.includes('fraudChecker') && recheckableSelectedIds.length > 0
+            ? () => void handleBulkRecheckFraud(recheckableSelectedIds)
+            : undefined
+        }
         holdReasons={holdReasonsForMany(holdableSelectedOrders.map((o) => o.stage))}
         onPrintInvoices={() => setPrintDocType('invoice')}
         onPrintPackingSlips={() => {

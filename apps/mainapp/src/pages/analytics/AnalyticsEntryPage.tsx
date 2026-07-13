@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { SlidersHorizontal, TrendingDown, TrendingUp } from 'lucide-react';
 import clsx from 'clsx';
-import type { AnalyticsCategory, AnalyticsLayoutDTO, AnalyticsSummaryDTO, StoreDTO } from '@zetsales/shared';
+import type { AnalyticsCardKey, AnalyticsCategory, AnalyticsLayoutDTO, AnalyticsSummaryDTO, StoreDTO } from '@zetsales/shared';
 import { listStores } from '../../lib/commerceApi';
 import { getAnalyticsLayout, getAnalyticsSummary } from '../../lib/analyticsApi';
 import { AnalyticsFilterBar } from '../../components/analytics/AnalyticsFilterBar';
@@ -63,7 +63,7 @@ export function AnalyticsEntryPage() {
     if (!layout) return ANALYTICS_CARDS;
     const savedKeys = new Set(layout.cards.map((c) => c.key));
     const fromLayout = layout.cards.map((c) => ({ ...c, def: ANALYTICS_CARD_MAP[c.key] })).filter((c) => c.def);
-    const notYetSaved = ANALYTICS_CARDS.filter((c) => !savedKeys.has(c.key)).map((def) => ({ key: def.key, hidden: false, def }));
+    const notYetSaved = ANALYTICS_CARDS.filter((c) => !savedKeys.has(c.key as AnalyticsCardKey)).map((def) => ({ key: def.key as AnalyticsCardKey, hidden: false, def }));
     return [...fromLayout, ...notYetSaved].filter((c) => !c.hidden).map((c) => c.def!);
   }, [layout]);
 

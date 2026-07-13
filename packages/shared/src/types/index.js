@@ -10,6 +10,7 @@ export const MODULE_KEYS = [
     'customerService',
     'callCenter',
     'fraudChecker',
+    'zetSalesAds',
     'supplyChain',
     'accounting',
     'analytics',
@@ -17,11 +18,44 @@ export const MODULE_KEYS = [
     'team',
     'settings',
 ];
-// The subset of modules that a tenant must explicitly "install" (see PluginsPage /
-// pluginsController) before they're usable at all — independent of and in addition to
+// The subset of modules that a tenant must explicitly "install" (see AppsPage /
+// appsController) before they're usable at all — independent of and in addition to
 // the role check below. Everything else is a "core" module: visible whenever the
 // signed-in user's role permits it, no install step needed.
-export const PLUGIN_MODULES = ['fraudChecker', 'callCenter', 'adPerformance', 'customerService'];
+export const PLUGIN_MODULES = ['fraudChecker', 'callCenter', 'adPerformance', 'customerService', 'zetSalesAds'];
+// --- App platform (extension points + install flow) ---
+// Two-tier model mirroring Shopify's own app platform: an "Embedded App" gets its own sidebar
+// nav entry and full page; an "Admin Block Extension" injects a small piece of UI into an
+// *existing* core page at one of these named extension targets (Shopify's own term for this
+// concept, e.g. `admin.order-details.block.render`). `sidebarNav`/`settingsPath` are NOT
+// extension targets — they're Embedded App page-registration fields on AppManifestDTO below.
+export const APP_EXTENSION_TARGETS = [
+    'admin.order-details.block',
+    'admin.order-details.action',
+    'admin.orders.index.row-badge',
+    'admin.orders.index.bulk-action',
+    'admin.products.index.row-badge',
+    'admin.product-details.block',
+    'admin.customers.index.row-badge',
+    'admin.customer-details.block',
+    'admin.home.block',
+    'admin.analytics.block',
+    'admin.topbar.block',
+];
+// Outbound webhook topics, named in Shopify's own slash style — `orders/create`,
+// `orders/updated`, `products/create`, `products/update` are literally identical to real
+// Shopify topic names; the rest are ZetSales-specific concepts named to match that convention.
+export const APP_WEBHOOK_TOPICS = [
+    'orders/create',
+    'orders/updated',
+    'orders/confirmed',
+    'orders/cancelled',
+    'customers/blocked',
+    'products/create',
+    'products/update',
+    'payments/collected',
+    'inventory/low_stock',
+];
 export const ROLE_DEFINITIONS = {
     owner: {
         role: 'owner',
@@ -55,6 +89,7 @@ export const ROLE_DEFINITIONS = {
             'customerService',
             'callCenter',
             'fraudChecker',
+            'zetSalesAds',
             'supplyChain',
             'analytics',
         ],

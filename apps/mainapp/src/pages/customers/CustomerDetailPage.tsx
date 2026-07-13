@@ -6,6 +6,7 @@ import { blockCustomer, getCustomer, listCustomerOrders, unblockCustomer } from 
 import type { CustomerDetailDTO, CustomerOrderRowDTO, OrderStage } from '@zetsales/shared';
 import { STAGE_LABEL } from '../../components/orders/orderTone';
 import { useToast } from '../../components/ui/ToastProvider';
+import { AppBlock } from '../../components/apps/AppBlock';
 
 function money(value: number) {
   return `৳${Math.round(value).toLocaleString()}`;
@@ -145,6 +146,8 @@ export function CustomerDetailPage() {
           <MetricCard icon={Wallet} label="Avg order value" value={money(avgOrderValue)} tone="slate" />
           <MetricCard icon={ShieldCheck} label="Delivered rate" value={customer.deliveredRate != null ? `${customer.deliveredRate}%` : '—'} tone="emerald" />
         </div>
+
+        <AppBlock target="admin.customer-details.block" context={{ phone: customer.phone }} />
 
         <div>
           <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Order history</h2>

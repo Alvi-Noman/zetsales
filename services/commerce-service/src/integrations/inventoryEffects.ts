@@ -1,4 +1,5 @@
 import { getDb } from '../utils/db.js';
+import { maybeDispatchLowStock, type InventoryLevelSnapshot } from '../utils/lowStockCheck.js';
 import type { OrderStage } from '@zetsales/shared';
 
 export type InventoryState = 'none' | 'reserved' | 'consumed';
@@ -102,6 +103,7 @@ export async function applyInventoryStageEffect(
     const newOnHand = Math.max(0, level.onHand + onHandDelta);
     const actualOnHandDelta = newOnHand - level.onHand; // may differ from onHandDelta if clamped at 0
     await db.collection('inventoryLevels').updateOne({ _id: level._id }, { $set: { reserved: newReserved, onHand: newOnHand, updatedAt: now } });
+    maybeDispatchLowStock(tenantId, level as unknown as InventoryLevelSnapshot, newOnHand, newReserved);
 
     // inventoryMovements is an on-hand audit trail — a pure reserve/release never touches onHand,
     // so it isn't logged here; only actual consumption or a post-delivery return is.

@@ -68,7 +68,7 @@ export function requireModule(module: ModuleKey) {
 
 // Gates a route behind tenant-level plugin install state — independent of and in addition to
 // requireModule's role check. A tenant must explicitly install a plugin module (see
-// pluginsController) before any role can use it.
+// appsController) before any role can use it.
 export function requirePlugin(module: ModuleKey) {
   return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     const business = await getDb()

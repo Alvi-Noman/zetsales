@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   X, MapPin, Phone, Mail, Package, PackageX, Ban, Printer, Loader2, Copy, Check, PauseCircle, PlayCircle, Pencil, PhoneCall, PhoneOff, MoreVertical,
-  UserX, UserCheck, FileText, ClipboardList, Tag, ChevronDown, Lock, Scissors, Banknote, Plus, Split,
+  UserX, UserCheck, FileText, ClipboardList, Tag, ChevronDown, Lock, Scissors, Banknote, Plus, Split, ShieldAlert,
 } from 'lucide-react';
 import clsx from 'clsx';
 import type { CallOutcome, CourierAccountDTO, CourierProvider, OrderDTO, OrderRiskDTO, OrderStage, StoreDTO } from '@zetsales/shared';
@@ -26,6 +26,8 @@ import { Modal } from '../ui/Modal';
 import { Select } from '../ui/Select';
 import { avatarFromName } from './avatar';
 import { useToast } from '../ui/ToastProvider';
+import { useAuth } from '../../context/AuthContext';
+import { AppBlock } from '../apps/AppBlock';
 
 const PROVIDER_LABEL: Record<CourierProvider, 'Steadfast' | 'Pathao'> = { steadfast: 'Steadfast', pathao: 'Pathao' };
 
@@ -128,6 +130,11 @@ function StageStepper({ order }: { order: OrderDTO }) {
 
 export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }: OrderDetailDrawerProps) {
   const toast = useToast();
+  const { user } = useAuth();
+  // Both the auto-flagging behavior AND the risk/duplicate-detection display below are Fraud
+  // Checker's UI now — folded together per the user's own call, rather than leaving risk display
+  // as an always-on core feature separate from the plugin that acts on it.
+  const fraudCheckerInstalled = Boolean(user?.installedPlugins?.includes('fraudChecker'));
   const [detail, setDetail] = useState<OrderDTO | null>(null);
   const [risk, setRisk] = useState<OrderRiskDTO | null>(null);
   const [loading, setLoading] = useState(true);
@@ -595,15 +602,19 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
 
               <section className="rounded-xl border border-slate-200 p-4">
                 <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">Customer &amp; delivery risk</h3>
-                  <button
-                    onClick={handleRecheckRisk}
-                    disabled={checkingRisk}
-                    className="flex items-center gap-1.5 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
-                  >
-                    {checkingRisk ? <Loader2 size={12} className="animate-spin" /> : <Loader2 size={12} className="opacity-0" />}
-                    {checkingRisk ? 'Checking...' : 'Recheck risk'}
-                  </button>
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                    {fraudCheckerInstalled ? 'Customer & delivery risk' : 'Customer'}
+                  </h3>
+                  {fraudCheckerInstalled && (
+                    <button
+                      onClick={handleRecheckRisk}
+                      disabled={checkingRisk}
+                      className="flex items-center gap-1.5 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+                    >
+                      {checkingRisk ? <Loader2 size={12} className="animate-spin" /> : <Loader2 size={12} className="opacity-0" />}
+                      {checkingRisk ? 'Checking...' : 'Recheck risk'}
+                    </button>
+                  )}
                 </div>
                 <div className="flex items-center gap-3">
                   {avatar && (
@@ -643,19 +654,19 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                         <Pencil size={11} className="text-slate-300" />
                       </button>
                     )}
-                    {risk && (
+                    {fraudCheckerInstalled && risk && (
                       <p className="text-xs text-slate-400">
                         {risk.totalOrders} past order{risk.totalOrders === 1 ? '' : 's'}
                       </p>
                     )}
                   </div>
                 </div>
-                {risk && (
+                {fraudCheckerInstalled && risk && (
                   <div className="mt-3">
                     <RiskBadge risk={risk} />
                   </div>
                 )}
-                {risk && risk.possibleDuplicateOrders.length > 0 && (
+                {fraudCheckerInstalled && risk && risk.possibleDuplicateOrders.length > 0 && (
                   <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
                     Possible duplicate — this phone number also has {risk.possibleDuplicateOrders.length === 1 ? 'an active order' : `${risk.possibleDuplicateOrders.length} other active orders`} placed
                     today: {risk.possibleDuplicateOrders.join(', ')}
@@ -1187,9 +1198,22 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                   <p className="text-sm text-slate-600">{detail.note}</p>
                 </section>
               )}
+
+              {/* admin.order-details.block extension target — Fraud Checker's own content (an
+                  embedded app) plus AppBlock for any future oauth-type app filling this slot. */}
+              {fraudCheckerInstalled && detail.flagReason && (
+                <section className="rounded-xl border border-slate-200 p-4">
+                  <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                    <ShieldAlert size={13} className="text-rose-500" /> Fraud Checker
+                  </h3>
+                  <p className="text-sm text-slate-600">{detail.flagReason}</p>
+                </section>
+              )}
+              <AppBlock target="admin.order-details.block" context={{ orderId: detail.id }} />
             </div>
 
             <div className="border-t border-slate-200 px-6 py-4">
+              <AppBlock target="admin.order-details.action" context={{ orderId: detail.id }} />
               {isMixedOrder && (
                 <label
                   className="mb-2.5 flex cursor-pointer items-center gap-1.5 text-xs font-medium text-slate-600"

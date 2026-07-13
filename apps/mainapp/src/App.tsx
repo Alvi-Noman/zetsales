@@ -31,7 +31,8 @@ import { AnalyticsEntryPage } from './pages/analytics/AnalyticsEntryPage';
 import { AnalyticsDetailPage } from './pages/analytics/AnalyticsDetailPage';
 import { AdPerformancePage } from './pages/adPerformance/AdPerformancePage';
 import { CallCenterPage } from './pages/callCenter/CallCenterPage';
-import { PluginsPage } from './pages/settings/PluginsPage';
+import { AppHostPage } from './pages/apps/AppHostPage';
+import { AppsPage } from './pages/settings/AppsPage';
 import { NAV_ITEMS, NAV_FOOTER_ITEMS } from './nav/navigation';
 
 const routeEntries = new Map<string, string>();
@@ -53,7 +54,7 @@ routeEntries.delete('/analytics');
 routeEntries.delete('/ad-performance');
 routeEntries.delete('/call-center');
 routeEntries.delete('/delivery-partners');
-routeEntries.delete('/settings/plugins');
+routeEntries.delete('/settings/apps');
 
 function FullScreenLoader() {
   return (
@@ -119,7 +120,8 @@ function AppRoutes() {
         <Route path="/analytics/:cardKey" element={<AnalyticsDetailPage />} />
         <Route path="/ad-performance" element={<AdPerformancePage />} />
         <Route path="/call-center" element={<CallCenterPage />} />
-        <Route path="/settings/plugins" element={<PluginsPage />} />
+        <Route path="/settings/apps" element={<AppsPage />} />
+        <Route path="/apps/:appKey" element={<AppHostPage />} />
         {[...routeEntries.entries()].map(([path, label]) => (
           <Route key={path} path={path} element={<PlaceholderPage title={label} />} />
         ))}

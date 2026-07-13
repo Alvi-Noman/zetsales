@@ -22,8 +22,8 @@ import callCenterRoutes from './routes/callCenterRoutes.js';
 import adPerformanceRoutes from './routes/adPerformanceRoutes.js';
 import adAccountsRoutes from './routes/adAccountsRoutes.js';
 import adCampaignsRoutes from './routes/adCampaignsRoutes.js';
-import fraudCheckerRoutes from './routes/fraudCheckerRoutes.js';
-import pluginsRoutes from './routes/pluginsRoutes.js';
+import appsRoutes from './routes/appsRoutes.js';
+import oauthRoutes from './routes/oauthRoutes.js';
 import webhooksRoutes from './routes/webhooksRoutes.js';
 import logger from './utils/logger.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -95,8 +95,8 @@ app.use('/api/v1/commerce', callCenterRoutes);
 app.use('/api/v1/commerce', adPerformanceRoutes);
 app.use('/api/v1/commerce', adAccountsRoutes);
 app.use('/api/v1/commerce', adCampaignsRoutes);
-app.use('/api/v1/commerce', fraudCheckerRoutes);
-app.use('/api/v1/commerce', pluginsRoutes);
+app.use('/api/v1/commerce', appsRoutes);
+app.use('/api/v1/oauth', oauthRoutes);
 
 if (!isProd) {
   app.use('/', (req: Request, res: Response) => {

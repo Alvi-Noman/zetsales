@@ -749,7 +749,7 @@ export function BinPicker({
 // Same card-popover treatment as WarehousePicker/BinPicker, for the one other native <select> left
 // in these forms. "Create new supplier" stays part of the same list rather than a separate button —
 // one less decision (where do I go to add one?) for something that only comes up occasionally.
-function SupplierPicker({ suppliers, value, onChange }: { suppliers: SupplierDTO[]; value: string; onChange: (id: string) => void }) {
+export function SupplierPicker({ suppliers, value, onChange }: { suppliers: SupplierDTO[]; value: string; onChange: (id: string) => void }) {
   const selected = suppliers.find((s) => s.id === value);
   const label = value === '__new' ? 'Create new supplier' : (selected?.name ?? 'No supplier selected');
   return (

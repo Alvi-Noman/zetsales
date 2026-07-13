@@ -17,7 +17,6 @@ import {
   Puzzle,
   ShieldCheck,
   Settings,
-  ShieldAlert,
   type LucideIcon,
 } from 'lucide-react';
 import type { BusinessType, ModuleKey } from '@zetsales/shared';
@@ -88,7 +87,6 @@ export const NAV_ITEMS: NavItem[] = [
   { label: 'Delivery Partners', path: '/delivery-partners', icon: Truck, module: 'supplyChain' },
   { label: 'Customers', path: '/customers', icon: Users, module: 'customers' },
   { label: 'Ad Performance', path: '/ad-performance', icon: Megaphone, module: 'adPerformance' },
-  { label: 'Fraud Checker', path: '/fraud-checker', icon: ShieldAlert, module: 'fraudChecker' },
   { label: 'Accounting & Finance', path: '/accounting', icon: Landmark, module: 'accounting' },
   {
     label: 'Analytics',
@@ -107,6 +105,6 @@ export const NAV_FOOTER_ITEMS: NavItem[] = [
     path: '/settings',
     icon: Settings,
     module: 'settings',
-    children: [{ label: 'Plugins', path: '/settings/plugins' }],
+    children: [{ label: 'Apps', path: '/settings/apps' }],
   },
 ];

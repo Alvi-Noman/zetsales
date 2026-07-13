@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { Search, Bell, HelpCircle, LogOut } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { Popover } from '../ui/Popover';
+import { AppBlock } from '../apps/AppBlock';
 
 function initialsOf(text: string) {
   const parts = text.trim().split(/\s+/).filter(Boolean);
@@ -34,6 +35,7 @@ export function Topbar() {
       </div>
 
       <div className="ml-auto flex items-center gap-1.5">
+        <AppBlock target="admin.topbar.block" />
         <button className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors">
           <HelpCircle size={18} />
         </button>

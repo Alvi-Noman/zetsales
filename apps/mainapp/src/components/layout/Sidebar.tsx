@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { ChevronDown, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { Blocks, ChevronDown, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import clsx from 'clsx';
 import { ROLE_DEFINITIONS, PLUGIN_MODULES, type ModuleKey } from '@zetsales/shared';
 import { NAV_ITEMS, NAV_FOOTER_ITEMS, type NavItem } from '../../nav/navigation';
 import { useAuth } from '../../context/AuthContext';
+import { useInstalledApps } from '../../hooks/useInstalledApps';
 
 // Settings/Home are account-level, not business-data modules, so every team member sees them
 // regardless of role — everything else follows the signed-in member's role permissions.
@@ -108,6 +109,7 @@ export function Sidebar() {
   // once, sidebar-wide — not one independently-tracked "open" per row.
   const [openPath, setOpenPath] = useState<string | null>(null);
   const { user } = useAuth();
+  const { data: apps } = useInstalledApps();
 
   // A missing role only happens for accounts created before team roles existed — fail open as
   // owner rather than locking a pre-existing user out of their own workspace.
@@ -116,11 +118,20 @@ export function Sidebar() {
     if (!ALWAYS_VISIBLE_MODULES.includes(item.module) && !allowedModules.includes(item.module)) return false;
     if (item.businessTypes && (!user?.businessType || !item.businessTypes.includes(user.businessType))) return false;
     // Plugin modules need the tenant to have installed them, on top of the role check above —
-    // Settings → Plugins is where an owner/admin turns them on.
+    // Settings → Apps is where an owner/admin turns them on.
     if (PLUGIN_MODULES.includes(item.module) && !user?.installedPlugins?.includes(item.module)) return false;
     return true;
   };
-  const visibleNavItems = NAV_ITEMS.filter(isVisible);
+  // Embedded Apps (own nav entry + full page — see docs/plugin-platform.md) that are oauth-type
+  // and installed get a nav row too, on top of the static NAV_ITEMS list. An oauth-type app has
+  // no first-party page of its own — it always routes through the generic /apps/:appKey iframe
+  // host (AppHostPage.tsx), regardless of what sidebarPath says; sidebarPath stays meaningful
+  // only for embedded-type apps (Call Center, Ad Performance, Messages), which have their own
+  // real routes registered directly in App.tsx.
+  const embeddedAppNavItems: NavItem[] = (apps ?? [])
+    .filter((a) => a.manifest.authType === 'oauth' && a.manifest.isEmbeddedApp && a.install?.status === 'installed')
+    .map((a) => ({ label: a.manifest.sidebarLabel ?? a.manifest.name, path: `/apps/${a.manifest.key}`, icon: Blocks, module: a.manifest.key }));
+  const visibleNavItems = [...NAV_ITEMS.filter(isVisible), ...embeddedAppNavItems];
   const visibleFooterItems = NAV_FOOTER_ITEMS.filter(isVisible);
 
   return (

@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import type { ProductDTO, StoreDTO } from '@zetsales/shared';
 import { getProduct, type ProductStoreRef } from '../../lib/commerceApi';
 import { ShopifyLogo, WooCommerceLogo } from '../orders/platformLogos';
+import { AppBlock } from '../apps/AppBlock';
 
 const PLATFORM_META = {
   shopify: { label: 'Shopify', logo: ShopifyLogo },
@@ -142,6 +143,8 @@ export function ProductDetailDrawer({ productId, stores, onClose }: ProductDetai
                     ))}
                   </div>
                 </section>
+
+                <AppBlock target="admin.product-details.block" context={{ productId: product.id }} />
 
                 {detail?.ownStore?.platform === 'shopify' &&
                   (() => {

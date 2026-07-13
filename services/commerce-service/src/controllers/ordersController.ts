@@ -17,6 +17,8 @@ import { createPathaoOrder } from '../integrations/pathaoClient.js';
 import { getConnectedCourier, markCourierUsed, decryptSteadfastCredentials, decryptPathaoCredentials, resolveCourierCharge, resolveCourierReturnCharge } from './couriersController.js';
 import { detectZoneTier } from '../integrations/zoneDetection.js';
 import { resolveActiveClaim, CLAIM_STALE_MS } from '../utils/claim.js';
+import { maybeAutoFlagForFraud } from '../utils/fraudChecks.js';
+import { dispatchAppWebhook } from '../utils/appEvents.js';
 import {
   mapShopifyOrderStage,
   mapShopifyPaymentStatus,
@@ -92,35 +94,6 @@ function toOrderDto(doc: any): OrderDTO {
   };
 }
 
-// Flags are system-detected, not manually picked — a human reviews and clears them (via the
-// normal "Clear flag & confirm" action), rather than raising them by hand. Reuses the same prior-
-// order lookup as risk scoring, so it costs one extra query per newly-synced order, not a
-// collection-wide scan.
-async function computeAutoFlagReason(tenantId: string, customerPhone: string | null, total: number): Promise<string | null> {
-  if (!customerPhone) return null;
-
-  const db = getDb();
-  const priorOrders = await db.collection('orders').find({ tenantId, customerPhone }).project({ stage: 1, total: 1 }).toArray();
-
-  if (priorOrders.length === 0) {
-    return total > 20_000 ? 'Unusually large order from a first-time customer' : null;
-  }
-
-  const deliveredCount = priorOrders.filter((o) => o.stage === 'Delivered' || o.stage === 'Partial Delivered').length;
-  const cancelledOrReturnedCount = priorOrders.filter((o) => o.stage === 'Cancelled' || o.stage === 'Returned').length;
-  const resolvedCount = deliveredCount + cancelledOrReturnedCount;
-  if (resolvedCount >= 2 && deliveredCount / resolvedCount < 0.4) {
-    return 'Customer has a low delivery success rate';
-  }
-
-  const avgTotal = priorOrders.reduce((sum, o) => sum + (o.total || 0), 0) / priorOrders.length;
-  if (avgTotal > 0 && total > avgTotal * 3) {
-    return 'Unusually large order compared to this customer’s history';
-  }
-
-  return null;
-}
-
 // Blocking is a customer fact (by phone), not an order field — it has to be checkable *before* a
 // future order even exists, at webhook-sync time, so it can't live on any single order document.
 async function isCustomerBlocked(tenantId: string, customerPhone: string | null): Promise<boolean> {
@@ -186,7 +159,7 @@ export async function upsertShopifyOrder(tenantId: string, storeId: string, orde
       newStage = 'Cancelled';
       autoCancelReason = 'Blocked customer';
     } else {
-      autoFlagReason = await computeAutoFlagReason(tenantId, setFields.customerPhone as string | null, setFields.total as number);
+      autoFlagReason = await maybeAutoFlagForFraud(tenantId, setFields.customerPhone as string | null, setFields.total as number);
       if (autoFlagReason) newStage = 'Flagged';
     }
   }
@@ -215,6 +188,9 @@ export async function upsertShopifyOrder(tenantId: string, storeId: string, orde
   }
 
   await db.collection('orders').updateOne({ tenantId, storeId, externalId: String(order.id) }, update, { upsert: true });
+  if (!existing) {
+    void dispatchAppWebhook(tenantId, 'orders/create', { storeId, externalId: String(order.id), number: setFields.number, stage: setFields.stage ?? newStage });
+  }
 
   // A brand-new order (no `existing`) has no prior inventory state to release — it's as if it
   // arrived from 'none', which correctly reserves stock immediately if a webhook's first sighting
@@ -261,7 +237,7 @@ export async function upsertWooOrder(tenantId: string, storeId: string, order: W
       newStage = 'Cancelled';
       autoCancelReason = 'Blocked customer';
     } else {
-      autoFlagReason = await computeAutoFlagReason(tenantId, setFields.customerPhone as string | null, setFields.total as number);
+      autoFlagReason = await maybeAutoFlagForFraud(tenantId, setFields.customerPhone as string | null, setFields.total as number);
       if (autoFlagReason) newStage = 'Flagged';
     }
   }
@@ -288,6 +264,9 @@ export async function upsertWooOrder(tenantId: string, storeId: string, order: W
   }
 
   await db.collection('orders').updateOne({ tenantId, storeId, externalId: String(order.id) }, update, { upsert: true });
+  if (!existing) {
+    void dispatchAppWebhook(tenantId, 'orders/create', { storeId, externalId: String(order.id), number: setFields.number, stage: setFields.stage ?? newStage });
+  }
 
   if (stageChanging) {
     const fromState = existing ? resolveInventoryState(existing.stage, existing.heldFromStage) : 'none';
@@ -1042,12 +1021,16 @@ export async function createOrder(req: AuthenticatedRequest, res: Response) {
   const total = Math.max(0, subtotal + data.shippingFee - data.discount);
   const now = new Date();
   const blocked = await isCustomerBlocked(tenantId, data.customerPhone);
+  // Manual orders previously never went through the same auto-flag heuristic synced orders do —
+  // this closes that asymmetry, gated the same way (Fraud Checker must be installed).
+  const flagReason = blocked ? null : await maybeAutoFlagForFraud(tenantId, data.customerPhone, total);
   const number = await nextManualOrderNumber(tenantId);
 
   const history: { label: string; detail: string; at: Date; by: string | null }[] = [
     { label: 'Order placed', detail: 'Created manually', at: now, by: req.user!.email },
   ];
   if (blocked) history.push({ label: 'Cancelled', detail: 'Blocked customer', at: now, by: req.user!.email });
+  else if (flagReason) history.push({ label: 'Flagged', detail: flagReason, at: now, by: req.user!.email });
 
   const doc = {
     tenantId,
@@ -1055,7 +1038,7 @@ export async function createOrder(req: AuthenticatedRequest, res: Response) {
     platform: store.platform,
     externalId: `manual-${new ObjectId().toString()}`,
     number,
-    stage: blocked ? 'Cancelled' : 'Pending',
+    stage: blocked ? 'Cancelled' : flagReason ? 'Flagged' : 'Pending',
     stageSource: 'manual',
     heldFromStage: null,
     paymentStatus:
@@ -1076,7 +1059,7 @@ export async function createOrder(req: AuthenticatedRequest, res: Response) {
     lineItems,
     holdReason: null,
     cancelReason: blocked ? 'Blocked customer' : null,
-    flagReason: null,
+    flagReason: blocked ? null : flagReason,
     note: null,
     rescheduledFor: null,
     isPriorityCall: false,
@@ -1104,6 +1087,7 @@ export async function createOrder(req: AuthenticatedRequest, res: Response) {
   const result = await db.collection('orders').insertOne(doc as any);
   const dto = toOrderDto({ ...doc, _id: result.insertedId });
   await attachBlockedFlags(db, tenantId, [dto]);
+  void dispatchAppWebhook(tenantId, 'orders/create', dto);
   res.json({ success: true, order: dto });
 }
 
@@ -1398,6 +1382,9 @@ export async function updateOrder(req: AuthenticatedRequest, res: Response) {
 
   const dto = toOrderDto(result);
   await attachBlockedFlags(db, tenantId, [dto]);
+  void dispatchAppWebhook(tenantId, 'orders/updated', dto);
+  if (result.stage === 'Confirmed' && current.stage !== 'Confirmed') void dispatchAppWebhook(tenantId, 'orders/confirmed', dto);
+  if (result.stage === 'Cancelled' && current.stage !== 'Cancelled') void dispatchAppWebhook(tenantId, 'orders/cancelled', dto);
   res.json({ success: true, order: dto });
 }
 
@@ -1742,6 +1729,7 @@ export async function blockCustomer(req: AuthenticatedRequest, res: Response) {
     { $set: { tenantId, phone: order.customerPhone, note: parsed.data.note ?? null, blockedAt: new Date(), blockedBy: req.user!.email } },
     { upsert: true }
   );
+  void dispatchAppWebhook(tenantId, 'customers/blocked', { phone: order.customerPhone, note: parsed.data.note ?? null });
   res.json({ success: true });
 }
 
@@ -1796,7 +1784,42 @@ export async function markPaymentCollected(req: AuthenticatedRequest, res: Respo
   const result = await db.collection('orders').findOneAndUpdate({ _id: order._id }, update, { returnDocument: 'after' });
   const dto = toOrderDto(result!);
   await attachBlockedFlags(db, tenantId, [dto]);
+  void dispatchAppWebhook(tenantId, 'payments/collected', dto);
   res.json({ success: true, order: dto });
+}
+
+const bulkRecheckFraudSchema = z.object({ orderIds: z.array(z.string()).min(1).max(500) });
+
+// Fills the admin.orders.index.bulk-action extension target's "Re-check fraud" button — re-runs
+// the same auto-flag heuristic createOrder/upsertShopifyOrder/upsertWooOrder apply at creation
+// time, for staff who want to sweep a batch of already-existing Pending orders after installing
+// or reconfiguring Fraud Checker. Only touches orders still Pending — anything already past that
+// has been through a real human review and shouldn't get silently re-flagged.
+export async function bulkRecheckFraud(req: AuthenticatedRequest, res: Response) {
+  const parsed = bulkRecheckFraudSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, message: 'Invalid bulk payload' });
+    return;
+  }
+
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const objectIds = parsed.data.orderIds.map((id) => new ObjectId(id));
+  const orders = await db.collection('orders').find({ _id: { $in: objectIds }, tenantId, stage: 'Pending' }).toArray();
+
+  let flaggedCount = 0;
+  for (const order of orders) {
+    const reason = await maybeAutoFlagForFraud(tenantId, order.customerPhone, order.total);
+    if (!reason) continue;
+    flaggedCount += 1;
+    const now = new Date();
+    const update: Record<string, unknown> = {
+      $set: { stage: 'Flagged', flagReason: reason, updatedAt: now },
+      $push: { history: { label: 'Flagged', detail: reason, at: now } },
+    };
+    await db.collection('orders').updateOne({ _id: order._id }, update);
+  }
+  res.json({ success: true, checked: orders.length, flaggedCount });
 }
 
 const bulkMarkCollectedSchema = z.object({ orderIds: z.array(z.string()).min(1).max(500) });
@@ -1823,16 +1846,20 @@ export async function bulkMarkPaymentCollected(req: AuthenticatedRequest, res: R
     $set: { paymentStatus: 'Collected', updatedAt: now },
     $push: { history: { label: 'Payment collected', detail: 'Marked collected manually (bulk)', at: now, by: req.user!.email } },
   };
-  const result = await db.collection('orders').updateMany(
-    {
-      _id: { $in: objectIds },
-      tenantId,
-      paymentMethod: 'Cash on Delivery',
-      paymentStatus: { $ne: 'Collected' },
-      stage: { $in: ['Delivered', 'Partial Delivered'] },
-    },
-    update
-  );
+  const eligibleFilter = {
+    _id: { $in: objectIds },
+    tenantId,
+    paymentMethod: 'Cash on Delivery',
+    paymentStatus: { $ne: 'Collected' },
+    stage: { $in: ['Delivered', 'Partial Delivered'] },
+  };
+  // updateMany doesn't return the matched docs, and payments/collected needs one dispatch per
+  // order — capture the eligible set before mutating it.
+  const eligibleOrders = await db.collection('orders').find(eligibleFilter).toArray();
+  const result = await db.collection('orders').updateMany(eligibleFilter, update);
+  for (const order of eligibleOrders) {
+    void dispatchAppWebhook(tenantId, 'payments/collected', toOrderDto({ ...order, paymentStatus: 'Collected', updatedAt: now }));
+  }
   res.json({ success: true, matchedCount: result.matchedCount, modifiedCount: result.modifiedCount });
 }
 

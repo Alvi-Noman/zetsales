@@ -32,6 +32,7 @@ import { ShopifyLogo, WooCommerceLogo } from '../../components/orders/platformLo
 import { FilterMenu } from '../../components/orders/FilterMenu';
 import { Popover } from '../../components/ui/Popover';
 import { useToast } from '../../components/ui/ToastProvider';
+import { AppBlock } from '../../components/apps/AppBlock';
 
 const PLATFORM_META = {
   shopify: { label: 'Shopify', logo: ShopifyLogo },
@@ -488,6 +489,7 @@ export function ProductsPage() {
                                     <Layers size={11} />
                                     {product.variantCount} variant{product.variantCount === 1 ? '' : 's'}
                                     {product.groupId && <span className="rounded-full bg-indigo-50 px-1.5 py-0.5 font-medium text-indigo-600">Grouped</span>}
+                                    <AppBlock target="admin.products.index.row-badge" context={{ productId: product.id }} />
                                   </p>
                                 </div>
                               </div>

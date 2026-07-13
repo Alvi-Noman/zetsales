@@ -5,6 +5,7 @@ import { ObjectId } from 'mongodb';
 import { z } from 'zod';
 import { getDb } from '../utils/db.js';
 import { decryptSecret } from '../utils/crypto.js';
+import { dispatchAppWebhook } from '../utils/appEvents.js';
 import type { AuthenticatedRequest } from '../middleware/authMiddleware.js';
 import type { ProductCollectionDTO, ProductDTO, ProductListItemDTO, ProductPushResultDTO, StorePlatform } from '@zetsales/shared';
 import {
@@ -839,6 +840,7 @@ export async function createProduct(req: AuthenticatedRequest, res: Response) {
     { _id: { $in: stores.filter((s) => results.find((r) => r.storeId === s._id.toString())?.success).map((s) => s._id) } },
     { $inc: { productCount: 1 } }
   );
+  if (successCount > 0) void dispatchAppWebhook(tenantId, 'products/create', { title: data.title, groupId, results });
 
   send({ type: 'done', success: successCount > 0, results });
   res.end();
@@ -957,6 +959,7 @@ export async function updateProduct(req: AuthenticatedRequest, res: Response) {
   }
 
   const successCount = results.filter((r) => r.success).length;
+  if (successCount > 0) void dispatchAppWebhook(tenantId, 'products/update', { productId: doc._id.toString(), title: data.title, results });
   send({ type: 'done', success: successCount > 0, results });
   res.end();
 }

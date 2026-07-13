@@ -5,6 +5,7 @@ import clsx from 'clsx';
 import { createSupplierRecord, listSupplierOverviews, type SupplierOverviewDTO, type SupplierPaymentType } from '../../lib/commerceApi';
 import { Modal } from '../../components/ui/Modal';
 import { useToast } from '../../components/ui/ToastProvider';
+import { CreatePurchaseOrderModal } from '../../components/supplyChain/CreatePurchaseOrderModal';
 
 function money(value: number) {
   const sign = value < 0 ? '-' : '';
@@ -169,6 +170,7 @@ export function SuppliersPage() {
   const [sortKey, setSortKey] = useState<SortKey>('totalSpend');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [addOpen, setAddOpen] = useState(false);
+  const [createPoOpen, setCreatePoOpen] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -241,6 +243,12 @@ export function SuppliersPage() {
             className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
           >
             <RefreshCw size={14} className={loading ? 'animate-spin' : undefined} /> Refresh
+          </button>
+          <button
+            onClick={() => setCreatePoOpen(true)}
+            className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            <Plus size={14} /> New purchase order
           </button>
           <button onClick={() => setAddOpen(true)} className="flex h-9 items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 text-sm font-semibold text-white hover:bg-indigo-700">
             <Plus size={14} /> Add supplier
@@ -326,6 +334,12 @@ export function SuppliersPage() {
       </div>
 
       <AddSupplierModal open={addOpen} onClose={() => setAddOpen(false)} onSaved={() => void load()} />
+      <CreatePurchaseOrderModal
+        open={createPoOpen}
+        mode="create"
+        onClose={() => setCreatePoOpen(false)}
+        onSaved={(supplierId) => navigate(`/suppliers/${supplierId}`)}
+      />
     </div>
   );
 }

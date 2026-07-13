@@ -24,6 +24,7 @@ import { useAuth } from '../../context/AuthContext';
 import { HomeKpiCard } from '../../components/home/HomeKpiCard';
 import { ChannelOverviewCard } from '../../components/home/ChannelOverviewCard';
 import { InitialStoreEmptyState } from '../../components/home/InitialStoreEmptyState';
+import { AppBlock } from '../../components/apps/AppBlock';
 import { STAGE_TONE, STAGE_LABEL } from '../../components/orders/orderTone';
 
 const PIPELINE_STAGES: { tab: Exclude<OrderTabKey, 'all'>; label: string; icon: typeof Clock; tone: string }[] = [
@@ -364,6 +365,8 @@ export function HomePage() {
             )}
           </section>
         </div>
+
+        <AppBlock target="admin.home.block" />
       </div>
     </div>
   );

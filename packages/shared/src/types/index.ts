@@ -24,6 +24,7 @@ export const MODULE_KEYS = [
   'customerService',
   'callCenter',
   'fraudChecker',
+  'zetSalesAds',
   'supplyChain',
   'accounting',
   'analytics',
@@ -33,11 +34,81 @@ export const MODULE_KEYS = [
 ] as const;
 export type ModuleKey = (typeof MODULE_KEYS)[number];
 
-// The subset of modules that a tenant must explicitly "install" (see PluginsPage /
-// pluginsController) before they're usable at all — independent of and in addition to
+// The subset of modules that a tenant must explicitly "install" (see AppsPage /
+// appsController) before they're usable at all — independent of and in addition to
 // the role check below. Everything else is a "core" module: visible whenever the
 // signed-in user's role permits it, no install step needed.
-export const PLUGIN_MODULES: ModuleKey[] = ['fraudChecker', 'callCenter', 'adPerformance', 'customerService'];
+export const PLUGIN_MODULES: ModuleKey[] = ['fraudChecker', 'callCenter', 'adPerformance', 'customerService', 'zetSalesAds'];
+
+// --- App platform (extension points + install flow) ---
+// Two-tier model mirroring Shopify's own app platform: an "Embedded App" gets its own sidebar
+// nav entry and full page; an "Admin Block Extension" injects a small piece of UI into an
+// *existing* core page at one of these named extension targets (Shopify's own term for this
+// concept, e.g. `admin.order-details.block.render`). `sidebarNav`/`settingsPath` are NOT
+// extension targets — they're Embedded App page-registration fields on AppManifestDTO below.
+export const APP_EXTENSION_TARGETS = [
+  'admin.order-details.block',
+  'admin.order-details.action',
+  'admin.orders.index.row-badge',
+  'admin.orders.index.bulk-action',
+  'admin.products.index.row-badge',
+  'admin.product-details.block',
+  'admin.customers.index.row-badge',
+  'admin.customer-details.block',
+  'admin.home.block',
+  'admin.analytics.block',
+  'admin.topbar.block',
+] as const;
+export type AppExtensionTarget = (typeof APP_EXTENSION_TARGETS)[number];
+
+// `embedded` = first-party code running in-process (all 4 official apps today). `oauth` = a
+// standalone service installed via the real OAuth 2.0 authorization-code flow (see
+// oauthController.ts) — no app uses this yet, but the mechanism works end-to-end so a future
+// standalone service (or a genuine 3rd party) can install against it.
+export type AppAuthType = 'embedded' | 'oauth';
+
+export interface AppManifestDTO {
+  key: ModuleKey;
+  name: string;
+  description: string;
+  icon: string;
+  authType: AppAuthType;
+  // Which block-extension targets this app fills with real content — see APP_EXTENSION_TARGETS.
+  extensions: AppExtensionTarget[];
+  // Whether this app also gets its own sidebar nav entry + full page (the "Embedded App" tier).
+  isEmbeddedApp: boolean;
+  // Base URL of the standalone service — only set for oauth-type apps.
+  homepageUrl?: string;
+  sidebarLabel?: string;
+  sidebarPath?: string;
+  // A settings sub-page is just another page of the embedded app, not a block extension —
+  // Shopify treats an app's settings screen the same way.
+  settingsPath?: string;
+  // OAuth 2.0 client_id — only set for oauth-type apps (see oauthController.ts / oauth_apps).
+  clientId?: string;
+}
+
+export interface InstalledAppDTO {
+  appKey: ModuleKey;
+  status: 'installed' | 'revoked';
+  installedAt: string;
+}
+
+// Outbound webhook topics, named in Shopify's own slash style — `orders/create`,
+// `orders/updated`, `products/create`, `products/update` are literally identical to real
+// Shopify topic names; the rest are ZetSales-specific concepts named to match that convention.
+export const APP_WEBHOOK_TOPICS = [
+  'orders/create',
+  'orders/updated',
+  'orders/confirmed',
+  'orders/cancelled',
+  'customers/blocked',
+  'products/create',
+  'products/update',
+  'payments/collected',
+  'inventory/low_stock',
+] as const;
+export type AppWebhookTopic = (typeof APP_WEBHOOK_TOPICS)[number];
 
 export interface RoleDefinition {
   role: TeamRole;
@@ -82,6 +153,7 @@ export const ROLE_DEFINITIONS: Record<TeamRole, RoleDefinition> = {
       'customerService',
       'callCenter',
       'fraudChecker',
+      'zetSalesAds',
       'supplyChain',
       'analytics',
     ],

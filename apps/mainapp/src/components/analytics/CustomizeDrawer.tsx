@@ -25,7 +25,10 @@ function buildInitialRows(layout: AnalyticsLayoutDTO | null): Row[] {
   const saved = layout?.cards ?? [];
   const savedKeys = new Set(saved.map((c) => c.key));
   const known = saved.filter((c) => ANALYTICS_CARD_MAP[c.key]);
-  const missing = ANALYTICS_CARDS.filter((c) => !savedKeys.has(c.key)).map((c) => ({ key: c.key, hidden: false }));
+  // Show/hide layout persistence (AnalyticsLayoutDTO) is scoped to the closed AnalyticsCardKey
+  // union — a plugin-contributed card key (see analytics/types.ts) doesn't participate in it yet,
+  // a Phase-2 concern once a real plugin analytics card exists.
+  const missing = ANALYTICS_CARDS.filter((c) => !savedKeys.has(c.key as AnalyticsCardKey)).map((c) => ({ key: c.key as AnalyticsCardKey, hidden: false }));
   return [...known, ...missing];
 }
 

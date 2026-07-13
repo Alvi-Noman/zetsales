@@ -50,6 +50,12 @@ services:
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000,http://localhost:8081,http://127.0.0.1:3000,http://149.28.135.115:3000}
       UPLOAD_DIR: /app/uploads
       SCRAPER_API_KEY: ${SCRAPER_API_KEY:-}
+      # ZetSales Ads (/ads) is a real oauth-type app — this is the client_id/secret pair
+      # commerce-service seeds into oauth_apps at startup and /ads itself uses to complete the
+      # token exchange. Same value on both sides, shared via compose, no discovery step needed.
+      ADS_APP_CLIENT_ID: ${ADS_APP_CLIENT_ID:-zetsales-ads-dev-client}
+      ADS_APP_CLIENT_SECRET: ${ADS_APP_CLIENT_SECRET:-dev-ads-client-secret-change-me}
+      PUBLIC_ADS_URL: ${PUBLIC_ADS_URL:-http://localhost:8081/api/v1/ads}
     working_dir: /app/services/commerce-service
     ports:
       - "3012:3002"
@@ -81,6 +87,36 @@ services:
       - messaging_uploads:/app/uploads
     restart: unless-stopped
 
+  ads:
+    build:
+      context: .
+      dockerfile: ads/Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: "3004"
+      MONGODB_URI: ${MONGODB_URI:?MONGODB_URI is required}
+      JWT_SECRET: ${JWT_SECRET:-super-secret-key-change-me}
+      # Same value as commerce-service's crypto secret — /ads writes into the same shared
+      # `adAccounts` collection commerce-service's adCampaignsController.ts later decrypts.
+      STORE_CREDENTIALS_SECRET: ${STORE_CREDENTIALS_SECRET:-dev-store-credentials-secret-change-me}
+      META_APP_ID: ${META_APP_ID:-}
+      META_APP_SECRET: ${META_APP_SECRET:-}
+      TIKTOK_APP_ID: ${TIKTOK_APP_ID:-}
+      TIKTOK_APP_SECRET: ${TIKTOK_APP_SECRET:-}
+      GOOGLE_ADS_CLIENT_ID: ${GOOGLE_ADS_CLIENT_ID:-}
+      GOOGLE_ADS_CLIENT_SECRET: ${GOOGLE_ADS_CLIENT_SECRET:-}
+      GOOGLE_ADS_DEVELOPER_TOKEN: ${GOOGLE_ADS_DEVELOPER_TOKEN:-}
+      ADS_APP_CLIENT_ID: ${ADS_APP_CLIENT_ID:-zetsales-ads-dev-client}
+      ADS_APP_CLIENT_SECRET: ${ADS_APP_CLIENT_SECRET:-dev-ads-client-secret-change-me}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:3000}
+      PUBLIC_ADS_URL: ${PUBLIC_ADS_URL:-http://localhost:8081/api/v1/ads}
+      COMMERCE_SERVICE_URL: http://commerce-service:3002
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000,http://localhost:8081,http://127.0.0.1:3000,http://149.28.135.115:3000}
+    working_dir: /app/ads
+    ports:
+      - "3014:3004"
+    restart: unless-stopped
+
   api-gateway:
     build:
       context: .
@@ -91,6 +127,7 @@ services:
       AUTH_SERVICE_URL: http://auth-service:3001
       COMMERCE_SERVICE_URL: http://commerce-service:3002
       MESSAGING_SERVICE_URL: http://messaging-service:3003
+      ADS_SERVICE_URL: http://ads:3004
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000,http://127.0.0.1:3000,http://149.28.135.115:3000}
     ports:
       - "8081:8080"
@@ -98,6 +135,7 @@ services:
       - auth-service
       - commerce-service
       - messaging-service
+      - ads
     restart: unless-stopped
 
   mainapp:

@@ -8,7 +8,11 @@ export interface AnalyticsCardComponentProps {
 }
 
 export interface AnalyticsCardDefinition {
-  key: AnalyticsCardKey;
+  // Loosened beyond the closed AnalyticsCardKey union (which keeps autocomplete for the ~60
+  // official cards) so a plugin can contribute a card at the admin.analytics.block extension
+  // target with an arbitrary key, without touching AnalyticsCardKey itself or any other consumer
+  // of it — this registry boundary is the only place that needs to accept both.
+  key: AnalyticsCardKey | (string & {});
   title: string;
   category: AnalyticsCategory;
   description: string;

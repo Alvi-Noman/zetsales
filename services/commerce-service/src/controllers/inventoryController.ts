@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { getDb } from '../utils/db.js';
 import type { AuthenticatedRequest } from '../middleware/authMiddleware.js';
 import { applyInventoryStageEffect, resolveInventoryState, RESERVED_STAGES } from '../integrations/inventoryEffects.js';
+import { maybeDispatchLowStock, type InventoryLevelSnapshot } from '../utils/lowStockCheck.js';
 import type { OrderStage } from '@zetsales/shared';
 
 const countSchema = z.object({
@@ -2124,6 +2125,7 @@ async function logReturnShrinkage(
   const actualDelta = newOnHand - level.onHand;
   const unitCost: number | null = level.unitCost ?? null;
   await db.collection('inventoryLevels').updateOne({ _id: level._id }, { $set: { onHand: newOnHand, updatedAt: now } });
+  maybeDispatchLowStock(tenantId, level as unknown as InventoryLevelSnapshot, newOnHand, level.reserved ?? 0);
   const note = receivedInstead
     ? `Found during return QC — customer sent back "${receivedInstead.title}${receivedInstead.variant ? ` — ${receivedInstead.variant}` : ''}" instead`
     : 'Found during return QC';

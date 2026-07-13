@@ -10,9 +10,33 @@ export interface UserDTO {
     installedPlugins: ModuleKey[];
 }
 export type TeamRole = 'owner' | 'admin' | 'manager' | 'agent' | 'viewer';
-export declare const MODULE_KEYS: readonly ["home", "orders", "products", "inventory", "preOrders", "printOut", "customers", "adPerformance", "customerService", "callCenter", "fraudChecker", "supplyChain", "accounting", "analytics", "integrations", "team", "settings"];
+export declare const MODULE_KEYS: readonly ["home", "orders", "products", "inventory", "preOrders", "printOut", "customers", "adPerformance", "customerService", "callCenter", "fraudChecker", "zetSalesAds", "supplyChain", "accounting", "analytics", "integrations", "team", "settings"];
 export type ModuleKey = (typeof MODULE_KEYS)[number];
 export declare const PLUGIN_MODULES: ModuleKey[];
+export declare const APP_EXTENSION_TARGETS: readonly ["admin.order-details.block", "admin.order-details.action", "admin.orders.index.row-badge", "admin.orders.index.bulk-action", "admin.products.index.row-badge", "admin.product-details.block", "admin.customers.index.row-badge", "admin.customer-details.block", "admin.home.block", "admin.analytics.block", "admin.topbar.block"];
+export type AppExtensionTarget = (typeof APP_EXTENSION_TARGETS)[number];
+export type AppAuthType = 'embedded' | 'oauth';
+export interface AppManifestDTO {
+    key: ModuleKey;
+    name: string;
+    description: string;
+    icon: string;
+    authType: AppAuthType;
+    extensions: AppExtensionTarget[];
+    isEmbeddedApp: boolean;
+    homepageUrl?: string;
+    sidebarLabel?: string;
+    sidebarPath?: string;
+    settingsPath?: string;
+    clientId?: string;
+}
+export interface InstalledAppDTO {
+    appKey: ModuleKey;
+    status: 'installed' | 'revoked';
+    installedAt: string;
+}
+export declare const APP_WEBHOOK_TOPICS: readonly ["orders/create", "orders/updated", "orders/confirmed", "orders/cancelled", "customers/blocked", "products/create", "products/update", "payments/collected", "inventory/low_stock"];
+export type AppWebhookTopic = (typeof APP_WEBHOOK_TOPICS)[number];
 export interface RoleDefinition {
     role: TeamRole;
     label: string;

@@ -5,6 +5,7 @@ import clsx from 'clsx';
 import { listCustomers } from '../../lib/commerceApi';
 import type { CustomerRowDTO } from '@zetsales/shared';
 import { useToast } from '../../components/ui/ToastProvider';
+import { AppBlock } from '../../components/apps/AppBlock';
 
 function money(value: number) {
   return `৳${Math.round(value).toLocaleString()}`;
@@ -177,7 +178,10 @@ export function CustomersPage() {
                         <td className="px-4 py-3 text-right tabular-nums text-slate-600">{c.deliveredRate != null ? `${c.deliveredRate}%` : '—'}</td>
                         <td className="px-4 py-3 text-slate-600">{c.segment}</td>
                         <td className="px-4 py-3">
-                          <span className={clsx('rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset', RISK_TONE[c.riskLabel])}>{c.riskLabel}</span>
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className={clsx('rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset', RISK_TONE[c.riskLabel])}>{c.riskLabel}</span>
+                            <AppBlock target="admin.customers.index.row-badge" context={{ phone: c.phone }} />
+                          </span>
                         </td>
                         <td className="px-4 py-3 text-right text-slate-500">{new Date(c.lastOrderAt).toLocaleDateString()}</td>
                       </tr>

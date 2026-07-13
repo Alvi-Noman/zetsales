@@ -1,4 +1,4 @@
-import type { AdAccountDTO, AdCampaignDTO, AdCreativeAssetDTO, CreateAdCampaignPayload, AdChannel, AdCostEntryDTO, AdPerformanceReportDTO, BulkOrderResultDTO, CallOutcome, CancelReason, CourierAccountDTO, CourierSettlementDTO, CourierHandoverDTO, CourierHandoverDetailDTO, EligibleHandoverOrderDTO, CourierShipmentStatsDTO, CustomerListDTO, CustomerDetailDTO, CustomerOrderRowDTO, HoldReason, InvoiceTemplateDTO, ModuleKey, OrderDTO, OrderRiskDTO, OrderStage, OrderStatsDTO, OrderTabKey, OrderTrendsDTO, PaymentMethod, PreOrderTargetDTO, PrintPaperSize, ProductCollectionDTO, ProductDTO, ProductListItemDTO, ProductPublishTargetDTO, ProductPushResultDTO, ProductWritePayload, StoreDTO, SupplierProductDraftDTO } from '@zetsales/shared';
+import type { AdAccountDTO, AdCampaignDTO, AdCreativeAssetDTO, CreateAdCampaignPayload, AdChannel, AdCostEntryDTO, AdPerformanceReportDTO, AppExtensionTarget, AppManifestDTO, BulkOrderResultDTO, CallOutcome, CancelReason, CourierAccountDTO, CourierSettlementDTO, CourierHandoverDTO, CourierHandoverDetailDTO, EligibleHandoverOrderDTO, CourierShipmentStatsDTO, CustomerListDTO, CustomerDetailDTO, CustomerOrderRowDTO, HoldReason, InstalledAppDTO, InvoiceTemplateDTO, ModuleKey, OrderDTO, OrderRiskDTO, OrderStage, OrderStatsDTO, OrderTabKey, OrderTrendsDTO, PaymentMethod, PreOrderTargetDTO, PrintPaperSize, ProductCollectionDTO, ProductDTO, ProductListItemDTO, ProductPublishTargetDTO, ProductPushResultDTO, ProductWritePayload, StoreDTO, SupplierProductDraftDTO } from '@zetsales/shared';
 import { api } from './api';
 
 export async function getCapabilities() {
@@ -247,14 +247,26 @@ export async function findProductByUrl(url: string) {
   return res.data as { success: boolean; product: { id: string; title: string } | null };
 }
 
-export async function getInstalledPlugins() {
-  const res = await api.get('/commerce/plugins');
-  return res.data.installedPlugins as ModuleKey[];
+export async function listApps() {
+  const res = await api.get('/commerce/apps');
+  return res.data.apps as { manifest: AppManifestDTO; install: InstalledAppDTO | null }[];
 }
 
-export async function updateInstalledPlugins(plugins: ModuleKey[]) {
-  const res = await api.patch('/commerce/plugins', { plugins });
-  return res.data.installedPlugins as ModuleKey[];
+export async function installApp(appKey: ModuleKey) {
+  await api.post(`/commerce/apps/${appKey}/install`);
+}
+
+export async function uninstallApp(appKey: ModuleKey) {
+  await api.delete(`/commerce/apps/${appKey}/install`);
+}
+
+// For an installed oauth-type app's AppBlock iframe (see components/apps/AppBlock.tsx) or the
+// generic full-page Embedded App host (pages/apps/AppHostPage.tsx) — mints a short-lived session
+// token (App Bridge's own term) scoped to this extension target/context. `target` is omitted for
+// a full-page embed, which has no specific block target.
+export async function getAppSessionToken(appKey: ModuleKey, target: AppExtensionTarget | undefined, context: Record<string, unknown>) {
+  const res = await api.post(`/commerce/apps/${appKey}/session-token`, { target, context });
+  return res.data.sessionToken as string;
 }
 
 export async function updateProduct(id: string, payload: ProductWritePayload, onEvent?: (event: ProductPushEvent) => void) {
@@ -1087,6 +1099,11 @@ export async function splitOrder(id: string) {
 export async function bulkMarkPaymentCollected(orderIds: string[]) {
   const res = await api.post('/commerce/orders/bulk/mark-collected', { orderIds });
   return res.data as { success: boolean; matchedCount: number; modifiedCount: number };
+}
+
+export async function bulkRecheckFraud(orderIds: string[]) {
+  const res = await api.post('/commerce/orders/bulk/recheck-fraud', { orderIds });
+  return res.data as { success: boolean; checked: number; flaggedCount: number };
 }
 
 export interface PartialDeliverSplit {

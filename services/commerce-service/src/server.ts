@@ -2,6 +2,7 @@ import { env } from '@zetsales/config/validateEnv';
 import app from './app.js';
 import { connectDb, client } from './utils/db.js';
 import logger from './utils/logger.js';
+import { seedOauthApps } from './apps/seedOauthApps.js';
 
 const PORT = Number(env.PORT) || 3002;
 let server: ReturnType<typeof app.listen> | null = null;
@@ -10,6 +11,7 @@ async function startServer() {
   try {
     logger.info(`Starting in ${process.env.NODE_ENV || 'development'} mode`);
     await connectDb();
+    await seedOauthApps();
 
     server = app.listen(PORT, '0.0.0.0', () => {
       logger.info(`Commerce service running on port ${PORT}`);

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth, requireTenant, requireModule } from '../middleware/authMiddleware.js';
 import {
   importStoreOrdersStream, listOrders, getOrder, getOrderFulfillmentStatus, getOrderStats, getOrderTrends, updateOrder, bulkUpdateOrders, markPartialDelivered,
-  blockCustomer, unblockCustomer, markPaymentCollected, bulkMarkPaymentCollected, claimOrder, heartbeatOrderClaim, releaseOrderClaim, upsellOrder, createOrder, splitOrder,
+  blockCustomer, unblockCustomer, markPaymentCollected, bulkMarkPaymentCollected, bulkRecheckFraud, claimOrder, heartbeatOrderClaim, releaseOrderClaim, upsellOrder, createOrder, splitOrder,
   getReadyToPrintOrders, markOrdersPrinted, getCourierShipmentStats,
 } from '../controllers/ordersController.js';
 
@@ -16,6 +16,7 @@ router.get('/orders/courier-stats', requireAuth, requireTenant, requireOrders, g
 router.get('/orders/trends', requireAuth, requireTenant, requireOrders, getOrderTrends);
 router.patch('/orders/bulk', requireAuth, requireTenant, requireOrders, bulkUpdateOrders);
 router.post('/orders/bulk/mark-collected', requireAuth, requireTenant, requireOrders, bulkMarkPaymentCollected);
+router.post('/orders/bulk/recheck-fraud', requireAuth, requireTenant, requireOrders, bulkRecheckFraud);
 router.get('/orders/ready-to-print', requireAuth, requireTenant, requireOrders, getReadyToPrintOrders);
 router.post('/orders/mark-printed', requireAuth, requireTenant, requireOrders, markOrdersPrinted);
 

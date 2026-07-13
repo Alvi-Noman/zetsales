@@ -1,8 +1,9 @@
-import { Ban, PhoneCall, PauseCircle, X, Printer, FileText, ClipboardList, Tag, Scissors, Banknote, Truck, Package } from 'lucide-react';
+import { Ban, PhoneCall, PauseCircle, X, Printer, FileText, ClipboardList, Tag, Scissors, Banknote, Truck, Package, ShieldAlert } from 'lucide-react';
 import type { HoldReason } from '@zetsales/shared';
 import { ALL_CANCEL_REASONS } from './reasons';
 import { ReasonNoteMenu } from './ReasonNoteMenu';
 import { Popover } from '../ui/Popover';
+import { AppBlock } from '../apps/AppBlock';
 
 interface BulkActionBarProps {
   count: number;
@@ -31,6 +32,9 @@ interface BulkActionBarProps {
   // the button only renders when the caller gives us a handler, so there's nothing to click that
   // would just no-op against the whole selection.
   onMarkCollected?: () => void;
+  // Undefined unless the Fraud Checker app is installed — re-runs the auto-flag heuristic against
+  // the current selection (fills the admin.orders.index.bulk-action extension target).
+  onRecheckFraud?: () => void;
   // Which hold reasons make sense depends on the stage(s) of whatever's currently selected — the
   // caller resolves that (it's the one that knows the selection), this just renders whatever list
   // it's given.
@@ -39,7 +43,7 @@ interface BulkActionBarProps {
 }
 
 export function BulkActionBar({
-  count, onClear, onConfirm, onMarkShipped, onSendToPacking, onHold, onCancel, onPrintInvoices, onPrintPackingSlips, onPrintCombined, onPrintLabels, onMarkCollected, holdReasons, busy,
+  count, onClear, onConfirm, onMarkShipped, onSendToPacking, onHold, onCancel, onPrintInvoices, onPrintPackingSlips, onPrintCombined, onPrintLabels, onMarkCollected, onRecheckFraud, holdReasons, busy,
 }: BulkActionBarProps) {
   if (count === 0) return null;
 
@@ -130,6 +134,16 @@ export function BulkActionBar({
             </div>
           )}
         </Popover>
+        {onRecheckFraud && (
+          <button
+            onClick={onRecheckFraud}
+            disabled={busy}
+            className="flex items-center gap-1.5 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20 disabled:opacity-60"
+          >
+            <ShieldAlert size={13} /> Re-check fraud
+          </button>
+        )}
+        <AppBlock target="admin.orders.index.bulk-action" />
         {onMarkCollected && (
           <button
             onClick={onMarkCollected}
