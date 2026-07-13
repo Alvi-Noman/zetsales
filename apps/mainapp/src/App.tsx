@@ -34,6 +34,7 @@ import { CallCenterPage } from './pages/callCenter/CallCenterPage';
 import { AppHostPage } from './pages/apps/AppHostPage';
 import { AppsPage } from './pages/settings/AppsPage';
 import { AppDetailPage } from './pages/settings/AppDetailPage';
+import { ZetSalesAdsPage } from './pages/zetsalesAds/ZetSalesAdsPage';
 import { NAV_ITEMS, NAV_FOOTER_ITEMS } from './nav/navigation';
 
 const routeEntries = new Map<string, string>();
@@ -56,6 +57,7 @@ routeEntries.delete('/ad-performance');
 routeEntries.delete('/call-center');
 routeEntries.delete('/delivery-partners');
 routeEntries.delete('/settings/apps');
+routeEntries.delete('/zetsales-ads');
 
 function FullScreenLoader() {
   return (
@@ -121,6 +123,7 @@ function AppRoutes() {
         <Route path="/analytics/:cardKey" element={<AnalyticsDetailPage />} />
         <Route path="/ad-performance" element={<AdPerformancePage />} />
         <Route path="/call-center" element={<CallCenterPage />} />
+        <Route path="/zetsales-ads" element={<ZetSalesAdsPage />} />
         <Route path="/settings/apps" element={<AppsPage />} />
         <Route path="/settings/apps/:appKey" element={<AppDetailPage />} />
         <Route path="/apps/:appKey" element={<AppHostPage />} />

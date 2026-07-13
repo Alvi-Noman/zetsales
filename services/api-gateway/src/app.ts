@@ -54,11 +54,9 @@ app.options('*', cors(corsOptions));
 const AUTH_TARGET = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
 const COMMERCE_TARGET = process.env.COMMERCE_SERVICE_URL || 'http://localhost:3002';
 const MESSAGING_TARGET = process.env.MESSAGING_SERVICE_URL || 'http://localhost:3003';
-const ADS_TARGET = process.env.ADS_SERVICE_URL || 'http://localhost:3004';
 logger.info(`[GATEWAY] AUTH_SERVICE_URL=${AUTH_TARGET}`);
 logger.info(`[GATEWAY] COMMERCE_SERVICE_URL=${COMMERCE_TARGET}`);
 logger.info(`[GATEWAY] MESSAGING_SERVICE_URL=${MESSAGING_TARGET}`);
-logger.info(`[GATEWAY] ADS_SERVICE_URL=${ADS_TARGET}`);
 
 function makeProxy(target: string, label: string, reserializeJson: boolean) {
   return createProxyMiddleware({
@@ -103,8 +101,6 @@ app.use('/api/v1/messaging', makeProxy(MESSAGING_TARGET, 'messaging-service', fa
 // deliberately not nested under /api/v1/commerce, matching how Shopify's own OAuth endpoints
 // aren't nested under its REST API path either.
 app.use('/api/v1/oauth', makeProxy(COMMERCE_TARGET, 'commerce-service-oauth', false));
-// ZetSales Ads — a real standalone oauth-type app, own service/port/container.
-app.use('/api/v1/ads', makeProxy(ADS_TARGET, 'ads-service', false));
 
 // 404 Tracer for unknown routes
 if (process.env.NODE_ENV !== 'production') {

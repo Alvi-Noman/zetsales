@@ -1,9 +1,10 @@
 import type { AppManifestDTO } from '@zetsales/shared';
 
 // The single source of truth for every installable app — read by appsController's GET /apps and
-// by the frontend App Store page. fraudChecker/callCenter/adPerformance/customerService are
-// `embedded` (first-party, in-process); zetSalesAds is the first real `oauth`-type app, a
-// standalone service (see /ads) installed via the real OAuth 2.0 flow (oauthController.ts).
+// by the frontend App Store page. All five are `embedded` (first-party, in-process) today. The
+// oauth-type machinery (oauthController.ts, session tokens, AppBlock, webhooks, AppHostPage.tsx)
+// was proven working end-to-end with ZetSales Ads as a real standalone service, then kept in
+// place — deliberately unused — for whenever a real 3rd-party oauth app shows up.
 export const APP_MANIFESTS: AppManifestDTO[] = [
   {
     key: 'fraudChecker',
@@ -50,20 +51,13 @@ export const APP_MANIFESTS: AppManifestDTO[] = [
   {
     key: 'zetSalesAds',
     name: 'ZetSales Ads',
-    // A real standalone oauth-type app (services/../ads) — Facebook, TikTok, and Google
-    // ad-account connection, given its own app identity (own install flow, own future pricing)
-    // instead of being a generic platform integration. Installs via the real OAuth 2.0 flow
-    // (see oauthController.ts) and renders inside ZetSales via the generic /apps/:appKey iframe
-    // host, backed by /ads's own server-rendered UI.
     description: 'Connect your Facebook, TikTok, and Google Ads accounts to sync spend and campaigns automatically.',
     icon: 'rocket',
-    authType: 'oauth',
+    authType: 'embedded',
     isEmbeddedApp: true,
-    // admin.order-details.block: the first real extension target any oauth-type app has
-    // declared — proves AppBlock.tsx's iframe mechanism end-to-end (see ads/src/controllers/blockController.ts).
-    extensions: ['admin.order-details.block'],
-    homepageUrl: process.env.PUBLIC_ADS_URL || 'http://localhost:8081/api/v1/ads',
-    clientId: process.env.ADS_APP_CLIENT_ID,
+    extensions: [],
+    sidebarLabel: 'ZetSales Ads',
+    sidebarPath: '/zetsales-ads',
   },
 ];
 

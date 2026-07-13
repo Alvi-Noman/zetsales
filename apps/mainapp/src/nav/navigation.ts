@@ -17,6 +17,7 @@ import {
   Puzzle,
   ShieldCheck,
   Settings,
+  Rocket,
   type LucideIcon,
 } from 'lucide-react';
 import type { BusinessType, ModuleKey } from '@zetsales/shared';
@@ -87,6 +88,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: 'Delivery Partners', path: '/delivery-partners', icon: Truck, module: 'supplyChain' },
   { label: 'Customers', path: '/customers', icon: Users, module: 'customers' },
   { label: 'Ad Performance', path: '/ad-performance', icon: Megaphone, module: 'adPerformance' },
+  { label: 'ZetSales Ads', path: '/zetsales-ads', icon: Rocket, module: 'zetSalesAds' },
   { label: 'Accounting & Finance', path: '/accounting', icon: Landmark, module: 'accounting' },
   {
     label: 'Analytics',
