@@ -14,6 +14,12 @@ const SELF_URL = () => process.env.PUBLIC_ADS_URL || 'http://localhost:8081/api/
 // service already uses for its own database access (direct, no proxy hop needed inside the
 // compose network).
 const COMMERCE_URL = () => process.env.COMMERCE_SERVICE_URL || 'http://commerce-service:3002';
+// The webhook URL commerce-service's dispatchAppWebhook calls back into — must be the internal
+// compose-network address, not SELF_URL()'s public one: commerce-service trying to reach this
+// VPS's own public domain from inside a container hairpins back through the host's own NAT,
+// which most cloud providers block, and did here (ConnectTimeoutError). A genuinely external
+// 3rd-party server wouldn't hit this at all; it only affects a service co-hosted on the same box.
+const INTERNAL_SELF_URL = () => process.env.ADS_INTERNAL_URL || 'http://ads:3004';
 
 // Completes this app's own installation into a ZetSales tenant — the ZetSales-platform OAuth
 // (this service as the OAuth *client*, ZetSales as the *authorization server*), distinct from
@@ -50,7 +56,7 @@ export async function oauthCallback(req: Request, res: Response) {
     try {
       const webhookRes = await axios.post(
         `${COMMERCE_URL()}/api/v1/commerce/apps/zetSalesAds/webhooks`,
-        { webhookUrl: `${SELF_URL()}/webhooks/inbound`, topics: ['orders/confirmed'] },
+        { webhookUrl: `${INTERNAL_SELF_URL()}/api/v1/ads/webhooks/inbound`, topics: ['orders/confirmed'] },
         { headers: { Authorization: `Bearer ${access_token}` } }
       );
       const { webhookSecret } = webhookRes.data as { webhookSecret: string };
