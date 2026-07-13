@@ -2,20 +2,18 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowRight, Check, ChevronLeft,
-  Shirt, Laptop, Sparkles, Home, ShoppingBasket, Package,
-  ThumbsUp, Camera, MessageCircle, Globe, Store,
+  Factory, Ship, Store, Truck,
+  ThumbsUp, Camera, MessageCircle, Globe,
 } from 'lucide-react';
 import clsx from 'clsx';
 import type { BusinessType, SalesChannel } from '@zetsales/shared';
 import { useAuth } from '../../context/AuthContext';
 
-const BUSINESS_TYPE_OPTIONS: { value: BusinessType; label: string; icon: typeof Shirt }[] = [
-  { value: 'Fashion & Apparel', label: 'Fashion & Apparel', icon: Shirt },
-  { value: 'Electronics', label: 'Electronics', icon: Laptop },
-  { value: 'Beauty & Cosmetics', label: 'Beauty & Cosmetics', icon: Sparkles },
-  { value: 'Home & Living', label: 'Home & Living', icon: Home },
-  { value: 'Grocery & Food', label: 'Grocery & Food', icon: ShoppingBasket },
-  { value: 'Other', label: 'Something else', icon: Package },
+const BUSINESS_TYPE_OPTIONS: { value: BusinessType; label: string; icon: typeof Factory }[] = [
+  { value: 'I manufacture my own products', label: 'I manufacture my own products', icon: Factory },
+  { value: 'I import my products', label: 'I import my products', icon: Ship },
+  { value: 'I buy from local wholesalers', label: 'I buy from local wholesalers', icon: Store },
+  { value: 'I dropship — I never hold stock', label: 'I dropship — I never hold stock', icon: Truck },
 ];
 
 const CHANNEL_OPTIONS: { value: SalesChannel; label: string; icon: typeof Globe }[] = [
@@ -184,9 +182,9 @@ export function OnboardingPage() {
 
           {step === 'businessType' && (
             <div>
-              <h1 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">What does {businessLabel} sell?</h1>
+              <h1 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">How does {businessLabel} get its stock?</h1>
               <p className="mt-2.5 text-slate-500">Pick the closest match.</p>
-              <div className="mt-9 grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <div className="mt-9 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {BUSINESS_TYPE_OPTIONS.map((opt) => (
                   <OptionCard
                     key={opt.value}

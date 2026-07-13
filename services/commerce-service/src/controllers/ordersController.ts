@@ -6,14 +6,16 @@ import { decryptSecret } from '../utils/crypto.js';
 import { resolveRange, bucketDate, bucketLabel, bucketIndexExpr, type TrendGranularity, type TrendWindow } from '../utils/dateRange.js';
 import logger from '../utils/logger.js';
 import type { AuthenticatedRequest } from '../middleware/authMiddleware.js';
-import type { OrderDTO, OrderRiskDTO, OrderStage, RiskLabel } from '@zetsales/shared';
+import type { OrderDTO, OrderRiskDTO, OrderStage, RiskLabel, CourierStatusBucket } from '@zetsales/shared';
+import { COURIER_STATUS_BUCKETS, bucketForCourierStatus } from '@zetsales/shared';
 import { fetchShopifyOrderCount, fetchShopifyOrders } from '../integrations/shopifyClient.js';
 import { getValidShopifyAccessToken } from '../integrations/shopifyAuth.js';
 import { fetchWooOrders } from '../integrations/wooClient.js';
-import { applyInventoryStageEffect, checkFulfillmentReadiness, checkStockForConfirm, recordFulfillmentWarehouse, resolveInventoryState } from '../integrations/inventoryEffects.js';
+import { applyInventoryStageEffect, checkFulfillmentReadiness, checkStockForConfirm, recordFulfillmentWarehouse, resolveInventoryState, resolveLineItemStock } from '../integrations/inventoryEffects.js';
 import { createSteadfastConsignment } from '../integrations/steadfastClient.js';
 import { createPathaoOrder } from '../integrations/pathaoClient.js';
-import { getConnectedCourier, markCourierUsed, decryptSteadfastCredentials, decryptPathaoCredentials } from './couriersController.js';
+import { getConnectedCourier, markCourierUsed, decryptSteadfastCredentials, decryptPathaoCredentials, resolveCourierCharge, resolveCourierReturnCharge } from './couriersController.js';
+import { detectZoneTier } from '../integrations/zoneDetection.js';
 import { resolveActiveClaim, CLAIM_STALE_MS } from '../utils/claim.js';
 import {
   mapShopifyOrderStage,
@@ -45,6 +47,7 @@ function toOrderDto(doc: any): OrderDTO {
     subtotal: doc.subtotal ?? doc.total,
     shippingFee: doc.shippingFee ?? 0,
     discount: doc.discount ?? 0,
+    advanceAmount: doc.advanceAmount ?? 0,
     total: doc.total,
     currency: doc.currency,
     tags: doc.tags ?? [],
@@ -57,6 +60,10 @@ function toOrderDto(doc: any): OrderDTO {
     holdReason: doc.holdReason ?? null,
     cancelReason: doc.cancelReason ?? null,
     flagReason: doc.flagReason ?? null,
+    splitFromOrderId: doc.splitFromOrderId ?? null,
+    splitFromOrderNumber: doc.splitFromOrderNumber ?? null,
+    splitIntoOrderId: doc.splitIntoOrderId ?? null,
+    splitIntoOrderNumber: doc.splitIntoOrderNumber ?? null,
     note: doc.note ?? null,
     rescheduledFor: doc.rescheduledFor ? new Date(doc.rescheduledFor).toISOString() : null,
     isPriorityCall: doc.isPriorityCall ?? false,
@@ -68,6 +75,9 @@ function toOrderDto(doc: any): OrderDTO {
     courierStatus: doc.courierStatus ?? null,
     courierSyncedAt: doc.courierSyncedAt ? new Date(doc.courierSyncedAt).toISOString() : null,
     courierCharge: doc.courierCharge ?? null,
+    courierReturnCharge: doc.courierReturnCharge ?? null,
+    courierZoneTier: doc.courierZoneTier ?? null,
+    courierSpeed: doc.courierSpeed ?? null,
     deliveryZone: doc.deliveryZone ?? null,
     callAttempts: doc.callAttempts ?? 0,
     history: (doc.history ?? []).map((h: any) => ({ label: h.label, detail: h.detail, at: new Date(h.at).toISOString(), by: h.by ?? null })),
@@ -77,6 +87,7 @@ function toOrderDto(doc: any): OrderDTO {
     cogsTotal: doc.cogsTotal ?? null,
     createdAt: new Date(doc.createdAt).toISOString(),
     updatedAt: new Date(doc.updatedAt).toISOString(),
+    printedAt: doc.printedAt ? new Date(doc.printedAt).toISOString() : null,
     ...resolveActiveClaim(doc),
   };
 }
@@ -128,6 +139,9 @@ const SEED_FIELDS = {
   courierConsignmentId: null,
   courierStatus: null,
   courierSyncedAt: null,
+  courierCharge: null,
+  courierReturnCharge: null,
+  courierSpeed: 'regular' as const,
   deliveryZone: null,
   heldFromStage: null,
   returnLocation: null,
@@ -189,7 +203,10 @@ export async function upsertShopifyOrder(tenantId: string, storeId: string, orde
   // MongoDB rejects the whole operation with a path-conflict error even though only one of them
   // would ever actually apply to a given document (insert vs. an existing doc's stage changing).
   // Only include history in $setOnInsert when this really is a fresh insert.
-  const setOnInsert: Record<string, unknown> = { tenantId, storeId, externalId: String(order.id), platform: 'shopify', ...SEED_FIELDS };
+  const setOnInsert: Record<string, unknown> = {
+    tenantId, storeId, externalId: String(order.id), platform: 'shopify', ...SEED_FIELDS,
+    courierZoneTier: detectZoneTier((setFields.address as string) ?? ''),
+  };
   if (!existing) setOnInsert.history = [{ label: 'Order placed', detail: 'Synced from Shopify', at: new Date(order.created_at) }];
 
   const update: Record<string, unknown> = { $set: setFields, $setOnInsert: setOnInsert };
@@ -259,7 +276,10 @@ export async function upsertWooOrder(tenantId: string, storeId: string, order: W
 
   // See the identical comment in upsertShopifyOrder above — $setOnInsert and $push can't both
   // target 'history' in one update without MongoDB rejecting it as a path conflict.
-  const setOnInsert: Record<string, unknown> = { tenantId, storeId, externalId: String(order.id), platform: 'woocommerce', ...SEED_FIELDS };
+  const setOnInsert: Record<string, unknown> = {
+    tenantId, storeId, externalId: String(order.id), platform: 'woocommerce', ...SEED_FIELDS,
+    courierZoneTier: detectZoneTier((setFields.address as string) ?? ''),
+  };
   if (!existing) setOnInsert.history = [{ label: 'Order placed', detail: 'Synced from WooCommerce', at: new Date(order.date_created_gmt || order.date_created) }];
 
   const update: Record<string, unknown> = { $set: setFields, $setOnInsert: setOnInsert };
@@ -495,6 +515,8 @@ export async function listOrders(req: AuthenticatedRequest, res: Response) {
   if (typeof req.query.courierPartner === 'string' && req.query.courierPartner.trim()) {
     const escaped = req.query.courierPartner.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     match.courierPartner = new RegExp(escaped, 'i');
+  } else if (req.query.hasCourierPartner === 'true') {
+    match.courierPartner = { $ne: null };
   }
 
   const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
@@ -502,6 +524,57 @@ export async function listOrders(req: AuthenticatedRequest, res: Response) {
     const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const re = new RegExp(escaped, 'i');
     match.$or = [{ number: re }, { customerName: re }, { customerPhone: re }];
+  }
+
+  // "Ready to pack" / "short on stock" — same free-stock-by-SKU computation the frontend badge
+  // already uses (best-stocked location per SKU, untracked SKU always reads as ready), not the
+  // stricter per-variant `resolveLineItemStock` the confirm/pack gates use — this has to agree with
+  // what staff already see on each row, or the filter would silently disagree with the badge.
+  // Pagination has to stay correct across the whole matching set, not just the current page, so
+  // this narrows `match._id` up front rather than filtering after the fact.
+  const stockStatus = typeof req.query.stockStatus === 'string' ? req.query.stockStatus : 'all';
+  if (stockStatus === 'ready' || stockStatus === 'short') {
+    const levels = await db.collection('inventoryLevels').find({ tenantId }, { projection: { sku: 1, onHand: 1, reserved: 1 } }).toArray();
+    const freeBySku = new Map<string, number>();
+    for (const level of levels) {
+      if (!level.sku) continue;
+      const free = Math.max(0, (level.onHand ?? 0) - (level.reserved ?? 0));
+      const prev = freeBySku.get(level.sku);
+      if (prev === undefined || free > prev) freeBySku.set(level.sku, free);
+    }
+    const candidates = await db.collection('orders').find(match, { projection: { lineItems: 1 } }).toArray();
+    const matchedIds = candidates
+      .filter((o) => {
+        const hasShortfall = (o.lineItems ?? []).some((item: { sku: string | null; quantity: number }) => {
+          if (!item.sku) return false;
+          const free = freeBySku.get(item.sku);
+          return free !== undefined && free < item.quantity;
+        });
+        return stockStatus === 'short' ? hasShortfall : !hasShortfall;
+      })
+      .map((o) => o._id);
+    match._id = { $in: matchedIds };
+  }
+
+  // Delivery Partners dashboard's tile filter — same candidate-fetch-then-narrow-_id shape as the
+  // stockStatus block above, bucketed off the raw courierStatus text via bucketForCourierStatus
+  // (see @zetsales/shared) rather than `stage`, since OrderStage can't distinguish several distinct
+  // courier states. NOTE: like the stockStatus block, this clobbers rather than intersects an
+  // already-narrowed match._id — harmless today since no caller sends both filters at once.
+  if (typeof req.query.courierStatusBucket === 'string' && req.query.courierStatusBucket.trim()) {
+    const requested = new Set(
+      req.query.courierStatusBucket
+        .split(',')
+        .map((b) => b.trim())
+        .filter((b): b is CourierStatusBucket => (COURIER_STATUS_BUCKETS as readonly string[]).includes(b))
+    );
+    if (requested.size > 0) {
+      const candidates = await db.collection('orders').find(match, { projection: { courierPartner: 1, courierStatus: 1 } }).toArray();
+      const matchedIds = candidates
+        .filter((o) => requested.has(bucketForCourierStatus(o.courierPartner ?? null, o.courierStatus ?? null)))
+        .map((o) => o._id);
+      match._id = { $in: matchedIds };
+    }
   }
 
   const sortKey = typeof req.query.sortKey === 'string' && req.query.sortKey in SORT_FIELD_MAP ? req.query.sortKey : 'date';
@@ -527,6 +600,42 @@ export async function listOrders(req: AuthenticatedRequest, res: Response) {
   const total = result?.totalCount?.[0]?.count ?? 0;
 
   res.json({ success: true, orders, total, page, pageSize });
+}
+
+// Confirmed/Processing orders nobody has printed an invoice/slip/label for yet — a fixed filter,
+// not a general-purpose tab, so this stays a dedicated endpoint rather than another TAB_KEYS entry.
+// `printedAt: null` matches both "field never set" and "explicitly null" in Mongo, which is exactly
+// "never printed" for every order that existed before this field did, and every one created since.
+export async function getReadyToPrintOrders(req: AuthenticatedRequest, res: Response) {
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const match = { tenantId, stage: { $in: ['Confirmed', 'Processing'] }, printedAt: null };
+
+  const total = await db.collection('orders').countDocuments(match);
+  const docs = await db.collection('orders').find(match).sort({ createdAt: 1 }).limit(300).toArray();
+  await attachLineItemImages(db, tenantId, docs);
+  const orders = docs.map(toOrderDto);
+  await attachBlockedFlags(db, tenantId, orders);
+
+  res.json({ success: true, orders, total });
+}
+
+const markPrintedSchema = z.object({ orderIds: z.array(z.string().min(1)).min(1) });
+
+// Stamped the moment a print actually fires (see PrintOrderModal.tsx / CourierLabelModal.tsx), not
+// when a print dialog merely opens — a cancelled print shouldn't silently drop an order out of the
+// ready-to-pack count.
+export async function markOrdersPrinted(req: AuthenticatedRequest, res: Response) {
+  const parsed = markPrintedSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, message: 'orderIds is required.' });
+    return;
+  }
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const ids = parsed.data.orderIds.filter((id) => ObjectId.isValid(id)).map((id) => new ObjectId(id));
+  await db.collection('orders').updateMany({ _id: { $in: ids }, tenantId }, { $set: { printedAt: new Date() } });
+  res.json({ success: true });
 }
 
 // "Is this KPI trending up or down" — measured as orders *placed* in the last 7 days that match
@@ -688,6 +797,34 @@ export async function getOrderStats(req: AuthenticatedRequest, res: Response) {
   });
 }
 
+// Powers the Delivery Partners dashboard's status tiles — same "recompute alongside the filtered
+// list" shape as getOrderStats/tabCounts above, but bucketed off the raw courierStatus text rather
+// than stage (see bucketForCourierStatus in @zetsales/shared): OrderStage collapses several distinct
+// courier states into one stage and can't tell them apart for this view. In-Node counting rather
+// than a Mongo $facet — fine at expected per-tenant shipment volumes.
+export async function getCourierShipmentStats(req: AuthenticatedRequest, res: Response) {
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const match: Record<string, unknown> = { tenantId, courierPartner: { $ne: null } };
+  if (typeof req.query.storeId === 'string' && req.query.storeId !== 'all') match.storeId = req.query.storeId;
+  if (typeof req.query.courierPartner === 'string' && req.query.courierPartner.trim()) {
+    const escaped = req.query.courierPartner.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    match.courierPartner = new RegExp(escaped, 'i');
+  }
+  if (typeof req.query.dateFrom === 'string' || typeof req.query.dateTo === 'string') {
+    const range: Record<string, Date> = {};
+    if (typeof req.query.dateFrom === 'string') range.$gte = new Date(req.query.dateFrom);
+    if (typeof req.query.dateTo === 'string') range.$lte = new Date(req.query.dateTo);
+    match.createdAt = range;
+  }
+
+  const docs = await db.collection('orders').find(match, { projection: { courierPartner: 1, courierStatus: 1 } }).toArray();
+  const bucketCounts = Object.fromEntries(COURIER_STATUS_BUCKETS.map((b) => [b, 0])) as Record<CourierStatusBucket, number>;
+  for (const doc of docs) bucketCounts[bucketForCourierStatus(doc.courierPartner ?? null, doc.courierStatus ?? null)] += 1;
+
+  res.json({ success: true, total: docs.length, bucketCounts });
+}
+
 async function fetchTrendSeries(baseMatch: Record<string, unknown>, window: TrendWindow, granularity: TrendGranularity, bucketCount: number) {
   const db = getDb();
   const agg = await db
@@ -842,9 +979,11 @@ const createOrderSchema = z.object({
   customerEmail: z.string().trim().max(200).nullable().optional(),
   address: z.string().trim().max(500).nullable().optional(),
   deliveryZone: z.string().trim().max(100).nullable().optional(),
+  courierSpeed: z.enum(['regular', 'express']).default('regular'),
   paymentMethod: z.enum(['Cash on Delivery', 'bKash', 'Nagad', 'Rocket', 'Card', 'Other']),
   shippingFee: z.number().nonnegative().default(0),
   discount: z.number().nonnegative().default(0),
+  advanceAmount: z.number().nonnegative().default(0),
   lineItems: z.array(z.object({ productId: z.string().min(1), variantId: z.string().min(1), quantity: z.number().int().min(1).max(50) })).min(1),
 });
 
@@ -919,11 +1058,13 @@ export async function createOrder(req: AuthenticatedRequest, res: Response) {
     stage: blocked ? 'Cancelled' : 'Pending',
     stageSource: 'manual',
     heldFromStage: null,
-    paymentStatus: data.paymentMethod === 'Cash on Delivery' ? 'COD Pending' : 'Paid',
+    paymentStatus:
+      data.paymentMethod === 'Cash on Delivery' ? (data.advanceAmount > 0 ? 'Advance Paid' : 'COD Pending') : 'Paid',
     paymentMethod: data.paymentMethod,
     subtotal,
     shippingFee: data.shippingFee,
     discount: data.discount,
+    advanceAmount: data.advanceAmount,
     total,
     currency: 'BDT',
     tags: ['Manual'],
@@ -946,6 +1087,9 @@ export async function createOrder(req: AuthenticatedRequest, res: Response) {
     courierStatus: null,
     courierSyncedAt: null,
     courierCharge: null,
+    courierReturnCharge: null,
+    courierZoneTier: detectZoneTier(data.address ?? ''),
+    courierSpeed: data.courierSpeed,
     deliveryZone: data.deliveryZone ?? null,
     callAttempts: 0,
     history,
@@ -995,9 +1139,12 @@ const updateOrderSchema = z.object({
   courierPartner: z.enum(['Steadfast', 'Pathao']).nullable().optional(),
   courierTrackingId: z.string().trim().max(100).nullable().optional(),
   courierCharge: z.number().nonnegative().nullable().optional(),
+  courierZoneTier: z.enum(['inside', 'outside', 'suburb']).nullable().optional(),
+  courierSpeed: z.enum(['regular', 'express']).nullable().optional(),
   deliveryZone: z.string().trim().max(100).nullable().optional(),
   shippingFee: z.number().nonnegative().optional(),
   discount: z.number().nonnegative().optional(),
+  advanceAmount: z.number().nonnegative().optional(),
   incrementCallAttempt: z.boolean().optional(),
   callOutcome: z.enum(CALL_OUTCOMES).optional(),
   customerName: z.string().trim().min(1).max(200).optional(),
@@ -1014,6 +1161,13 @@ function buildOrderUpdate(current: any, patch: UpdateOrderPatch, actor: string |
   const { stage, resume, incrementCallAttempt, callOutcome, ...rest } = patch;
   const now = new Date();
   const setFields: Record<string, unknown> = { ...rest, updatedAt: now };
+
+  // Editing the address without also touching the zone tier in the same request re-runs the
+  // auto-detector, so the suggestion keeps tracking a corrected address — but never overwrites a
+  // tier staff picked explicitly (courierZoneTier present in this same patch always wins).
+  if (patch.address !== undefined && patch.courierZoneTier === undefined) {
+    setFields.courierZoneTier = detectZoneTier(patch.address ?? '');
+  }
 
   // Shipping fee and discount are the only two manual inputs that affect the total — recompute it
   // whenever either changes so "Total" (and "COD to collect") never goes stale relative to what's
@@ -1032,6 +1186,29 @@ function buildOrderUpdate(current: any, patch: UpdateOrderPatch, actor: string |
     const previousTotal = current.total ?? 0;
     if (Math.round(nextTotal * 100) !== Math.round(previousTotal * 100)) {
       codChangeEntry = { label: 'COD amount changed', detail: `৳${previousTotal.toFixed(2)} → ৳${nextTotal.toFixed(2)}`, at: now, by: actor };
+    }
+  }
+
+  // Recording (or clearing) an advance doesn't touch `total` — it's money already in hand against
+  // that total, not a change to what the order is worth. It does make the existing 'Advance Paid'
+  // status meaningful for a manually-created/COD order for the first time: a fresh advance flips
+  // COD Pending -> Advance Paid, and clearing it back to 0 reverts that — but only that one pair;
+  // any other status (Paid/Collected/Refunded/Failed) is left alone.
+  let advanceChangeEntry: { label: string; detail: string; at: Date; by: string | null } | null = null;
+  if (patch.advanceAmount !== undefined) {
+    const previousAdvance = current.advanceAmount ?? 0;
+    if (Math.round(patch.advanceAmount * 100) !== Math.round(previousAdvance * 100)) {
+      advanceChangeEntry = {
+        label: 'Advance updated',
+        detail: `৳${previousAdvance.toFixed(2)} → ৳${patch.advanceAmount.toFixed(2)}`,
+        at: now,
+        by: actor,
+      };
+    }
+    if (patch.advanceAmount > 0 && current.paymentStatus === 'COD Pending') {
+      setFields.paymentStatus = 'Advance Paid';
+    } else if (patch.advanceAmount === 0 && current.paymentStatus === 'Advance Paid') {
+      setFields.paymentStatus = 'COD Pending';
     }
   }
 
@@ -1091,7 +1268,9 @@ function buildOrderUpdate(current: any, patch: UpdateOrderPatch, actor: string |
   // ever recording the last one, so time-to-first-contact and per-outcome breakdowns both stay
   // reconstructable from history alone.
   const callEntry = incrementCallAttempt ? { label: 'Call attempt', detail: callOutcome ?? 'No outcome recorded', at: now, by: actor } : null;
-  const historyEntries = [historyEntry, callEntry, codChangeEntry, contactChangeEntry].filter((e): e is NonNullable<typeof e> => e !== null);
+  const historyEntries = [historyEntry, callEntry, codChangeEntry, advanceChangeEntry, contactChangeEntry].filter(
+    (e): e is NonNullable<typeof e> => e !== null
+  );
 
   const update: Record<string, unknown> = { $set: setFields };
   if (historyEntries.length > 0) update.$push = { history: { $each: historyEntries } };
@@ -1203,9 +1382,18 @@ export async function updateOrder(req: AuthenticatedRequest, res: Response) {
       result.cogsTotal = (result.cogsTotal ?? 0) + cogsDelta;
     }
     await recordFulfillmentWarehouse({ _id: result._id, tenantId }, fromState, warehouse);
+    if (fromState === 'none' && warehouse && !result.fulfillmentWarehouseId) {
+      result.fulfillmentWarehouseId = warehouse.warehouseId;
+      result.fulfillmentWarehouseName = warehouse.warehouseName;
+    }
   }
   if (result.stage === 'Shipped' && current.stage !== 'Shipped') {
-    await dispatchCourierConsignment(tenantId, result);
+    const dispatched = await dispatchCourierConsignment(tenantId, result);
+    if (dispatched) Object.assign(result, dispatched);
+  }
+  if (result.stage === 'Returned' && current.stage !== 'Returned') {
+    const returned = await applyCourierReturnCharge(tenantId, result);
+    if (returned) Object.assign(result, returned);
   }
 
   const dto = toOrderDto(result);
@@ -1282,6 +1470,176 @@ export async function upsellOrder(req: AuthenticatedRequest, res: Response) {
   const dto = toOrderDto(result);
   await attachBlockedFlags(db, tenantId, [dto]);
   res.json({ success: true, order: dto });
+}
+
+// Optional split for a mixed-stock order, usable from three points: a plain Pending/Flagged
+// confirm, or a Confirmed order discovered to be mixed at "send to packing" time (see the bulk
+// stock-resolution popup — orders/OrdersPage.tsx and PrintOrderModal.tsx). This partitions
+// lineItems by real stock, atomically per item (if any part of an item's quantity is short, the
+// whole item moves) into two separate orders, both Confirmed: this order keeps just the in-stock
+// items, and a new order is created for the out-of-stock items. That new order behaves exactly
+// like any other Confirmed order with a stock shortfall — it shows up short in Confirmed Orders
+// and in the Pre-Orders shortfall view (both already key off the Confirmed stage), and once it's
+// restocked it just gets sent to packing like any other order. No separate stage, no re-confirm
+// step.
+export async function splitOrder(req: AuthenticatedRequest, res: Response) {
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const current = await db.collection('orders').findOne({ _id: new ObjectId(req.params.id), tenantId });
+  if (!current) {
+    res.status(404).json({ success: false, message: 'Order not found' });
+    return;
+  }
+  if (!['Pending', 'Flagged', 'Confirmed'].includes(current.stage)) {
+    res.status(400).json({ success: false, message: 'Only an unconfirmed or Confirmed order can be split.' });
+    return;
+  }
+
+  const lineItems: { title: string; variant: string | null; quantity: number; price: number; sku: string | null; image: string | null }[] =
+    current.lineItems ?? [];
+  const readyItems: typeof lineItems = [];
+  const shortItems: typeof lineItems = [];
+  for (const item of lineItems) {
+    const resolution = await resolveLineItemStock(db, tenantId, item);
+    const free = resolution ? Math.max(0, resolution.free) : Infinity; // untracked SKU has no stock concept — never short
+    if (free >= item.quantity) readyItems.push(item);
+    else shortItems.push(item);
+  }
+
+  if (shortItems.length === 0 || readyItems.length === 0) {
+    res.status(400).json({
+      success: false,
+      message: shortItems.length === 0 ? 'Every item on this order is in stock — nothing to split.' : 'No item on this order is in stock yet.',
+    });
+    return;
+  }
+
+  const now = new Date();
+  const actor = req.user!.email;
+  const newOrderNumber = await nextManualOrderNumber(tenantId);
+
+  // Splitting a still-unconfirmed order reserves both halves fresh, exactly like a normal
+  // Pending/Flagged -> Confirmed transition. Splitting an already-Confirmed order (the "send to
+  // packing" case) needs none of that — every line item was already reserved once, in aggregate,
+  // when this order first confirmed; re-partitioning which order *document* holds which line item
+  // doesn't change any inventoryLevels count, so both halves just carry the existing
+  // fulfillmentWarehouse attribution forward instead of triggering a second reservation.
+  const wasAlreadyConfirmed = current.stage === 'Confirmed';
+  const fromState = resolveInventoryState(current.stage, current.heldFromStage);
+  const { cogsDelta, warehouse } = wasAlreadyConfirmed
+    ? { cogsDelta: 0, warehouse: null }
+    : await applyInventoryStageEffect(tenantId, readyItems, fromState, 'reserved');
+  const { cogsDelta: newCogsDelta, warehouse: newWarehouse } = wasAlreadyConfirmed
+    ? { cogsDelta: 0, warehouse: null }
+    : await applyInventoryStageEffect(tenantId, shortItems, 'none', 'reserved');
+
+  const readySubtotal = readyItems.reduce((sum, li) => sum + li.price * li.quantity, 0);
+  const readyTotal = Math.max(0, readySubtotal + (current.shippingFee ?? 0) - (current.discount ?? 0));
+  const shortSubtotal = shortItems.reduce((sum, li) => sum + li.price * li.quantity, 0);
+  const newOrderDoc = {
+    tenantId,
+    storeId: current.storeId,
+    platform: current.platform,
+    externalId: `split-${new ObjectId().toString()}`,
+    number: newOrderNumber,
+    stage: 'Confirmed' as const,
+    stageSource: 'manual',
+    heldFromStage: null,
+    paymentStatus: current.paymentMethod === 'Cash on Delivery' ? 'COD Pending' : 'Paid',
+    paymentMethod: current.paymentMethod,
+    subtotal: shortSubtotal,
+    shippingFee: 0,
+    discount: 0,
+    total: shortSubtotal,
+    currency: current.currency,
+    tags: ['Split'],
+    customerName: current.customerName,
+    customerPhone: current.customerPhone,
+    customerAltPhone: current.customerAltPhone ?? null,
+    customerEmail: current.customerEmail ?? null,
+    address: current.address ?? null,
+    lineItems: shortItems,
+    holdReason: null,
+    cancelReason: null,
+    flagReason: null,
+    splitFromOrderId: current._id.toString(),
+    splitFromOrderNumber: current.number,
+    splitIntoOrderId: null,
+    splitIntoOrderNumber: null,
+    note: null,
+    rescheduledFor: null,
+    isPriorityCall: false,
+    priorityNote: null,
+    courierPartner: null,
+    courierTrackingId: null,
+    courierConsignmentId: null,
+    courierStatus: null,
+    courierSyncedAt: null,
+    courierCharge: null,
+    courierReturnCharge: null,
+    courierZoneTier: current.courierZoneTier ?? null,
+    courierSpeed: current.courierSpeed ?? null,
+    deliveryZone: current.deliveryZone ?? null,
+    callAttempts: 0,
+    history: [{ label: 'Confirmed', detail: `Split from #${current.number}`, at: now, by: actor }],
+    returnLocation: null,
+    // Already-Confirmed splits carry the existing attribution forward (nothing to re-derive); a
+    // fresh split's new order gets whatever recordFulfillmentWarehouse resolves below.
+    fulfillmentWarehouseId: wasAlreadyConfirmed ? current.fulfillmentWarehouseId ?? null : null,
+    fulfillmentWarehouseName: wasAlreadyConfirmed ? current.fulfillmentWarehouseName ?? null : null,
+    cogsTotal: newCogsDelta !== 0 ? newCogsDelta : null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const insertResult = await db.collection('orders').insertOne(newOrderDoc as any);
+  if (!wasAlreadyConfirmed) {
+    await recordFulfillmentWarehouse({ _id: insertResult.insertedId, tenantId }, 'none', newWarehouse);
+    if (newWarehouse) {
+      newOrderDoc.fulfillmentWarehouseId = newWarehouse.warehouseId;
+      newOrderDoc.fulfillmentWarehouseName = newWarehouse.warehouseName;
+    }
+  }
+
+  const originalUpdate: Record<string, unknown> = {
+    $set: {
+      lineItems: readyItems,
+      subtotal: readySubtotal,
+      total: readyTotal,
+      stage: 'Confirmed',
+      stageSource: 'manual',
+      splitIntoOrderId: insertResult.insertedId.toString(),
+      splitIntoOrderNumber: newOrderNumber,
+      updatedAt: now,
+    },
+    $push: {
+      history: {
+        label: 'Confirmed',
+        detail: `Split — ${shortItems.length} item${shortItems.length === 1 ? '' : 's'} moved to a separate order #${newOrderNumber}`,
+        at: now,
+        by: actor,
+      },
+    },
+  };
+  const updatedOriginal = await db.collection('orders').findOneAndUpdate({ _id: current._id, tenantId }, originalUpdate, { returnDocument: 'after' });
+  if (!updatedOriginal) {
+    res.status(404).json({ success: false, message: 'Order not found' });
+    return;
+  }
+  if (cogsDelta !== 0) {
+    await db.collection('orders').updateOne({ _id: updatedOriginal._id }, { $inc: { cogsTotal: cogsDelta } });
+    updatedOriginal.cogsTotal = (updatedOriginal.cogsTotal ?? 0) + cogsDelta;
+  }
+  await recordFulfillmentWarehouse({ _id: updatedOriginal._id, tenantId }, fromState, warehouse);
+  if (fromState === 'none' && warehouse && !updatedOriginal.fulfillmentWarehouseId) {
+    updatedOriginal.fulfillmentWarehouseId = warehouse.warehouseId;
+    updatedOriginal.fulfillmentWarehouseName = warehouse.warehouseName;
+  }
+
+  const newOrderDocWithId = { ...newOrderDoc, _id: insertResult.insertedId };
+  const originalDto = toOrderDto(updatedOriginal);
+  const createdDto = toOrderDto(newOrderDocWithId);
+  await attachBlockedFlags(db, tenantId, [originalDto, createdDto]);
+  res.json({ success: true, original: originalDto, created: createdDto });
 }
 
 // Advisory lock: an agent opening an order to work it claims it so nobody else dials the same
@@ -1586,7 +1944,12 @@ export async function bulkUpdateOrders(req: AuthenticatedRequest, res: Response)
         await recordFulfillmentWarehouse({ _id: result._id, tenantId }, fromState, warehouse);
       }
       if (result && result.stage === 'Shipped' && current.stage !== 'Shipped') {
-        await dispatchCourierConsignment(tenantId, result);
+        const dispatched = await dispatchCourierConsignment(tenantId, result);
+        if (dispatched) Object.assign(result, dispatched);
+      }
+      if (result && result.stage === 'Returned' && current.stage !== 'Returned') {
+        const returned = await applyCourierReturnCharge(tenantId, result);
+        if (returned) Object.assign(result, returned);
       }
       results.push({ orderId, success: true });
     } catch (err) {
@@ -1602,18 +1965,24 @@ export async function bulkUpdateOrders(req: AuthenticatedRequest, res: Response)
 // set on the order. Soft-fails on purpose: a missing credential or a courier-side error shouldn't
 // block the order from shipping locally, it just means that particular order falls back to manual
 // courier tracking (the courierPartner/courierTrackingId fields staff can still edit by hand).
-async function dispatchCourierConsignment(tenantId: string, order: any) {
-  if (!order.courierPartner || order.courierConsignmentId) return;
+// Returns the fields it wrote (or null if it didn't dispatch) so callers can merge them into the
+// response they already built — the DB write here happens after that response's source document
+// was read, so without merging, the reply to "mark shipped" would show stale (pre-dispatch) data
+// even though a follow-up fetch is correct.
+async function dispatchCourierConsignment(tenantId: string, order: any): Promise<Record<string, unknown> | null> {
+  if (!order.courierPartner || order.courierConsignmentId) return null;
 
   try {
     const codAmount = order.paymentMethod === 'Cash on Delivery' ? order.total : 0;
+    const zoneTier = order.courierZoneTier ?? 'outside';
+    const speed = order.courierSpeed ?? 'regular';
     let consignmentId: string;
     let trackingCode: string | null = null;
     let chargeRate: number | null = null;
 
     if (order.courierPartner === 'Steadfast') {
       const courier = await getConnectedCourier(tenantId, 'steadfast');
-      if (!courier) return;
+      if (!courier) return null;
       const result = await createSteadfastConsignment(decryptSteadfastCredentials(courier), {
         invoice: order.number,
         recipientName: order.customerName ?? 'Customer',
@@ -1623,47 +1992,67 @@ async function dispatchCourierConsignment(tenantId: string, order: any) {
       });
       consignmentId = result.consignmentId;
       trackingCode = result.trackingCode;
-      chargeRate = courier.deliveryChargeRate ?? null;
+      chargeRate = resolveCourierCharge(courier, zoneTier, speed);
       await markCourierUsed(courier._id);
     } else if (order.courierPartner === 'Pathao') {
       const courier = await getConnectedCourier(tenantId, 'pathao');
-      if (!courier) return;
+      if (!courier) return null;
       const result = await createPathaoOrder(decryptPathaoCredentials(courier), {
         invoice: order.number,
         recipientName: order.customerName ?? 'Customer',
         recipientPhone: order.customerPhone ?? '',
         recipientAddress: order.address ?? '',
         codAmount,
+        speed,
       });
       consignmentId = result.consignmentId;
       // Pathao's create-order response has no separate tracking field — merchants and customers
       // both track a Pathao parcel by its consignment id, so that's the value that belongs in
       // courierTrackingId too (otherwise it stays null forever for every Pathao order, unlike Steadfast).
       trackingCode = result.consignmentId;
-      chargeRate = courier.deliveryChargeRate ?? null;
+      chargeRate = resolveCourierCharge(courier, zoneTier, speed);
       await markCourierUsed(courier._id);
     } else {
-      return;
+      return null;
     }
 
+    const updateFields = {
+      courierConsignmentId: consignmentId,
+      courierTrackingId: trackingCode ?? order.courierTrackingId ?? null,
+      courierStatus: 'pending',
+      courierSyncedAt: new Date(),
+      // Snapshotted now, not looked up later — a rate change afterward shouldn't rewrite what
+      // this specific order was actually charged.
+      courierCharge: chargeRate,
+    };
     const db = getDb();
-    await db.collection('orders').updateOne(
-      { _id: order._id, tenantId },
-      {
-        $set: {
-          courierConsignmentId: consignmentId,
-          courierTrackingId: trackingCode ?? order.courierTrackingId ?? null,
-          courierStatus: 'pending',
-          courierSyncedAt: new Date(),
-          // Snapshotted now, not looked up later — a rate change afterward shouldn't rewrite what
-          // this specific order was actually charged.
-          courierCharge: chargeRate,
-        },
-      }
-    );
+    await db.collection('orders').updateOne({ _id: order._id, tenantId }, { $set: updateFields });
+    return updateFields;
   } catch (err) {
     logger.warn(`[courier] auto-consignment creation failed for order ${order._id?.toString()} via ${order.courierPartner} — order still ships locally: ${(err as Error).message}`);
+    return null;
   }
+}
+
+// Fires once per order the moment it's marked Returned — snapshots what the courier charges back
+// for a failed delivery, the same "snapshot now, don't rewrite it later" reasoning as courierCharge
+// above. Only applies to orders that actually made it to a courier (a consignment exists); an order
+// cancelled before ever shipping never cost the courier anything to begin with. Returns the field it
+// wrote (or null if it didn't) so callers can merge it into an already-built response — see the
+// matching comment on dispatchCourierConsignment.
+async function applyCourierReturnCharge(tenantId: string, order: any): Promise<Record<string, unknown> | null> {
+  if (!order.courierPartner || !order.courierConsignmentId || order.courierReturnCharge != null) return null;
+
+  const provider = order.courierPartner === 'Steadfast' ? 'steadfast' : order.courierPartner === 'Pathao' ? 'pathao' : null;
+  if (!provider) return null;
+  const courier = await getConnectedCourier(tenantId, provider);
+  if (!courier) return null;
+
+  const returnCharge = resolveCourierReturnCharge(courier, order.courierZoneTier ?? 'outside');
+  const updateFields = { courierReturnCharge: returnCharge };
+  const db = getDb();
+  await db.collection('orders').updateOne({ _id: order._id, tenantId }, { $set: updateFields });
+  return updateFields;
 }
 
 // A courier is only ever allowed to move an order while it's within the courier's own leg of the

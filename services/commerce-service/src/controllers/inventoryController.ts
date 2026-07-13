@@ -13,7 +13,7 @@ const countSchema = z.object({
   warehouseName: z.string().trim().min(1),
   bin: z.string().trim().min(1),
   quantity: z.number().int().nonnegative(),
-  reason: z.enum(['Opening balance', 'Cycle count', 'Manual adjustment', 'Damaged stock', 'Lost', 'Wrong entry', 'Found stock']),
+  reason: z.enum(['Opening balance', 'Restock', 'Cycle count', 'Manual adjustment', 'Damaged stock', 'Lost', 'Wrong entry', 'Found stock', 'Gift/Giveaway']),
   // Same landed-cost breakdown as an incoming shipment (unit price + shipping + duties) — an
   // Opening balance is still real stock with a real cost, just not framed as "a shipment."
   unitPrice: z.number().nonnegative().optional(),
@@ -63,8 +63,13 @@ const supplierSchema = z.object({
   name: z.string().trim().min(1),
   phone: z.string().trim().optional().or(z.literal('')),
   email: z.string().trim().email().optional().or(z.literal('')),
-  leadTimeDays: z.number().int().nonnegative().optional(),
-  paymentTerms: z.string().trim().optional().or(z.literal('')),
+  // Optional at this shared-schema level (not required) because this same schema also backs the
+  // quick "type a new supplier name" inline picker in the Incoming Stock/Opening balance modals,
+  // which only ever submits `name` — the Suppliers page's own Add/Edit forms enforce these as
+  // required client-side instead, matching how `name` itself is only enforced client-side there too.
+  contactPersonName: z.string().trim().optional().or(z.literal('')),
+  designation: z.string().trim().optional().or(z.literal('')),
+  billingAddress: z.string().trim().optional().or(z.literal('')),
   // Defaults to 'prepaid' — the common case for this system's actual users (COD sellers typically
   // pay a supplier upfront before a shipment ships), not 'credit' (money owed, unpaid). This is what
   // lets "committed to suppliers" reporting split real liabilities from already-spent cash sitting
@@ -135,8 +140,9 @@ function supplierDto(doc: any) {
     name: doc.name,
     phone: doc.phone ?? null,
     email: doc.email ?? null,
-    leadTimeDays: doc.leadTimeDays ?? null,
-    paymentTerms: doc.paymentTerms ?? null,
+    contactPersonName: doc.contactPersonName ?? null,
+    designation: doc.designation ?? null,
+    billingAddress: doc.billingAddress ?? null,
     paymentType: doc.paymentType ?? 'prepaid',
     note: doc.note ?? null,
     createdAt: new Date(doc.createdAt).toISOString(),
@@ -188,8 +194,9 @@ export async function createSupplier(req: AuthenticatedRequest, res: Response) {
       $set: {
         phone: input.phone || null,
         email: input.email || null,
-        leadTimeDays: input.leadTimeDays ?? null,
-        paymentTerms: input.paymentTerms || null,
+        contactPersonName: input.contactPersonName || null,
+        designation: input.designation || null,
+        billingAddress: input.billingAddress || null,
         paymentType: input.paymentType || 'prepaid',
         note: input.note || null,
         updatedAt: now,
@@ -834,14 +841,15 @@ async function allocateAgainstOpenShipments(
   level: any,
   quantity: number,
   apply: (allocated: number) => Record<string, number>
-) {
-  if (quantity <= 0) return;
+): Promise<{ shipmentId: ObjectId; allocated: number; purchaseOrderId: string | null }[]> {
+  if (quantity <= 0) return [];
   const openShipments = await db
     .collection('shipments')
     .find({ tenantId, productId: level.productId ?? null, variantId: level.variantId ?? null, warehouseId: level.warehouseId, bin: level.bin, status: 'open' })
     .sort({ createdAt: 1 })
     .toArray();
 
+  const touched: { shipmentId: ObjectId; allocated: number; purchaseOrderId: string | null }[] = [];
   let remaining = quantity;
   for (const shipment of openShipments) {
     if (remaining <= 0) break;
@@ -853,7 +861,53 @@ async function allocateAgainstOpenShipments(
       { _id: shipment._id },
       closes ? { $inc: apply(allocated), $set: { status: 'closed', closedAt: new Date() } } : { $inc: apply(allocated) }
     );
+    touched.push({ shipmentId: shipment._id, allocated, purchaseOrderId: shipment.purchaseOrderId ?? null });
     remaining -= allocated;
+  }
+  return touched;
+}
+
+// Keeps a PO's line-level receivedQuantity/writtenOffQuantity — and its overall status — in sync
+// whenever the shipment(s) it produced (see performInboundCreate's purchaseOrderId passthrough) get
+// received or written off through the normal Inventory flow. Receiving/writing off never knows it's
+// touching a PO-linked shipment; this is what closes that loop after the fact, so no separate
+// "receive a PO line" endpoint is needed.
+async function applyPurchaseOrderAllocations(
+  db: ReturnType<typeof getDb>,
+  allocations: { shipmentId: ObjectId; allocated: number; purchaseOrderId: string | null }[],
+  field: 'receivedQuantity' | 'writtenOffQuantity'
+) {
+  const byPo = new Map<string, { shipmentId: ObjectId; allocated: number }[]>();
+  for (const a of allocations) {
+    if (!a.purchaseOrderId) continue;
+    const list = byPo.get(a.purchaseOrderId) ?? [];
+    list.push({ shipmentId: a.shipmentId, allocated: a.allocated });
+    byPo.set(a.purchaseOrderId, list);
+  }
+
+  for (const [purchaseOrderId, entries] of byPo) {
+    if (!ObjectId.isValid(purchaseOrderId)) continue;
+    for (const entry of entries) {
+      await db
+        .collection('purchaseOrders')
+        .updateOne(
+          { _id: new ObjectId(purchaseOrderId), 'lines.shipmentId': entry.shipmentId },
+          { $inc: { [`lines.$[line].${field}`]: entry.allocated } },
+          { arrayFilters: [{ 'line.shipmentId': entry.shipmentId }] }
+        );
+    }
+
+    const po = await db.collection('purchaseOrders').findOne({ _id: new ObjectId(purchaseOrderId) });
+    if (!po || (po.status !== 'sent' && po.status !== 'partially_received')) continue;
+    const linesWithShipment = (po.lines ?? []).filter((l: any) => l.shipmentId);
+    const totalQty = linesWithShipment.reduce((sum: number, l: any) => sum + l.quantity, 0);
+    const totalReceived = linesWithShipment.reduce((sum: number, l: any) => sum + (l.receivedQuantity ?? 0), 0);
+    let nextStatus: string | null = null;
+    if (totalQty > 0 && totalReceived >= totalQty) nextStatus = 'received';
+    else if (totalReceived > 0) nextStatus = 'partially_received';
+    if (nextStatus && nextStatus !== po.status) {
+      await db.collection('purchaseOrders').updateOne({ _id: po._id }, { $set: { status: nextStatus, updatedAt: new Date() } });
+    }
   }
 }
 
@@ -939,7 +993,8 @@ export async function receiveInboundStock(req: AuthenticatedRequest, res: Respon
   };
   const movementResult = await db.collection('inventoryMovements').insertOne(movement);
 
-  await allocateAgainstOpenShipments(db, tenantId, level, quantity, (allocated) => ({ quantityReceived: allocated }));
+  const allocations = await allocateAgainstOpenShipments(db, tenantId, level, quantity, (allocated) => ({ quantityReceived: allocated }));
+  await applyPurchaseOrderAllocations(db, allocations, 'receivedQuantity');
 
   res.json({ success: true, level: levelDto(result!), movement: movementDto({ ...movement, _id: movementResult.insertedId }) });
 }
@@ -1021,10 +1076,11 @@ export async function writeOffInboundStock(req: AuthenticatedRequest, res: Respo
     await allocateAgainstOpenShipments(db, tenantId, level, quantity, (allocated) => ({ quantityOrdered: -allocated }));
   } else {
     const reasonKey = WRITE_OFF_REASON_KEY[parsed.data.reason];
-    await allocateAgainstOpenShipments(db, tenantId, level, quantity, (allocated) => ({
+    const allocations = await allocateAgainstOpenShipments(db, tenantId, level, quantity, (allocated) => ({
       quantityWrittenOff: allocated,
       [`writtenOffByReason.${reasonKey}`]: allocated,
     }));
+    await applyPurchaseOrderAllocations(db, allocations, 'writtenOffQuantity');
   }
 
   res.json({ success: true, level: levelDto(result!), movement: movementDto({ ...movement, _id: movementResult.insertedId }) });
@@ -1448,12 +1504,15 @@ export async function setInventoryCount(req: AuthenticatedRequest, res: Response
 // Shared by the single-item endpoint and the bulk endpoint below — logging several shortfall SKUs
 // from one phone call is the same operation repeated per line, not a different one, so this is the
 // one place that actually creates a shipment record rather than duplicating the logic twice.
-async function performInboundCreate(
+export async function performInboundCreate(
   db: ReturnType<typeof getDb>,
   tenantId: string,
   createdBy: string,
-  input: z.infer<typeof inboundSchema>
-): Promise<{ level: any; movement: any } | { error: string }> {
+  // The two purchaseOrderId/purchaseOrderLineIndex fields are only ever set by
+  // purchaseOrdersController.ts's send action — every other caller (the plain Incoming Stock
+  // modal, bulk import) omits them and gets `null` on the shipment, exactly as before.
+  input: z.infer<typeof inboundSchema> & { purchaseOrderId?: string | null; purchaseOrderLineIndex?: number | null }
+): Promise<{ level: any; movement: any; shipmentId: ObjectId } | { error: string }> {
   const now = new Date();
 
   const variantInfo = await resolveVariantInfo(db, tenantId, input.productId, input.variantId);
@@ -1545,7 +1604,7 @@ async function performInboundCreate(
   // Purely additive fulfillment-tracking record, separate from the movement/level cost math above
   // (which is untouched) — this is what lets a later receive or write-off attribute back to
   // exactly this shipment's supplier, instead of guessing against a blended pending pool.
-  await db.collection('shipments').insertOne({
+  const shipmentResult = await db.collection('shipments').insertOne({
     tenantId,
     movementId: movementResult.insertedId,
     supplierId: input.supplierId || null,
@@ -1570,9 +1629,11 @@ async function performInboundCreate(
     status: 'open',
     createdAt: now,
     closedAt: null,
+    purchaseOrderId: input.purchaseOrderId ?? null,
+    purchaseOrderLineIndex: input.purchaseOrderLineIndex ?? null,
   });
 
-  return { level: levelDto(result!), movement: movementDto({ ...movement, _id: movementResult.insertedId }) };
+  return { level: levelDto(result!), movement: movementDto({ ...movement, _id: movementResult.insertedId }), shipmentId: shipmentResult.insertedId };
 }
 
 export async function createInboundStock(req: AuthenticatedRequest, res: Response) {

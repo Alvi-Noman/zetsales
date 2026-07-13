@@ -2,6 +2,25 @@
 @tailwind components;
 @tailwind utilities;
 
+html {
+  overflow-x: hidden;
+}
+
+/* 13.3"/14" laptop panels (2560x1600, 1920x1200) land in this effective CSS-width band once OS
+   scaling is applied. Tailwind's rem-based spacing/type scale is tuned for >=1600px; shrinking the
+   root size here scales every rem utility down together instead of hand-overriding each component. */
+@media (max-width: 1600px) {
+  html {
+    font-size: 15px;
+  }
+}
+
+@media (max-width: 1366px) {
+  html {
+    font-size: 14px;
+  }
+}
+
 @keyframes shrink-width {
   from {
     width: 100%;

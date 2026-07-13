@@ -169,7 +169,7 @@ export interface StockShortfall {
   blocksConfirm: boolean;
 }
 
-interface LineItemStockResolution {
+export interface LineItemStockResolution {
   sku: string;
   productTitle: string | null;
   variantLabel: string | null;
@@ -184,7 +184,7 @@ interface LineItemStockResolution {
 // "can this be confirmed," "can this be processed/shipped," and "what actually gets reserved" can
 // never quietly disagree with each other. Returns null when the SKU isn't tracked at all (nothing to
 // check) or the line item is empty.
-async function resolveLineItemStock(
+export async function resolveLineItemStock(
   db: ReturnType<typeof getDb>,
   tenantId: string,
   item: { sku: string | null; variant: string | null; quantity: number }

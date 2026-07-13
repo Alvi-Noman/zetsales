@@ -12,6 +12,7 @@ interface WarehouseDoc {
   _id: string;
   tenantId: string;
   name: string;
+  address: string | null;
   bins: string[];
   createdAt: Date;
   updatedAt: Date;
@@ -26,6 +27,7 @@ function warehouseDto(doc: any, systemBins: string[] = []) {
   return {
     id: doc._id,
     name: doc.name,
+    address: doc.address ?? null,
     bins: predefined,
     // Bins that are genuinely in use (a real count, shipment, or return-holding location) but were
     // never manually added here — e.g. the QC holding bin Returns to process creates on its own.
@@ -85,10 +87,13 @@ export async function listWarehouses(req: AuthenticatedRequest, res: Response) {
   });
 }
 
-const warehouseNameSchema = z.object({ name: z.string().trim().min(1).max(80) });
+const createWarehouseSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  address: z.string().trim().max(240).optional().or(z.literal('')),
+});
 
 export async function createWarehouse(req: AuthenticatedRequest, res: Response) {
-  const parsed = warehouseNameSchema.safeParse(req.body);
+  const parsed = createWarehouseSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ success: false, message: 'A warehouse name is required.' });
     return;
@@ -97,13 +102,28 @@ export async function createWarehouse(req: AuthenticatedRequest, res: Response) 
   const db = getDb();
   const tenantId = req.user!.tenantId!;
   const now = new Date();
-  const doc = { _id: new ObjectId().toString(), tenantId, name: parsed.data.name, bins: [] as string[], createdAt: now, updatedAt: now };
+  const doc = {
+    _id: new ObjectId().toString(),
+    tenantId,
+    name: parsed.data.name,
+    address: parsed.data.address?.trim() || null,
+    bins: [] as string[],
+    createdAt: now,
+    updatedAt: now,
+  };
   await warehouses(db).insertOne(doc);
   res.json({ success: true, warehouse: warehouseDto(doc) });
 }
 
+// Address is optional here too — omitting it from the request leaves whatever's already stored
+// untouched, rather than wiping it, since the inline rename flow only ever sends a name.
+const updateWarehouseSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  address: z.string().trim().max(240).optional(),
+});
+
 export async function renameWarehouse(req: AuthenticatedRequest, res: Response) {
-  const parsed = warehouseNameSchema.safeParse(req.body);
+  const parsed = updateWarehouseSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ success: false, message: 'A warehouse name is required.' });
     return;
@@ -111,11 +131,9 @@ export async function renameWarehouse(req: AuthenticatedRequest, res: Response) 
 
   const db = getDb();
   const tenantId = req.user!.tenantId!;
-  const result = await warehouses(db).findOneAndUpdate(
-    { _id: req.params.id, tenantId },
-    { $set: { name: parsed.data.name, updatedAt: new Date() } },
-    { returnDocument: 'after' }
-  );
+  const update: Partial<WarehouseDoc> = { name: parsed.data.name, updatedAt: new Date() };
+  if (parsed.data.address !== undefined) update.address = parsed.data.address.trim() || null;
+  const result = await warehouses(db).findOneAndUpdate({ _id: req.params.id, tenantId }, { $set: update }, { returnDocument: 'after' });
   if (!result) {
     res.status(404).json({ success: false, message: 'Warehouse not found.' });
     return;

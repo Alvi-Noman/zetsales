@@ -1,5 +1,6 @@
 import { ArrowLeft, ArrowRight } from 'lucide-react';
 import clsx from 'clsx';
+import { Select } from '../ui/Select';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -47,19 +48,12 @@ export function Pagination({ page, totalPages, total, rangeStart, rangeEnd, page
       </span>
 
       <div className="flex items-center gap-3">
-        <label className="flex items-center gap-1.5 text-xs text-slate-500">
-          <select
-            value={pageSize}
-            onChange={(e) => onPageSizeChange(Number(e.target.value))}
-            className="rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs text-slate-600 outline-none focus:border-indigo-400"
-          >
-            {PAGE_SIZE_OPTIONS.map((n) => (
-              <option key={n} value={n}>
-                {n}/page
-              </option>
-            ))}
-          </select>
-        </label>
+        <Select
+          value={String(pageSize)}
+          onChange={(v) => onPageSizeChange(Number(v))}
+          options={PAGE_SIZE_OPTIONS.map((n) => ({ value: String(n), label: `${n}/page` }))}
+          className="py-1 text-xs"
+        />
 
         <div className="flex items-center gap-1">
           <button

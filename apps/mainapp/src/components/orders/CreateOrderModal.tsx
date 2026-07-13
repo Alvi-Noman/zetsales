@@ -37,8 +37,10 @@ export function CreateOrderModal({ open, onClose, stores, onCreated }: CreateOrd
   const [email, setEmail] = useState('');
   const [address, setAddress] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('Cash on Delivery');
+  const [courierSpeed, setCourierSpeed] = useState<'regular' | 'express'>('regular');
   const [shippingFee, setShippingFee] = useState('0');
   const [discount, setDiscount] = useState('0');
+  const [advanceAmount, setAdvanceAmount] = useState('0');
   const [items, setItems] = useState<CartItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
@@ -59,8 +61,10 @@ export function CreateOrderModal({ open, onClose, stores, onCreated }: CreateOrd
     setEmail('');
     setAddress('');
     setPaymentMethod('Cash on Delivery');
+    setCourierSpeed('regular');
     setShippingFee('0');
     setDiscount('0');
+    setAdvanceAmount('0');
     setItems([]);
     setPicked(null);
     setVariants([]);
@@ -102,6 +106,7 @@ export function CreateOrderModal({ open, onClose, stores, onCreated }: CreateOrd
 
   const shippingFeeNum = Number(shippingFee) || 0;
   const discountNum = Number(discount) || 0;
+  const advanceAmountNum = Number(advanceAmount) || 0;
   const subtotal = items.reduce((sum, li) => sum + li.price * li.quantity, 0);
   const total = Math.max(0, subtotal + shippingFeeNum - discountNum);
 
@@ -119,8 +124,10 @@ export function CreateOrderModal({ open, onClose, stores, onCreated }: CreateOrd
         customerEmail: email.trim() || null,
         address: address.trim() || null,
         paymentMethod,
+        courierSpeed,
         shippingFee: shippingFeeNum,
         discount: discountNum,
+        advanceAmount: advanceAmountNum,
         lineItems: items.map((li) => ({ productId: li.productId, variantId: li.variantId, quantity: li.quantity })),
       });
       toast.push(`Order ${res.order.number} created.`, 'success');
@@ -163,7 +170,7 @@ export function CreateOrderModal({ open, onClose, stores, onCreated }: CreateOrd
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-500">Payment method</label>
             <Select value={paymentMethod} onChange={(v) => setPaymentMethod(v as PaymentMethod)} options={PAYMENT_METHODS.map((m) => ({ value: m, label: m }))} />
@@ -175,6 +182,21 @@ export function CreateOrderModal({ open, onClose, stores, onCreated }: CreateOrd
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-500">Discount</label>
             <input type="number" min={0} value={discount} onChange={(e) => setDiscount(e.target.value)} className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm outline-none focus:border-indigo-400" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-500">Advance collected</label>
+            <input type="number" min={0} value={advanceAmount} onChange={(e) => setAdvanceAmount(e.target.value)} className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm outline-none focus:border-indigo-400" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-500">Delivery speed</label>
+            <Select
+              value={courierSpeed}
+              onChange={(v) => setCourierSpeed(v as 'regular' | 'express')}
+              options={[
+                { value: 'regular', label: 'Regular' },
+                { value: 'express', label: 'Express' },
+              ]}
+            />
           </div>
         </div>
 

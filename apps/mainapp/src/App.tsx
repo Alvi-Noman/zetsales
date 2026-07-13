@@ -13,10 +13,16 @@ import { ProductsPage } from './pages/products/ProductsPage';
 import { AddProductPage } from './pages/products/AddProductPage';
 import { EditProductPage } from './pages/products/EditProductPage';
 import { InventoryPage } from './pages/inventory/InventoryPage';
+import { WarehousesPage } from './pages/warehouses/WarehousesPage';
+import { PreOrderListPage } from './pages/preOrders/PreOrderListPage';
+import { ReturnsPage } from './pages/returns/ReturnsPage';
+import { PrintOutPage } from './pages/printOut/PrintOutPage';
+import { InvoiceTemplatesPage } from './pages/printOut/InvoiceTemplatesPage';
 import { HomePage } from './pages/home/HomePage';
 import { AccountingPage } from './pages/accounting/AccountingPage';
 import { SuppliersPage } from './pages/supplyChain/SuppliersPage';
 import { SupplierDetailPage } from './pages/supplyChain/SupplierDetailPage';
+import { DeliveryPartnersPage } from './pages/supplyChain/DeliveryPartnersPage';
 import { CustomersPage } from './pages/customers/CustomersPage';
 import { CustomerDetailPage } from './pages/customers/CustomerDetailPage';
 import { TeamPage } from './pages/team/TeamPage';
@@ -25,6 +31,7 @@ import { AnalyticsEntryPage } from './pages/analytics/AnalyticsEntryPage';
 import { AnalyticsDetailPage } from './pages/analytics/AnalyticsDetailPage';
 import { AdPerformancePage } from './pages/adPerformance/AdPerformancePage';
 import { CallCenterPage } from './pages/callCenter/CallCenterPage';
+import { PluginsPage } from './pages/settings/PluginsPage';
 import { NAV_ITEMS, NAV_FOOTER_ITEMS } from './nav/navigation';
 
 const routeEntries = new Map<string, string>();
@@ -45,6 +52,8 @@ routeEntries.delete('/customers');
 routeEntries.delete('/analytics');
 routeEntries.delete('/ad-performance');
 routeEntries.delete('/call-center');
+routeEntries.delete('/delivery-partners');
+routeEntries.delete('/settings/plugins');
 
 function FullScreenLoader() {
   return (
@@ -95,15 +104,22 @@ function AppRoutes() {
         <Route path="/products/new" element={<AddProductPage />} />
         <Route path="/products/:id/edit" element={<EditProductPage />} />
         <Route path="/inventory" element={<InventoryPage />} />
+        <Route path="/inventory/warehouses" element={<WarehousesPage />} />
+        <Route path="/pre-orders" element={<PreOrderListPage />} />
+        <Route path="/returns" element={<ReturnsPage />} />
+        <Route path="/print-out" element={<PrintOutPage />} />
+        <Route path="/print-out/templates" element={<InvoiceTemplatesPage />} />
         <Route path="/accounting" element={<AccountingPage />} />
         <Route path="/suppliers" element={<SuppliersPage />} />
         <Route path="/suppliers/:id" element={<SupplierDetailPage />} />
+        <Route path="/delivery-partners" element={<DeliveryPartnersPage />} />
         <Route path="/customers" element={<CustomersPage />} />
         <Route path="/customers/:phone" element={<CustomerDetailPage />} />
         <Route path="/analytics" element={<AnalyticsEntryPage />} />
         <Route path="/analytics/:cardKey" element={<AnalyticsDetailPage />} />
         <Route path="/ad-performance" element={<AdPerformancePage />} />
         <Route path="/call-center" element={<CallCenterPage />} />
+        <Route path="/settings/plugins" element={<PluginsPage />} />
         {[...routeEntries.entries()].map(([path, label]) => (
           <Route key={path} path={path} element={<PlaceholderPage title={label} />} />
         ))}

@@ -5,11 +5,14 @@ export interface UserDTO {
     tenantId: string | null;
     isOnboarded: boolean;
     businessName: string | null;
+    businessType: BusinessType | null;
     role: TeamRole | null;
+    installedPlugins: ModuleKey[];
 }
 export type TeamRole = 'owner' | 'admin' | 'manager' | 'agent' | 'viewer';
-export declare const MODULE_KEYS: readonly ["home", "orders", "products", "inventory", "customers", "adPerformance", "customerService", "callCenter", "supplyChain", "accounting", "analytics", "integrations", "team", "settings"];
+export declare const MODULE_KEYS: readonly ["home", "orders", "products", "inventory", "preOrders", "printOut", "customers", "adPerformance", "customerService", "callCenter", "fraudChecker", "supplyChain", "accounting", "analytics", "integrations", "team", "settings"];
 export type ModuleKey = (typeof MODULE_KEYS)[number];
+export declare const PLUGIN_MODULES: ModuleKey[];
 export interface RoleDefinition {
     role: TeamRole;
     label: string;
@@ -48,8 +51,35 @@ export interface AcceptInvitePreviewDTO {
     valid: boolean;
     reason?: string;
 }
-export type BusinessType = 'Fashion & Apparel' | 'Electronics' | 'Beauty & Cosmetics' | 'Home & Living' | 'Grocery & Food' | 'Other';
+export type BusinessType = 'I manufacture my own products' | 'I import my products' | 'I buy from local wholesalers' | 'I dropship — I never hold stock';
 export type SalesChannel = 'Facebook' | 'Instagram' | 'WhatsApp' | 'Website' | 'Physical Store';
+export interface PreOrderTargetDTO {
+    productId: string;
+    variantId: string;
+    targetQuantity: number;
+    updatedAt: string;
+}
+export type PrintPaperSize = 'A4' | 'A5';
+export interface InvoiceTemplateDTO {
+    id: string;
+    name: string;
+    logoUrl: string | null;
+    businessNameOverride: string | null;
+    address: string | null;
+    phone: string | null;
+    paperSize: PrintPaperSize;
+    showItemImages: boolean;
+    showSkuVariant: boolean;
+    showCustomerAddress: boolean;
+    showPaymentBox: boolean;
+    showDeliveryBox: boolean;
+    showBarcode: boolean;
+    showCodCallout: boolean;
+    footerNote: string;
+    isDefault: boolean;
+    createdAt: string;
+    updatedAt: string;
+}
 export interface OnboardingPayload {
     businessName: string;
     businessType: BusinessType;
@@ -67,6 +97,7 @@ export interface BusinessDTO {
     monthlyOrders: string;
     teamSize: string;
     currency: string;
+    installedPlugins: ModuleKey[];
 }
 export type StorePlatform = 'shopify' | 'woocommerce';
 export type StoreStatus = 'connected' | 'error' | 'pending';
@@ -85,6 +116,8 @@ export interface StoreDTO {
 }
 export type CourierProvider = 'steadfast' | 'pathao';
 export type CourierStatus = 'connected' | 'error';
+export type CourierZoneTier = 'inside' | 'outside' | 'suburb';
+export type CourierSpeed = 'regular' | 'express';
 export interface CourierAccountDTO {
     id: string;
     provider: CourierProvider;
@@ -92,7 +125,8 @@ export interface CourierAccountDTO {
     status: CourierStatus;
     webhookUrl: string;
     webhookSecret: string;
-    deliveryChargeRate: number | null;
+    deliveryRates: Record<CourierSpeed, Record<CourierZoneTier, number | null>>;
+    returnRates: Record<CourierZoneTier, number | null>;
     lastUsedAt: string | null;
     createdAt: string;
 }
@@ -255,6 +289,14 @@ export type CancelReason = 'Customer unreachable' | 'Customer changed mind' | 'D
 export type RiskLabel = 'Trusted' | 'Normal' | 'Risky' | 'New Customer';
 export type PaymentMethod = 'Cash on Delivery' | 'bKash' | 'Nagad' | 'Rocket' | 'Card' | 'Other';
 export type CourierPartner = 'Steadfast' | 'Pathao';
+export declare const COURIER_STATUS_BUCKETS: readonly ["awaiting_sync", "accepted", "picked", "in_transit", "delivered", "partial", "returned", "cancelled", "hold", "other"];
+export type CourierStatusBucket = (typeof COURIER_STATUS_BUCKETS)[number];
+export declare const COURIER_STATUS_BUCKET_LABEL: Record<CourierStatusBucket, string>;
+export declare function bucketForCourierStatus(courierPartner: CourierPartner | null, courierStatus: string | null): CourierStatusBucket;
+export interface CourierShipmentStatsDTO {
+    total: number;
+    bucketCounts: Record<CourierStatusBucket, number>;
+}
 export interface OrderRiskDTO {
     label: RiskLabel;
     totalOrders: number;
@@ -294,6 +336,7 @@ export interface OrderDTO {
     subtotal: number;
     shippingFee: number;
     discount: number;
+    advanceAmount: number;
     total: number;
     currency: string;
     tags: string[];
@@ -306,6 +349,10 @@ export interface OrderDTO {
     holdReason: HoldReason | null;
     cancelReason: CancelReason | null;
     flagReason: string | null;
+    splitFromOrderId: string | null;
+    splitFromOrderNumber: string | null;
+    splitIntoOrderId: string | null;
+    splitIntoOrderNumber: string | null;
     note: string | null;
     rescheduledFor: string | null;
     isPriorityCall: boolean;
@@ -317,6 +364,9 @@ export interface OrderDTO {
     courierStatus: string | null;
     courierSyncedAt: string | null;
     courierCharge: number | null;
+    courierReturnCharge: number | null;
+    courierZoneTier: CourierZoneTier | null;
+    courierSpeed: CourierSpeed | null;
     deliveryZone: string | null;
     callAttempts: number;
     history: OrderTimelineEventDTO[];
@@ -332,6 +382,7 @@ export interface OrderDTO {
     updatedAt: string;
     claimedBy: OrderClaimDTO;
     claimedAt: string | null;
+    printedAt: string | null;
 }
 export type OrderTabKey = 'all' | 'priority' | 'pending' | 'confirmed' | 'processing' | 'shipped' | 'returning' | 'delivered' | 'codDue' | 'hold' | 'cancelled';
 export interface OrderDailyStatDTO {
@@ -843,6 +894,7 @@ export interface CourierReconciliationRowDTO {
     displayName: string;
     deliveredCodAmount: number;
     courierCharges: number;
+    returnCharges: number;
     expectedReceivable: number;
     paid: number;
     due: number;

@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { ChevronDown, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import clsx from 'clsx';
-import { ROLE_DEFINITIONS, type ModuleKey } from '@zetsales/shared';
+import { ROLE_DEFINITIONS, PLUGIN_MODULES, type ModuleKey } from '@zetsales/shared';
 import { NAV_ITEMS, NAV_FOOTER_ITEMS, type NavItem } from '../../nav/navigation';
 import { useAuth } from '../../context/AuthContext';
 
@@ -10,32 +10,58 @@ import { useAuth } from '../../context/AuthContext';
 // regardless of role — everything else follows the signed-in member's role permissions.
 const ALWAYS_VISIBLE_MODULES: ModuleKey[] = ['home', 'settings'];
 
-function NavRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
+function NavRow({
+  item,
+  collapsed,
+  openPath,
+  onToggle,
+}: {
+  item: NavItem;
+  collapsed: boolean;
+  openPath: string | null;
+  onToggle: (path: string | null) => void;
+}) {
   const location = useLocation();
   const isParentActive = item.children
-    ? item.children.some((c) => location.pathname === c.path)
+    ? location.pathname === item.path || item.children.some((c) => location.pathname === c.path)
     : location.pathname === item.path;
-  const [open, setOpen] = useState(isParentActive);
+  const open = openPath === item.path;
+  // Clicking the label now navigates via client-side routing rather than a full page load, so this
+  // component never remounts to re-derive its initial expanded state — without this, arriving at a
+  // section by clicking its own label (not a child link) would navigate there but leave it
+  // collapsed. Only one section is ever open at a time (accordion), so this also closes whichever
+  // other section was previously expanded.
+  useEffect(() => {
+    if (isParentActive) onToggle(item.path);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isParentActive]);
   const Icon = item.icon;
   const badge = item.badge;
 
   if (item.children && !collapsed) {
     return (
       <div>
-        <button
-          onClick={() => setOpen((o) => !o)}
+        <div
           className={clsx(
-            'group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors',
+            'group flex w-full items-center gap-1 rounded-lg pr-1.5 text-sm font-medium transition-colors',
             isParentActive ? 'bg-slate-100 text-slate-900' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
           )}
         >
-          <Icon size={17} className={clsx('shrink-0', isParentActive ? 'text-indigo-600' : 'text-slate-400 group-hover:text-slate-600')} />
-          <span className="flex-1 text-left truncate">{item.label}</span>
-          {badge && <span className="text-[11px] text-slate-400 tabular-nums">{badge}</span>}
-          <ChevronDown size={14} className={clsx('shrink-0 text-slate-400 transition-transform', open && 'rotate-180')} />
-        </button>
+          <NavLink to={item.path} end className="flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2">
+            <Icon size={17} className={clsx('shrink-0', isParentActive ? 'text-indigo-600' : 'text-slate-400 group-hover:text-slate-600')} />
+            <span className="flex-1 truncate text-left">{item.label}</span>
+            {badge && <span className="text-[11px] text-slate-400 tabular-nums">{badge}</span>}
+          </NavLink>
+          <button
+            onClick={() => onToggle(open ? null : item.path)}
+            aria-label={open ? `Collapse ${item.label}` : `Expand ${item.label}`}
+            className="shrink-0 rounded-md p-1 text-slate-400 hover:bg-slate-200/60 hover:text-slate-600"
+          >
+            <ChevronDown size={14} className={clsx('transition-transform', open && 'rotate-180')} />
+          </button>
+        </div>
         {open && (
-          <div className="mt-0.5 ml-[1.6rem] space-y-0.5 border-l border-slate-200 pl-3">
+          <div className="mt-0.5 space-y-0.5">
             {item.children.map((child) => (
               <NavLink
                 key={child.path}
@@ -43,7 +69,7 @@ function NavRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
                 end
                 className={({ isActive }) =>
                   clsx(
-                    'block rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors',
+                    'block rounded-md py-1.5 pl-9 pr-2.5 text-[13px] font-medium transition-colors',
                     isActive ? 'text-indigo-600 bg-indigo-50/70' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
                   )
                 }
@@ -78,12 +104,22 @@ function NavRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
 
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
+  // Shared across both the main nav and footer rows so only one expandable section is ever open at
+  // once, sidebar-wide — not one independently-tracked "open" per row.
+  const [openPath, setOpenPath] = useState<string | null>(null);
   const { user } = useAuth();
 
   // A missing role only happens for accounts created before team roles existed — fail open as
   // owner rather than locking a pre-existing user out of their own workspace.
   const allowedModules = useMemo(() => (user?.role ? ROLE_DEFINITIONS[user.role].modules : ROLE_DEFINITIONS.owner.modules), [user?.role]);
-  const isVisible = (item: NavItem) => ALWAYS_VISIBLE_MODULES.includes(item.module) || allowedModules.includes(item.module);
+  const isVisible = (item: NavItem) => {
+    if (!ALWAYS_VISIBLE_MODULES.includes(item.module) && !allowedModules.includes(item.module)) return false;
+    if (item.businessTypes && (!user?.businessType || !item.businessTypes.includes(user.businessType))) return false;
+    // Plugin modules need the tenant to have installed them, on top of the role check above —
+    // Settings → Plugins is where an owner/admin turns them on.
+    if (PLUGIN_MODULES.includes(item.module) && !user?.installedPlugins?.includes(item.module)) return false;
+    return true;
+  };
   const visibleNavItems = NAV_ITEMS.filter(isVisible);
   const visibleFooterItems = NAV_FOOTER_ITEMS.filter(isVisible);
 
@@ -108,13 +144,13 @@ export function Sidebar() {
 
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
         {visibleNavItems.map((item) => (
-          <NavRow key={item.path} item={item} collapsed={collapsed} />
+          <NavRow key={item.path} item={item} collapsed={collapsed} openPath={openPath} onToggle={setOpenPath} />
         ))}
       </nav>
 
       <div className="border-t border-slate-200 px-3 py-3 space-y-0.5">
         {visibleFooterItems.map((item) => (
-          <NavRow key={item.path} item={item} collapsed={collapsed} />
+          <NavRow key={item.path} item={item} collapsed={collapsed} openPath={openPath} onToggle={setOpenPath} />
         ))}
         <button
           onClick={() => setCollapsed((c) => !c)}

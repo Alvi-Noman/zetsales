@@ -1,12 +1,15 @@
 import type { OrderStage } from '@zetsales/shared';
 import logger from '../utils/logger.js';
 
-// Best-effort mapping from each courier's own status vocabulary to ZetSales's OrderStage. Neither
-// courier's exact webhook payload has been seen live yet (no sandbox credentials configured at the
-// time this was written) — these are built from their published API docs, not a verified sample
-// payload. Treat this as a starting point: once real webhooks start arriving, log the raw
-// `courierStatus` value stored on the order (see applyCourierStatusUpdate) and correct any mapping
-// that doesn't land on the right stage.
+// Best-effort mapping from each courier's own status vocabulary to ZetSales's OrderStage. The
+// original vocab here was built from published API docs before any live webhook had been seen, and
+// undershot what real orders on file actually carry in `courierStatus` — a whole family of
+// return-flow statuses (returned, return_in_transit, returning, returned_to_hub, return_dispute)
+// plus qc_pending and, for Steadfast, in_transit were all previously unrecognized, which meant an
+// order sitting in Shipped/Out for Delivery with one of those statuses never auto-restaged and just
+// sat there until a human noticed. Expanded 2026-07-13 against the raw values found on existing
+// orders — still worth re-checking against a real live webhook payload once sandbox credentials
+// exist, per the original caveat.
 //
 // Deliberately conservative: an unrecognized status returns null (no stage change) rather than a
 // best guess — a missed automatic update just means the order sits until a human or a later
@@ -15,9 +18,14 @@ import logger from '../utils/logger.js';
 const STEADFAST_STATUS_MAP: Record<string, OrderStage> = {
   pending: 'Shipped',
   in_review: 'Shipped',
+  in_transit: 'Out for Delivery',
   delivered: 'Delivered',
   partial_delivered: 'Partial Delivered',
+  partial_return: 'Partial Delivered',
+  returned: 'Returned',
+  return_in_transit: 'RTO Initiated',
   cancelled: 'RTO Initiated',
+  qc_pending: 'QC Pending',
   hold: 'On Hold',
 };
 
@@ -35,10 +43,17 @@ const PATHAO_STATUS_MAP: Record<string, OrderStage> = {
   in_transit: 'Out for Delivery',
   delivered: 'Delivered',
   partial_delivery: 'Partial Delivered',
+  partial_returned: 'Partial Delivered',
   return: 'RTO Initiated',
+  returning: 'RTO Initiated',
+  returned_to_hub: 'RTO Initiated',
+  return_in_transit: 'RTO Initiated',
+  returned: 'Returned',
   cancelled: 'RTO Initiated',
   hold: 'On Hold',
   exchange: 'RTO Initiated',
+  return_dispute: 'On Hold',
+  qc_pending: 'QC Pending',
 };
 
 export function mapPathaoStatus(rawStatus: string): OrderStage | null {

@@ -19,8 +19,9 @@ function supplierDto(doc: any) {
     name: doc.name,
     phone: doc.phone ?? null,
     email: doc.email ?? null,
-    leadTimeDays: doc.leadTimeDays ?? null,
-    paymentTerms: doc.paymentTerms ?? null,
+    contactPersonName: doc.contactPersonName ?? null,
+    designation: doc.designation ?? null,
+    billingAddress: doc.billingAddress ?? null,
     paymentType: doc.paymentType ?? 'prepaid',
     note: doc.note ?? null,
     createdAt: new Date(doc.createdAt).toISOString(),
@@ -147,8 +148,9 @@ const updateSupplierSchema = z.object({
   name: z.string().trim().min(1).optional(),
   phone: z.string().trim().optional().or(z.literal('')),
   email: z.string().trim().email().optional().or(z.literal('')),
-  leadTimeDays: z.number().int().nonnegative().nullable().optional(),
-  paymentTerms: z.string().trim().optional().or(z.literal('')),
+  contactPersonName: z.string().trim().optional().or(z.literal('')),
+  designation: z.string().trim().optional().or(z.literal('')),
+  billingAddress: z.string().trim().optional().or(z.literal('')),
   paymentType: z.enum(['prepaid', 'credit']).optional(),
   note: z.string().trim().optional().or(z.literal('')),
 });
@@ -182,8 +184,9 @@ export async function updateSupplier(req: AuthenticatedRequest, res: Response) {
   if (input.name !== undefined) setFields.name = input.name;
   if (input.phone !== undefined) setFields.phone = input.phone || null;
   if (input.email !== undefined) setFields.email = input.email || null;
-  if (input.leadTimeDays !== undefined) setFields.leadTimeDays = input.leadTimeDays;
-  if (input.paymentTerms !== undefined) setFields.paymentTerms = input.paymentTerms || null;
+  if (input.contactPersonName !== undefined) setFields.contactPersonName = input.contactPersonName || null;
+  if (input.designation !== undefined) setFields.designation = input.designation || null;
+  if (input.billingAddress !== undefined) setFields.billingAddress = input.billingAddress || null;
   if (input.paymentType !== undefined) setFields.paymentType = input.paymentType;
   if (input.note !== undefined) setFields.note = input.note || null;
 

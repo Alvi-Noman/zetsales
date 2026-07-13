@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   X, MapPin, Phone, Mail, Package, PackageX, Ban, Printer, Loader2, Copy, Check, PauseCircle, PlayCircle, Pencil, PhoneCall, PhoneOff, MoreVertical,
-  UserX, UserCheck, FileText, ClipboardList, Tag, ChevronDown, Lock, Scissors, Banknote, Plus,
+  UserX, UserCheck, FileText, ClipboardList, Tag, ChevronDown, Lock, Scissors, Banknote, Plus, Split,
 } from 'lucide-react';
 import clsx from 'clsx';
 import type { CallOutcome, CourierAccountDTO, CourierProvider, OrderDTO, OrderRiskDTO, OrderStage, StoreDTO } from '@zetsales/shared';
 import {
-  blockCustomer, claimOrder, createDeliveryZone, getOrder, getOrderFulfillmentStatus, getProduct, heartbeatOrderClaim, listDeliveryZones, listInventory,
-  markPaymentCollected, releaseOrderClaim, unblockCustomer, updateOrder, upsellOrder, type DeliveryZoneDTO,
+  blockCustomer, claimOrder, createDeliveryZone, getOrder, getOrderFulfillmentStatus, getProduct, heartbeatOrderClaim, listAllInventoryLevels, listDeliveryZones,
+  markPaymentCollected, releaseOrderClaim, splitOrder, unblockCustomer, updateOrder, upsellOrder, type DeliveryZoneDTO,
 } from '../../lib/commerceApi';
 import { STAGE_TONE, STAGE_ICON, STAGE_LABEL, PAYMENT_TONE, CLAIM_TONE } from './orderTone';
 import { ProductPicker, type PickedProduct } from '../adPerformance/ProductPicker';
@@ -20,7 +20,7 @@ import { PrintOrderModal, type PrintDocType } from './PrintOrderModal';
 import { CourierLabelModal } from './CourierLabelModal';
 import { PackOrderModal } from './PackOrderModal';
 import { buildBinLookup, type BinLookup } from './binLookup';
-import { buildStockLookup, resolveFreeStock, type StockLookup } from './stockLookup';
+import { buildStockLookup, isOrderMixedStock, resolveFreeStock, type StockLookup } from './stockLookup';
 import { Popover } from '../ui/Popover';
 import { Modal } from '../ui/Modal';
 import { Select } from '../ui/Select';
@@ -142,6 +142,8 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
   const [shippingInput, setShippingInput] = useState('');
   const [editingDiscount, setEditingDiscount] = useState(false);
   const [discountInput, setDiscountInput] = useState('');
+  const [editingAdvance, setEditingAdvance] = useState(false);
+  const [advanceInput, setAdvanceInput] = useState('');
   const [trackingInput, setTrackingInput] = useState('');
   const [zones, setZones] = useState<DeliveryZoneDTO[]>([]);
   const [addingZone, setAddingZone] = useState(false);
@@ -184,9 +186,9 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
   // actually still in the building.
   const loadInventorySnapshot = async () => {
     try {
-      const res = await listInventory();
-      setBinLookup(buildBinLookup(res.levels));
-      setStockLookup(buildStockLookup(res.levels));
+      const levels = await listAllInventoryLevels();
+      setBinLookup(buildBinLookup(levels));
+      setStockLookup(buildStockLookup(levels));
     } catch {
       // Both are supplementary context on top of the order itself; staff can still work without them.
     }
@@ -288,6 +290,31 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
     }
   };
 
+  const [splitBusy, setSplitBusy] = useState(false);
+  // Splitting is optional, not required — a plain Confirm on a mixed-stock order still behaves
+  // exactly like it always has (reserves everything, oversell policy decides Confirmed vs
+  // Flagged). This checkbox just repurposes the same primary action button when staff choose to
+  // confirm the in-stock items now and move the rest into a separate order instead. Resets
+  // whenever a different order is opened so a stale check doesn't silently split the wrong order.
+  const [splitChecked, setSplitChecked] = useState(false);
+  useEffect(() => {
+    setSplitChecked(false);
+  }, [order?.id]);
+  const handleSplit = async () => {
+    if (!order) return;
+    setSplitBusy(true);
+    try {
+      const res = await splitOrder(order.id);
+      await refresh(order.id, { silent: true });
+      onUpdated();
+      toast.push(`Confirmed — ${res.created.lineItems.length} item${res.created.lineItems.length === 1 ? '' : 's'} moved to a separate order #${res.created.number}.`, 'success');
+    } catch (err) {
+      toast.push(err instanceof Error ? err.message : 'Could not split this order.', 'info');
+    } finally {
+      setSplitBusy(false);
+    }
+  };
+
   // Exactly one connected courier and nothing assigned yet -> assign it automatically, removing a
   // redundant click for the common single-courier seller. Never guesses between two-plus couriers
   // (stays Unassigned so a human picks deliberately), and only fires once per order view — keyed by
@@ -378,6 +405,12 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
     setEditingDiscount(false);
   };
 
+  const saveAdvance = () => {
+    const parsed = Number(advanceInput);
+    if (Number.isFinite(parsed) && parsed >= 0) void apply({ advanceAmount: parsed });
+    setEditingAdvance(false);
+  };
+
   const saveName = () => {
     const trimmed = nameInput.trim();
     if (trimmed) void apply({ customerName: trimmed });
@@ -461,6 +494,11 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
     : false;
   const primaryAction = detail ? NEXT_ACTION[detail.stage] : undefined;
   const secondaryActions = detail ? SECONDARY_ACTIONS[detail.stage] ?? [] : [];
+  // A mixed-stock order (some line items in stock, some not) can still be confirmed normally — this
+  // only controls whether the optional "Split this order" checkbox shows up next to the primary
+  // action button, while the order is still pre-confirmation.
+  const isMixedOrder =
+    Boolean(detail) && (detail!.stage === 'Pending' || detail!.stage === 'Flagged') && isOrderMixedStock(detail!.lineItems, stockLookup);
   // The only two manual actions that actually require physical stock to be on hand — "Process
   // order" (about to start picking) and "Mark shipped" (about to hand off what was picked). Every
   // other stage's forward action (confirming, marking delivered, etc.) isn't gated by this at all.
@@ -480,6 +518,16 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
             <p className="text-xs text-slate-400">
               {store?.displayName ?? 'Unknown store'} {detail && `· ${formatFullDate(detail.createdAt)}`}
             </p>
+            {detail?.splitFromOrderNumber && (
+              <p className="mt-0.5 flex items-center gap-1 text-[11px] font-medium text-amber-700">
+                <Split size={11} /> Split from #{detail.splitFromOrderNumber}
+              </p>
+            )}
+            {detail?.splitIntoOrderNumber && (
+              <p className="mt-0.5 flex items-center gap-1 text-[11px] font-medium text-amber-700">
+                <Split size={11} /> Split into #{detail.splitIntoOrderNumber}
+              </p>
+            )}
           </div>
           <button onClick={onClose} className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
             <X size={18} />
@@ -889,6 +937,34 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                       />
                     )}
                   </div>
+                  <div>
+                    <label className="mb-1 block text-[11px] font-semibold text-slate-500">Rate zone</label>
+                    {/* Unlike Partner/Tracking ID, this never re-books anything with the courier — it's
+                        ZetSales' own cost prediction, so it stays editable even after dispatch so staff can
+                        correct it against the courier's real invoice during reconciliation. */}
+                    <Select
+                      value={detail.courierZoneTier ?? 'outside'}
+                      onChange={(value) => void apply({ courierZoneTier: value as 'inside' | 'outside' | 'suburb' })}
+                      options={[
+                        { value: 'inside', label: 'Inside Dhaka' },
+                        { value: 'outside', label: 'Outside Dhaka' },
+                        { value: 'suburb', label: 'Sub-urb' },
+                      ]}
+                      className="bg-slate-50"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[11px] font-semibold text-slate-500">Speed</label>
+                    <Select
+                      value={detail.courierSpeed ?? 'regular'}
+                      onChange={(value) => void apply({ courierSpeed: value as 'regular' | 'express' })}
+                      options={[
+                        { value: 'regular', label: 'Regular' },
+                        { value: 'express', label: 'Express' },
+                      ]}
+                      className="bg-slate-50"
+                    />
+                  </div>
                 </div>
               </section>
 
@@ -1024,17 +1100,59 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                       </button>
                     )}
                   </div>
+                  <div className="flex justify-between text-slate-500">
+                    <span>Advance collected</span>
+                    {feeLocked ? (
+                      <span className="tabular-nums">
+                        {detail.advanceAmount > 0 ? '- ' : ''}
+                        {detail.currency} {detail.advanceAmount.toLocaleString()}
+                      </span>
+                    ) : editingAdvance ? (
+                      <span className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min={0}
+                          autoFocus
+                          value={advanceInput}
+                          onChange={(e) => setAdvanceInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') saveAdvance();
+                            if (e.key === 'Escape') setEditingAdvance(false);
+                          }}
+                          className="w-20 rounded border border-slate-300 px-1.5 py-0.5 text-xs tabular-nums outline-none focus:border-indigo-400"
+                        />
+                        <button onClick={saveAdvance} className="text-emerald-600 hover:text-emerald-700">
+                          <Check size={13} />
+                        </button>
+                        <button onClick={() => setEditingAdvance(false)} className="text-slate-400 hover:text-slate-600">
+                          <X size={13} />
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setAdvanceInput(String(detail.advanceAmount));
+                          setEditingAdvance(true);
+                        }}
+                        className={clsx('flex items-center gap-1 tabular-nums hover:text-indigo-600', detail.advanceAmount > 0 && 'text-emerald-600')}
+                      >
+                        {detail.advanceAmount > 0 ? '- ' : ''}
+                        {detail.currency} {detail.advanceAmount.toLocaleString()}
+                        <Pencil size={11} className="text-slate-300" />
+                      </button>
+                    )}
+                  </div>
                   <div className="flex justify-between font-semibold text-slate-900">
                     <span>Total</span>
                     <span className="tabular-nums">
                       {detail.currency} {detail.total.toLocaleString()}
                     </span>
                   </div>
-                  {detail.paymentStatus === 'COD Pending' && (
+                  {(detail.paymentStatus === 'COD Pending' || detail.paymentStatus === 'Advance Paid') && (
                     <div className="flex justify-between font-semibold text-amber-700">
                       <span>COD to collect</span>
                       <span className="tabular-nums">
-                        {detail.currency} {detail.total.toLocaleString()}
+                        {detail.currency} {Math.max(0, detail.total - detail.advanceAmount).toLocaleString()}
                       </span>
                     </div>
                   )}
@@ -1071,12 +1189,30 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
               )}
             </div>
 
-            <div className="flex flex-wrap gap-2 border-t border-slate-200 px-6 py-4">
+            <div className="border-t border-slate-200 px-6 py-4">
+              {isMixedOrder && (
+                <label
+                  className="mb-2.5 flex cursor-pointer items-center gap-1.5 text-xs font-medium text-slate-600"
+                  title="Confirms this order for the item(s) you have in stock. The out-of-stock item(s) move to a separate order — already Confirmed too, shown in both Confirmed Orders and Pre-Orders until it's restocked, then you just send it to packing."
+                >
+                  <input
+                    type="checkbox"
+                    checked={splitChecked}
+                    onChange={(e) => setSplitChecked(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  Split this order
+                </label>
+              )}
+              <div className="flex flex-wrap items-center gap-2">
               {primaryAction && (
-                <div className="flex flex-col items-start gap-1">
                   <button
                     onClick={() => {
                       if (fulfillmentBlocked) return;
+                      if (isMixedOrder && splitChecked) {
+                        void handleSplit();
+                        return;
+                      }
                       // Processing -> Shipped is the "hand it off" moment — gate it behind the
                       // pick/pack checklist instead of advancing the stage on a single click, so
                       // staff actually look at what's in the box before it leaves the building.
@@ -1087,22 +1223,16 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                         apply({ stage: primaryAction.nextStage });
                       }
                     }}
-                    disabled={fulfillmentBlocked || !!lockedByOther}
+                    disabled={fulfillmentBlocked || !!lockedByOther || (isMixedOrder && splitChecked && splitBusy)}
                     title={lockedByOther ?? (fulfillmentBlocked ? (fulfillmentStatus?.reason ?? undefined) : undefined)}
                     className={clsx(
                       'flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-semibold transition-colors',
                       fulfillmentBlocked || lockedByOther ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-slate-900 text-white hover:bg-slate-800'
                     )}
                   >
-                    <primaryAction.icon size={14} /> {primaryAction.label}
+                    {isMixedOrder && splitChecked ? <Split size={14} /> : <primaryAction.icon size={14} />}
+                    {isMixedOrder && splitChecked ? 'Split & confirm' : primaryAction.label}
                   </button>
-                  {fulfillmentBlocked && fulfillmentStatus?.reason && (
-                    <p className="max-w-[220px] text-[11px] text-amber-700" title={fulfillmentStatus.reason}>
-                      {/* the item name/variant is already shown in the Items section above, so only surface the short-by count here */}
-                      {fulfillmentStatus.reason.replace(/^Waiting on stock: .*? — /, '')}
-                    </p>
-                  )}
-                </div>
               )}
               {detail.stage === 'Out for Delivery' && (
                 <button
@@ -1293,6 +1423,13 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                   )}
                 />
               )}
+              </div>
+              {fulfillmentBlocked && fulfillmentStatus?.reason && (
+                <p className="mt-2 max-w-md text-[11px] text-amber-700" title={fulfillmentStatus.reason}>
+                  {/* the item name/variant is already shown in the Items section above, so only surface the short-by count here */}
+                  {fulfillmentStatus.reason.replace(/^Waiting on stock: .*? — /, '')}
+                </p>
+              )}
             </div>
           </>
         )}
@@ -1312,6 +1449,7 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
         orders={detail ? [detail] : []}
         docType={printDocType ?? 'invoice'}
         binLookup={binLookup}
+        stockLookup={stockLookup}
         onOrdersProcessed={() => {
           void refresh(order.id, { silent: true });
           onUpdated();

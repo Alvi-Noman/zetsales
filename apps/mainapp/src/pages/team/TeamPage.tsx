@@ -7,6 +7,7 @@ import { useToast } from '../../components/ui/ToastProvider';
 import { InviteMemberModal } from '../../components/team/InviteMemberModal';
 import { listMembers, listInvites, updateMemberRole, removeMember, resendInvite, revokeInvite } from '../../lib/teamApi';
 import { NAV_ITEMS, NAV_FOOTER_ITEMS } from '../../nav/navigation';
+import { Select } from '../../components/ui/Select';
 
 const MODULE_LABELS: Record<ModuleKey, string> = Object.fromEntries(
   [...NAV_ITEMS, ...NAV_FOOTER_ITEMS].map((item) => [item.module, item.label])
@@ -152,17 +153,12 @@ export function TeamPage() {
                   </div>
                   <div className="flex shrink-0 items-center gap-3">
                     {canManageTarget(member) ? (
-                      <select
+                      <Select
                         value={member.role}
-                        onChange={(e) => handleRoleChange(member, e.target.value as TeamRole)}
-                        className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-700 outline-none focus:border-indigo-400"
-                      >
-                        {grantableRoles.map((r) => (
-                          <option key={r} value={r}>
-                            {ROLE_DEFINITIONS[r].label}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={(v) => handleRoleChange(member, v as TeamRole)}
+                        options={grantableRoles.map((r) => ({ value: r, label: ROLE_DEFINITIONS[r].label }))}
+                        className="text-xs"
+                      />
                     ) : (
                       <span className={clsx('rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset', ROLE_BADGE[member.role])}>
                         {ROLE_DEFINITIONS[member.role].label}

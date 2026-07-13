@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Package, Printer, Scissors, X } from 'lucide-react';
-import type { OrderDTO, OrderLineItemDTO } from '@zetsales/shared';
+import type { InvoiceTemplateDTO, OrderDTO, OrderLineItemDTO } from '@zetsales/shared';
 import { useAuth } from '../../context/AuthContext';
-import { bulkUpdateOrders } from '../../lib/commerceApi';
+import { bulkUpdateOrders, markOrdersPrinted, splitOrder } from '../../lib/commerceApi';
 import { useToast } from '../ui/ToastProvider';
 import { formatAbsoluteDateTime } from './time';
 import { resolveBin, type BinLookup } from './binLookup';
 import { Barcode } from './Barcode';
+import { BulkStockPopup, type BulkStockResolution } from './BulkStockPopup';
+import { classifyOrdersByStock, type StockLookup } from './stockLookup';
 
 export type PrintDocType = 'invoice' | 'packingSlip' | 'combined';
 
@@ -17,11 +19,17 @@ interface PrintOrderModalProps {
   orders: OrderDTO[];
   docType: PrintDocType;
   binLookup?: BinLookup;
+  stockLookup?: StockLookup;
   // Called after a packing-slip/combined print advances one or more Confirmed orders to
   // Processing, so the caller can refresh its own order list/detail. Omitted entirely for callers
   // that don't need to react (there currently are none, but this stays optional rather than
   // required so a future print-only caller isn't forced to pass a no-op).
   onOrdersProcessed?: () => void;
+  // Branding/layout overrides from a saved template (Print Out → Invoice Design). Omitted or null
+  // means the original hardcoded layout — every field below reads as "on"/default when template is
+  // absent, so existing callers (Orders' bulk print, the order detail drawer) keep working exactly
+  // as before without needing to fetch or pass anything.
+  template?: InvoiceTemplateDTO | null;
 }
 
 const DOC_LABEL: Record<PrintDocType, string> = { invoice: 'Invoice', packingSlip: 'Packing Slip', combined: 'Invoice + Slip' };
@@ -29,11 +37,25 @@ const DOC_LABEL: Record<PrintDocType, string> = { invoice: 'Invoice', packingSli
 // Letterhead-style header shared by both documents — a business's own name is the one thing that
 // should read as the most important word on the page, so it's set larger than everything else,
 // with the document type as a small stamp-like badge next to it rather than competing for space.
-function DocHeader({ businessName, label, order, compact }: { businessName: string; label: string; order: OrderDTO; compact?: boolean }) {
+function DocHeader({
+  businessName,
+  label,
+  order,
+  compact,
+  template,
+}: {
+  businessName: string;
+  label: string;
+  order: OrderDTO;
+  compact?: boolean;
+  template?: InvoiceTemplateDTO | null;
+}) {
+  const displayName = template?.businessNameOverride || businessName;
   return (
     <div className={compact ? 'mb-4 flex items-start justify-between' : 'mb-6 flex items-start justify-between'}>
       <div className="flex items-center gap-2.5">
-        <h1 className={compact ? 'text-base font-bold tracking-tight text-slate-900' : 'text-2xl font-bold tracking-tight text-slate-900'}>{businessName}</h1>
+        {template?.logoUrl && <img src={template.logoUrl} alt="" className={compact ? 'h-7 w-7 rounded object-contain' : 'h-10 w-10 rounded object-contain'} />}
+        <h1 className={compact ? 'text-base font-bold tracking-tight text-slate-900' : 'text-2xl font-bold tracking-tight text-slate-900'}>{displayName}</h1>
         <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-indigo-700">{label}</span>
       </div>
       <div className="text-right text-sm">
@@ -44,7 +66,10 @@ function DocHeader({ businessName, label, order, compact }: { businessName: stri
   );
 }
 
-function DocMeta({ order }: { order: OrderDTO }) {
+function DocMeta({ order, template }: { order: OrderDTO; template?: InvoiceTemplateDTO | null }) {
+  const showPayment = template?.showPaymentBox !== false;
+  const showDelivery = template?.showDeliveryBox !== false;
+  const showAddress = template?.showCustomerAddress !== false;
   return (
     <div className="mb-6 space-y-4">
       <div className="grid grid-cols-2 gap-4 text-sm">
@@ -52,15 +77,17 @@ function DocMeta({ order }: { order: OrderDTO }) {
           <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Customer</p>
           <p className="font-semibold text-slate-800">{order.customerName || 'No name'}</p>
           {order.customerPhone && <p className="text-slate-600">{order.customerPhone}</p>}
-          {order.address && <p className="text-slate-600">{order.address}</p>}
+          {showAddress && order.address && <p className="text-slate-600">{order.address}</p>}
         </div>
-        <div className="rounded-xl bg-slate-50 p-4">
-          <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Payment</p>
-          <p className="font-semibold text-slate-800">{order.paymentMethod}</p>
-          <p className="text-slate-600">{order.paymentStatus}</p>
-        </div>
+        {showPayment && (
+          <div className="rounded-xl bg-slate-50 p-4">
+            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Payment</p>
+            <p className="font-semibold text-slate-800">{order.paymentMethod}</p>
+            <p className="text-slate-600">{order.paymentStatus}</p>
+          </div>
+        )}
       </div>
-      {order.courierPartner && (
+      {showDelivery && order.courierPartner && (
         <div className="rounded-xl bg-slate-50 p-4 text-sm">
           <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Delivery</p>
           <p className="font-semibold text-slate-800">{order.courierPartner}</p>
@@ -85,14 +112,16 @@ function ItemThumb({ item }: { item: OrderLineItemDTO }) {
 // `mode="price"` for the invoice (customer-facing, what they paid); `mode="bin"` for the packing
 // slip (warehouse-facing, where to physically find it) — same items, same table shape, only the
 // third column changes, since those are the only two things each audience actually needs to know.
-function ItemsTable({ order, mode, binLookup }: { order: OrderDTO; mode: 'price' | 'bin'; binLookup?: BinLookup }) {
+function ItemsTable({ order, mode, binLookup, template }: { order: OrderDTO; mode: 'price' | 'bin'; binLookup?: BinLookup; template?: InvoiceTemplateDTO | null }) {
+  const showImages = template?.showItemImages !== false;
+  const showSkuVariant = template?.showSkuVariant !== false;
   return (
     <table className="w-full border-collapse text-sm">
       <thead>
         <tr className="border-b border-slate-200 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">
           <th className="pb-2">Item</th>
           <th className="pb-2 text-center">Qty</th>
-          <th className={mode === 'price' ? 'pb-2 text-right' : 'pb-2'}>{mode === 'price' ? 'Price' : 'Bin'}</th>
+          <th className={mode === 'price' ? 'pb-2 text-right' : 'pb-2'}>{mode === 'price' ? 'Price' : 'Shelf/Bin'}</th>
         </tr>
       </thead>
       <tbody>
@@ -100,13 +129,15 @@ function ItemsTable({ order, mode, binLookup }: { order: OrderDTO; mode: 'price'
           <tr key={i} className="border-b border-slate-100 even:bg-slate-50/60">
             <td className="py-2.5">
               <div className="flex items-center gap-3">
-                <ItemThumb item={li} />
+                {showImages && <ItemThumb item={li} />}
                 <div className="min-w-0">
                   <p className="font-medium text-slate-800">{li.title}</p>
-                  <p className="truncate text-xs text-slate-400">
-                    {li.variant ? `${li.variant} · ` : ''}
-                    {li.sku ?? 'No SKU'}
-                  </p>
+                  {showSkuVariant && (
+                    <p className="truncate text-xs text-slate-400">
+                      {li.variant ? `${li.variant} · ` : ''}
+                      {li.sku ?? 'No SKU'}
+                    </p>
+                  )}
                 </div>
               </div>
             </td>
@@ -154,6 +185,22 @@ function InvoiceTotals({ order }: { order: OrderDTO }) {
           {order.currency} {order.total.toLocaleString()}
         </span>
       </div>
+      {order.advanceAmount > 0 && (
+        <>
+          <div className="flex justify-between text-slate-500">
+            <span>Advance paid</span>
+            <span className="tabular-nums">
+              -{order.currency} {order.advanceAmount.toLocaleString()}
+            </span>
+          </div>
+          <div className="flex items-center justify-between rounded-lg bg-amber-50 px-3 py-2 font-bold text-amber-900">
+            <span>Balance due</span>
+            <span className="tabular-nums text-base">
+              {order.currency} {Math.max(0, order.total - order.advanceAmount).toLocaleString()}
+            </span>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -161,7 +208,12 @@ function InvoiceTotals({ order }: { order: OrderDTO }) {
 function CodCallout({ order }: { order: OrderDTO }) {
   return (
     <div className="mt-4 ml-auto w-64 rounded-lg bg-amber-50 px-3 py-2 text-right text-sm font-semibold text-amber-800">
-      Collect (COD): {order.currency} {order.total.toLocaleString()}
+      Collect (COD): {order.currency} {Math.max(0, order.total - order.advanceAmount).toLocaleString()}
+      {order.advanceAmount > 0 && (
+        <p className="mt-0.5 text-[11px] font-medium text-amber-600">
+          ({order.currency} {order.advanceAmount.toLocaleString()} advance already collected)
+        </p>
+      )}
     </div>
   );
 }
@@ -169,37 +221,54 @@ function CodCallout({ order }: { order: OrderDTO }) {
 // Every invoice carries a scannable barcode of its own order number — handy for a business that
 // keeps its own paper trail (matching a returned invoice back to an order by scanner rather than
 // squinting at a number), independent of whatever a courier's own tracking barcode says.
-function InvoiceBarcode({ order }: { order: OrderDTO }) {
+function InvoiceBarcode({ order, template }: { order: OrderDTO; template?: InvoiceTemplateDTO | null }) {
+  const showBarcode = template?.showBarcode !== false;
   return (
     <div className="mt-6 flex flex-col items-center border-t border-dashed border-slate-200 pt-4">
-      <div className="w-48">
-        <Barcode value={order.number} height={36} />
-      </div>
-      <p className="mt-1 text-center text-[11px] font-medium tracking-wider text-slate-500">{order.number}</p>
-      <p className="mt-2 text-center text-xs text-slate-400">Thank you for your order.</p>
+      {showBarcode && (
+        <>
+          <div className="w-48">
+            <Barcode value={order.number} height={36} />
+          </div>
+          <p className="mt-1 text-center text-[11px] font-medium tracking-wider text-slate-500">{order.number}</p>
+        </>
+      )}
+      <p className="mt-2 text-center text-xs text-slate-400">{template?.footerNote || 'Thank you for your order.'}</p>
     </div>
   );
 }
 
-function InvoiceBody({ order, businessName }: { order: OrderDTO; businessName: string }) {
+function InvoiceBody({ order, businessName, template }: { order: OrderDTO; businessName: string; template?: InvoiceTemplateDTO | null }) {
   return (
     <>
-      <DocHeader businessName={businessName} label="Invoice" order={order} />
-      <DocMeta order={order} />
-      <ItemsTable order={order} mode="price" />
+      <DocHeader businessName={businessName} label="Invoice" order={order} template={template} />
+      <DocMeta order={order} template={template} />
+      <ItemsTable order={order} mode="price" template={template} />
       <InvoiceTotals order={order} />
-      <InvoiceBarcode order={order} />
+      <InvoiceBarcode order={order} template={template} />
     </>
   );
 }
 
-function PackingSlipBody({ order, businessName, binLookup, compact }: { order: OrderDTO; businessName: string; binLookup?: BinLookup; compact?: boolean }) {
+function PackingSlipBody({
+  order,
+  businessName,
+  binLookup,
+  compact,
+  template,
+}: {
+  order: OrderDTO;
+  businessName: string;
+  binLookup?: BinLookup;
+  compact?: boolean;
+  template?: InvoiceTemplateDTO | null;
+}) {
   return (
     <>
-      <DocHeader businessName={businessName} label="Packing Slip" order={order} compact={compact} />
-      {!compact && <DocMeta order={order} />}
-      <ItemsTable order={order} mode="bin" binLookup={binLookup} />
-      {order.paymentStatus === 'COD Pending' && <CodCallout order={order} />}
+      <DocHeader businessName={businessName} label="Packing Slip" order={order} compact={compact} template={template} />
+      {!compact && <DocMeta order={order} template={template} />}
+      <ItemsTable order={order} mode="bin" binLookup={binLookup} template={template} />
+      {(order.paymentStatus === 'COD Pending' || order.paymentStatus === 'Advance Paid') && template?.showCodCallout !== false && <CodCallout order={order} />}
     </>
   );
 }
@@ -208,13 +277,25 @@ function PackingSlipBody({ order, businessName, binLookup, compact }: { order: O
 // a packing slip shows bin locations instead (it's the warehouse-facing, "what to grab" document).
 // Deliberately two different documents rather than one with a toggle, since they go to different
 // physical destinations — the invoice rides inside the box, the packing slip stays on the floor.
-function DocumentPage({ order, docType, binLookup, businessName }: { order: OrderDTO; docType: PrintDocType; binLookup?: BinLookup; businessName: string }) {
+export function DocumentPage({
+  order,
+  docType,
+  binLookup,
+  businessName,
+  template,
+}: {
+  order: OrderDTO;
+  docType: PrintDocType;
+  binLookup?: BinLookup;
+  businessName: string;
+  template?: InvoiceTemplateDTO | null;
+}) {
   return (
     <div className="print-page-break border-b border-slate-200 bg-white p-8 text-slate-900 last:border-b-0">
       {docType === 'invoice' ? (
-        <InvoiceBody order={order} businessName={businessName} />
+        <InvoiceBody order={order} businessName={businessName} template={template} />
       ) : (
-        <PackingSlipBody order={order} businessName={businessName} binLookup={binLookup} />
+        <PackingSlipBody order={order} businessName={businessName} binLookup={binLookup} template={template} />
       )}
     </div>
   );
@@ -235,12 +316,22 @@ function CutLine({ note }: { note: string }) {
 // shows prices) rides with the box, the bottom (warehouse-facing, shows bins) stays on the floor.
 // Deliberately repeats the order number/customer name on both halves — once cut, each half is a
 // standalone piece of paper and needs to be traceable back to the order on its own.
-function CombinedDocumentPage({ order, binLookup, businessName }: { order: OrderDTO; binLookup?: BinLookup; businessName: string }) {
+export function CombinedDocumentPage({
+  order,
+  binLookup,
+  businessName,
+  template,
+}: {
+  order: OrderDTO;
+  binLookup?: BinLookup;
+  businessName: string;
+  template?: InvoiceTemplateDTO | null;
+}) {
   return (
     <div className="print-page-break border-b border-slate-200 bg-white p-8 text-slate-900 last:border-b-0">
-      <InvoiceBody order={order} businessName={businessName} />
+      <InvoiceBody order={order} businessName={businessName} template={template} />
       <CutLine note="Cut here — packing slip below" />
-      <PackingSlipBody order={order} businessName={businessName} binLookup={binLookup} compact />
+      <PackingSlipBody order={order} businessName={businessName} binLookup={binLookup} compact template={template} />
     </div>
   );
 }
@@ -257,9 +348,9 @@ function CompactPackingListOrder({ order, binLookup }: { order: OrderDTO; binLoo
         <span className="text-sm font-bold text-slate-900">
           {order.number} <span className="font-medium text-slate-500">— {order.customerName || 'No name'}</span>
         </span>
-        {order.paymentStatus === 'COD Pending' && (
+        {(order.paymentStatus === 'COD Pending' || order.paymentStatus === 'Advance Paid') && (
           <span className="shrink-0 text-xs font-semibold text-amber-700">
-            COD: {order.currency} {order.total.toLocaleString()}
+            COD: {order.currency} {Math.max(0, order.total - order.advanceAmount).toLocaleString()}
           </span>
         )}
       </div>
@@ -304,7 +395,7 @@ function CompactPackingListDocument({ orders, binLookup, businessName }: { order
   );
 }
 
-export function PrintOrderModal({ open, onClose, orders: liveOrders, docType, binLookup, onOrdersProcessed }: PrintOrderModalProps) {
+export function PrintOrderModal({ open, onClose, orders: liveOrders, docType, binLookup, stockLookup, onOrdersProcessed, template }: PrintOrderModalProps) {
   const { user } = useAuth();
   const toast = useToast();
 
@@ -323,6 +414,23 @@ export function PrintOrderModal({ open, onClose, orders: liveOrders, docType, bi
     wasOpenRef.current = open;
   }, [open, liveOrders]);
 
+  // Stock-check popup state for "Print & send to packing" — see BulkStockPopup. `printQueued`
+  // exists purely for timing: after resolving the popup, `orders` gets trimmed down to only what's
+  // actually proceeding (so the printed pages match what's really being sent), and window.print()
+  // has to wait for that state update to actually render before it fires, or it'd print the stale,
+  // unfiltered list. The effect below fires once the trimmed `orders` has committed.
+  const [popupData, setPopupData] = useState<{ ready: OrderDTO[]; mixed: OrderDTO[]; fullyShort: OrderDTO[] } | null>(null);
+  const [popupBusy, setPopupBusy] = useState(false);
+  const [printQueue, setPrintQueue] = useState<string[] | null>(null);
+  useEffect(() => {
+    if (!printQueue) return;
+    window.print();
+    void markOrdersPrinted(printQueue).catch(() => {});
+    void sendToPacking(printQueue);
+    setPrintQueue(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders, printQueue]);
+
   if (!open) return null;
 
   // A packing slip is the document that actually sends work to a packer — printing it (or the
@@ -335,12 +443,14 @@ export function PrintOrderModal({ open, onClose, orders: liveOrders, docType, bi
   // after-the-fact detection involved. A plain invoice print never offers this at all — it gets
   // reprinted for all sorts of unrelated reasons (a smudged copy, an accounting request) that have
   // nothing to do with packing starting.
-  const eligibleIds = orders.filter((o) => o.stage === 'Confirmed').map((o) => o.id);
+  const eligibleOrders = orders.filter((o) => o.stage === 'Confirmed');
+  const eligibleIds = eligibleOrders.map((o) => o.id);
   const canSendToPacking = docType !== 'invoice' && eligibleIds.length > 0;
 
-  const sendToPacking = async () => {
+  const sendToPacking = async (ids: string[]) => {
+    if (ids.length === 0) return;
     try {
-      const res = await bulkUpdateOrders(eligibleIds, { stage: 'Processing' });
+      const res = await bulkUpdateOrders(ids, { stage: 'Processing' });
       const succeeded = res.results.filter((r) => r.success);
       const blocked = res.results.filter((r) => !r.success);
       if (succeeded.length > 0) {
@@ -361,11 +471,50 @@ export function PrintOrderModal({ open, onClose, orders: liveOrders, docType, bi
   };
 
   const handlePrint = (thenSendToPacking: boolean) => {
-    window.print();
-    if (thenSendToPacking) void sendToPacking();
+    if (!thenSendToPacking) {
+      window.print();
+      void markOrdersPrinted(orders.map((o) => o.id)).catch(() => {});
+      return;
+    }
+    // A packing slip only helps if what it lists is actually pickable — check stock for every
+    // Confirmed order in the selection before printing anything, not after. A clean batch (nothing
+    // mixed or fully out of stock) skips the popup and behaves exactly as it always has.
+    const { ready, mixed, fullyShort } = classifyOrdersByStock(eligibleOrders, stockLookup);
+    if (mixed.length === 0 && fullyShort.length === 0) {
+      window.print();
+      void markOrdersPrinted(eligibleIds).catch(() => {});
+      void sendToPacking(eligibleIds);
+      return;
+    }
+    setPopupData({ ready, mixed, fullyShort });
+  };
+
+  const handlePopupProceed = async (resolution: BulkStockResolution) => {
+    if (!popupData) return;
+    setPopupBusy(true);
+    try {
+      const splitResults = await Promise.all(resolution.splitIds.map((id) => splitOrder(id)));
+      const finalOrders = [...popupData.ready, ...splitResults.map((r) => r.original)];
+      const finalIds = finalOrders.map((o) => o.id);
+      setPopupData(null);
+      if (finalIds.length === 0) {
+        toast.push('No orders were ready to send to packing.', 'info');
+        return;
+      }
+      // Trim the printed set down to exactly what's proceeding, using each split order's real
+      // post-split line items (fewer items than the pre-split snapshot) rather than the stale one.
+      const finalById = new Map(finalOrders.map((o) => [o.id, o]));
+      setOrders((prev) => prev.filter((o) => finalById.has(o.id)).map((o) => finalById.get(o.id) ?? o));
+      setPrintQueue(finalIds);
+    } catch (err) {
+      toast.push(err instanceof Error ? err.message : 'Could not resolve those orders.', 'info');
+    } finally {
+      setPopupBusy(false);
+    }
   };
 
   return createPortal(
+    <>
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4 print:static print:block print:h-auto print:p-0">
       <div className="absolute inset-0 bg-slate-900/40 print:hidden" onClick={onClose} />
       <div className="relative flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl print:static print:block print:h-auto print:max-h-none print:w-full print:max-w-none print:overflow-visible print:rounded-none print:shadow-none">
@@ -408,23 +557,38 @@ export function PrintOrderModal({ open, onClose, orders: liveOrders, docType, bi
             </button>
           </div>
         </div>
+        {template?.paperSize && (
+          <style>{`@media print { @page { size: ${template.paperSize}; } }`}</style>
+        )}
         <div className="print-area overflow-y-auto bg-slate-50 print:overflow-visible print:bg-white">
           {docType === 'combined' ? (
             // One sheet per order, cut in half — same layout whether it's one order from the
             // drawer or several from a bulk selection, just repeated once per order.
             orders.map((order) => (
-              <CombinedDocumentPage key={order.id} order={order} binLookup={binLookup} businessName={user?.businessName || 'Your Business'} />
+              <CombinedDocumentPage key={order.id} order={order} binLookup={binLookup} businessName={user?.businessName || 'Your Business'} template={template} />
             ))
           ) : docType === 'packingSlip' && orders.length > 1 ? (
             <CompactPackingListDocument orders={orders} binLookup={binLookup} businessName={user?.businessName || 'Your Business'} />
           ) : (
             orders.map((order) => (
-              <DocumentPage key={order.id} order={order} docType={docType} binLookup={binLookup} businessName={user?.businessName || 'Your Business'} />
+              <DocumentPage key={order.id} order={order} docType={docType} binLookup={binLookup} businessName={user?.businessName || 'Your Business'} template={template} />
             ))
           )}
         </div>
       </div>
-    </div>,
+    </div>
+    <BulkStockPopup
+      open={popupData !== null}
+      mode="pack"
+      mixedOrders={popupData?.mixed ?? []}
+      fullyShortOrders={popupData?.fullyShort ?? []}
+      readyCount={popupData?.ready.length ?? 0}
+      stockLookup={stockLookup}
+      busy={popupBusy}
+      onClose={() => setPopupData(null)}
+      onProceed={(resolution) => void handlePopupProceed(resolution)}
+    />
+    </>,
     document.body
   );
 }

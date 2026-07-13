@@ -43,7 +43,7 @@ function Detail({ query }: AnalyticsCardComponentProps) {
     <div className="space-y-6">
       <p className="text-xs text-slate-400">
         Delivered COD and Due are lifetime running balances, not scoped to the date filter above — a courier's outstanding balance carries forward, so a period-scoped number would be
-        misleading. "Due" = Delivered COD − Courier Charges − Payouts you've recorded below each courier in Integrations.
+        misleading. "Due" = Delivered COD − Courier Charges − Return Charges − Payouts you've recorded below each courier in Integrations.
       </p>
       <RankedTable
         keyField={(r) => r.provider}
@@ -53,6 +53,7 @@ function Detail({ query }: AnalyticsCardComponentProps) {
           { key: 'name', header: 'Courier', render: (r) => <span className="font-medium text-slate-700">{r.displayName}</span> },
           { key: 'delivered', header: 'Delivered COD', align: 'right', render: (r) => formatMoney(r.deliveredCodAmount) },
           { key: 'charges', header: 'Courier charges', align: 'right', render: (r) => formatMoney(r.courierCharges) },
+          { key: 'returns', header: 'Return charges', align: 'right', render: (r) => formatMoney(r.returnCharges) },
           { key: 'receivable', header: 'Expected receivable', align: 'right', render: (r) => formatMoney(r.expectedReceivable) },
           { key: 'paid', header: 'Paid', align: 'right', render: (r) => formatMoney(r.paid) },
           { key: 'due', header: 'Due', align: 'right', render: (r) => <span className="font-semibold text-slate-900">{formatMoney(r.due)}</span> },

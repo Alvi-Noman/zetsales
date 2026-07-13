@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { requireAuth, requireTenant, requireModule } from '../middleware/authMiddleware.js';
 import {
   importStoreOrdersStream, listOrders, getOrder, getOrderFulfillmentStatus, getOrderStats, getOrderTrends, updateOrder, bulkUpdateOrders, markPartialDelivered,
-  blockCustomer, unblockCustomer, markPaymentCollected, bulkMarkPaymentCollected, claimOrder, heartbeatOrderClaim, releaseOrderClaim, upsellOrder, createOrder,
+  blockCustomer, unblockCustomer, markPaymentCollected, bulkMarkPaymentCollected, claimOrder, heartbeatOrderClaim, releaseOrderClaim, upsellOrder, createOrder, splitOrder,
+  getReadyToPrintOrders, markOrdersPrinted, getCourierShipmentStats,
 } from '../controllers/ordersController.js';
 
 const router: Router = Router();
@@ -11,9 +12,12 @@ const requireOrders = requireModule('orders');
 // Static/literal sub-paths must be registered before the `/orders/:id` param routes, otherwise
 // Express matches "stats"/"bulk" as an :id value first.
 router.get('/orders/stats', requireAuth, requireTenant, requireOrders, getOrderStats);
+router.get('/orders/courier-stats', requireAuth, requireTenant, requireOrders, getCourierShipmentStats);
 router.get('/orders/trends', requireAuth, requireTenant, requireOrders, getOrderTrends);
 router.patch('/orders/bulk', requireAuth, requireTenant, requireOrders, bulkUpdateOrders);
 router.post('/orders/bulk/mark-collected', requireAuth, requireTenant, requireOrders, bulkMarkPaymentCollected);
+router.get('/orders/ready-to-print', requireAuth, requireTenant, requireOrders, getReadyToPrintOrders);
+router.post('/orders/mark-printed', requireAuth, requireTenant, requireOrders, markOrdersPrinted);
 
 router.get('/orders', requireAuth, requireTenant, requireOrders, listOrders);
 router.post('/orders', requireAuth, requireTenant, requireOrders, createOrder);
@@ -28,6 +32,7 @@ router.post('/orders/:id/claim', requireAuth, requireTenant, requireOrders, clai
 router.post('/orders/:id/claim/heartbeat', requireAuth, requireTenant, requireOrders, heartbeatOrderClaim);
 router.post('/orders/:id/release', requireAuth, requireTenant, requireOrders, releaseOrderClaim);
 router.post('/orders/:id/upsell', requireAuth, requireTenant, requireOrders, upsellOrder);
+router.post('/orders/:id/split', requireAuth, requireTenant, requireOrders, splitOrder);
 router.get('/stores/:storeId/orders/import/stream', requireAuth, requireTenant, requireOrders, importStoreOrdersStream);
 
 export default router;

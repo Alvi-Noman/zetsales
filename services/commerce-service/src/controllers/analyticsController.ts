@@ -2031,7 +2031,7 @@ export async function getCourierReconciliation(req: AuthenticatedRequest, res: R
 
   const couriers = await db.collection('couriers').find({ tenantId }).toArray();
 
-  const [deliveredAgg, paidAgg] = await Promise.all([
+  const [deliveredAgg, returnedAgg, paidAgg] = await Promise.all([
     db
       .collection('orders')
       .aggregate([
@@ -2039,10 +2039,20 @@ export async function getCourierReconciliation(req: AuthenticatedRequest, res: R
         { $group: { _id: '$courierPartner', deliveredCodAmount: { $sum: '$total' }, courierCharges: { $sum: { $ifNull: ['$courierCharge', 0] } } } },
       ])
       .toArray(),
+    // RTO cost — a real cash outflow to the courier even though nothing was collected, so it has
+    // to reduce expectedReceivable the same way courierCharges does, not just sit as a separate loss figure.
+    db
+      .collection('orders')
+      .aggregate([
+        { $match: { ...storeMatch, courierPartner: { $ne: null }, courierConsignmentId: { $ne: null }, stage: 'Returned' } },
+        { $group: { _id: '$courierPartner', returnCharges: { $sum: { $ifNull: ['$courierReturnCharge', 0] } } } },
+      ])
+      .toArray(),
     db.collection('courierSettlements').aggregate([{ $match: { tenantId } }, { $group: { _id: '$provider', paid: { $sum: '$amount' } } }]).toArray(),
   ]);
 
   const deliveredByPartner = new Map(deliveredAgg.map((r) => [r._id, r]));
+  const returnedByPartner = new Map(returnedAgg.map((r) => [r._id, r.returnCharges as number]));
   const paidByProvider = new Map(paidAgg.map((r) => [r._id, r.paid as number]));
 
   const rows = couriers.map((c) => {
@@ -2050,9 +2060,10 @@ export async function getCourierReconciliation(req: AuthenticatedRequest, res: R
     const delivered = deliveredByPartner.get(partner);
     const deliveredCodAmount = delivered?.deliveredCodAmount ?? 0;
     const courierCharges = delivered?.courierCharges ?? 0;
-    const expectedReceivable = deliveredCodAmount - courierCharges;
+    const returnCharges = returnedByPartner.get(partner) ?? 0;
+    const expectedReceivable = deliveredCodAmount - courierCharges - returnCharges;
     const paid = paidByProvider.get(c.provider) ?? 0;
-    return { provider: c.provider, displayName: c.displayName, deliveredCodAmount, courierCharges, expectedReceivable, paid, due: Math.round((expectedReceivable - paid) * 100) / 100 };
+    return { provider: c.provider, displayName: c.displayName, deliveredCodAmount, courierCharges, returnCharges, expectedReceivable, paid, due: Math.round((expectedReceivable - paid) * 100) / 100 };
   });
 
   // Aging: currently-unreconciled delivered COD orders, bucketed by days since delivery — a

@@ -2,6 +2,7 @@ import { createPortal } from 'react-dom';
 import { Printer, X } from 'lucide-react';
 import type { OrderDTO } from '@zetsales/shared';
 import { useAuth } from '../../context/AuthContext';
+import { markOrdersPrinted } from '../../lib/commerceApi';
 import { Barcode } from './Barcode';
 
 interface CourierLabelModalProps {
@@ -68,7 +69,10 @@ export function CourierLabelModal({ open, onClose, orders }: CourierLabelModalPr
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => window.print()}
+              onClick={() => {
+                window.print();
+                void markOrdersPrinted(orders.map((o) => o.id)).catch(() => {});
+              }}
               className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-slate-800"
             >
               <Printer size={14} /> Print

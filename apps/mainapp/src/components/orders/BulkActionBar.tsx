@@ -1,4 +1,4 @@
-import { Ban, PhoneCall, PauseCircle, X, Printer, FileText, ClipboardList, Tag, Scissors, Banknote, Truck } from 'lucide-react';
+import { Ban, PhoneCall, PauseCircle, X, Printer, FileText, ClipboardList, Tag, Scissors, Banknote, Truck, Package } from 'lucide-react';
 import type { HoldReason } from '@zetsales/shared';
 import { ALL_CANCEL_REASONS } from './reasons';
 import { ReasonNoteMenu } from './ReasonNoteMenu';
@@ -17,6 +17,10 @@ interface BulkActionBarProps {
   // details popup rather than firing directly, since marking shipped in bulk means physically
   // handing a batch to a courier and there's real information worth logging about that moment.
   onMarkShipped?: () => void;
+  // Undefined unless at least one selected order is actually Confirmed. Independent of printing —
+  // this advances Confirmed -> Processing on its own, running the same stock-check popup as the
+  // print flow does, for sellers who don't want packing gated behind printing a slip.
+  onSendToPacking?: () => void;
   onHold?: (reason: string, note: string, rescheduledFor: string | null) => void;
   onCancel?: (reason: string, note: string) => void;
   onPrintInvoices: () => void;
@@ -35,7 +39,7 @@ interface BulkActionBarProps {
 }
 
 export function BulkActionBar({
-  count, onClear, onConfirm, onMarkShipped, onHold, onCancel, onPrintInvoices, onPrintPackingSlips, onPrintCombined, onPrintLabels, onMarkCollected, holdReasons, busy,
+  count, onClear, onConfirm, onMarkShipped, onSendToPacking, onHold, onCancel, onPrintInvoices, onPrintPackingSlips, onPrintCombined, onPrintLabels, onMarkCollected, holdReasons, busy,
 }: BulkActionBarProps) {
   if (count === 0) return null;
 
@@ -56,6 +60,15 @@ export function BulkActionBar({
             className="flex items-center gap-1.5 rounded-xl bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 hover:bg-slate-100 disabled:opacity-60"
           >
             <PhoneCall size={13} /> Confirm
+          </button>
+        )}
+        {onSendToPacking && (
+          <button
+            onClick={onSendToPacking}
+            disabled={busy}
+            className="flex items-center gap-1.5 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20 disabled:opacity-60"
+          >
+            <Package size={13} /> Send to packing
           </button>
         )}
         {onMarkShipped && (
@@ -81,20 +94,20 @@ export function BulkActionBar({
               <button
                 onClick={() => {
                   close();
+                  onPrintPackingSlips();
+                }}
+                className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
+              >
+                <ClipboardList size={13} className="text-slate-400" /> Print packing slips
+              </button>
+              <button
+                onClick={() => {
+                  close();
                   onPrintInvoices();
                 }}
                 className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
               >
                 <FileText size={13} className="text-slate-400" /> Invoices
-              </button>
-              <button
-                onClick={() => {
-                  close();
-                  onPrintPackingSlips();
-                }}
-                className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
-              >
-                <ClipboardList size={13} className="text-slate-400" /> Packing slips
               </button>
               <button
                 onClick={() => {

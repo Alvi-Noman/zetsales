@@ -70,6 +70,7 @@ interface CreateOrderInput {
   recipientPhone: string;
   recipientAddress: string;
   codAmount: number;
+  speed: 'regular' | 'express';
 }
 
 interface CreateOrderResult {
@@ -94,7 +95,8 @@ export async function createPathaoOrder(creds: PathaoCredentials, input: CreateO
       amount_to_collect: input.codAmount,
       item_quantity: 1,
       item_weight: 0.5,
-      delivery_type: 48,
+      // Pathao's published delivery_type codes: 48 = Normal Delivery, 12 = On Demand (Express).
+      delivery_type: input.speed === 'express' ? 12 : 48,
       item_type: 2,
     }),
   });

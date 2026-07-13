@@ -36,10 +36,14 @@ export async function toUserDto(user: {
   role?: TeamRole | null;
 }): Promise<UserDTO> {
   let businessName: string | null = null;
+  let businessType: UserDTO['businessType'] = null;
+  let installedPlugins: UserDTO['installedPlugins'] = [];
   if (user.tenantId) {
     const db = getDb();
     const business = await db.collection('businesses').findOne({ _id: new ObjectId(user.tenantId) });
     businessName = business?.name ?? null;
+    businessType = business?.businessType ?? null;
+    installedPlugins = business?.installedPlugins ?? [];
   }
   return {
     id: user._id.toString(),
@@ -48,7 +52,9 @@ export async function toUserDto(user: {
     tenantId: user.tenantId ?? null,
     isOnboarded: user.isOnboarded ?? false,
     businessName,
+    businessType,
     role: user.role ?? null,
+    installedPlugins,
   };
 }
 
@@ -95,7 +101,9 @@ export async function signup(req: Request, res: Response) {
       tenantId: null,
       isOnboarded: false,
       businessName: null,
+      businessType: null,
       role: null,
+      installedPlugins: [],
     };
 
     res.status(201).json({ success: true, user: userDto, token });
@@ -173,7 +181,7 @@ export async function getMe(req: AuthenticatedRequest, res: Response) {
 
 const onboardingSchema = z.object({
   businessName: z.string().trim().min(2, 'Business name is required'),
-  businessType: z.enum(['Fashion & Apparel', 'Electronics', 'Beauty & Cosmetics', 'Home & Living', 'Grocery & Food', 'Other']),
+  businessType: z.enum(['I manufacture my own products', 'I import my products', 'I buy from local wholesalers', 'I dropship — I never hold stock']),
   phone: z.string().trim().min(6, 'Phone number is required'),
   channels: z.array(z.enum(['Facebook', 'Instagram', 'WhatsApp', 'Website', 'Physical Store'])).min(1, 'Select at least one channel'),
   monthlyOrders: z.string().trim().min(1),
@@ -207,6 +215,7 @@ export async function completeOnboarding(req: AuthenticatedRequest, res: Respons
       teamSize: payload.teamSize,
       currency: 'BDT',
       country: 'Bangladesh',
+      installedPlugins: [],
       createdAt: new Date(),
     });
 
@@ -227,7 +236,9 @@ export async function completeOnboarding(req: AuthenticatedRequest, res: Respons
       tenantId,
       isOnboarded: true,
       businessName: payload.businessName,
+      businessType: payload.businessType,
       role: 'owner',
+      installedPlugins: [],
     };
 
     res.status(200).json({ success: true, user: userDto, token });

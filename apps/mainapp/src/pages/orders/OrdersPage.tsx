@@ -7,7 +7,6 @@ import {
   Copy,
   CreditCard,
   Download,
-  Layers,
   Lock,
   MessageCircle,
   Package,
@@ -18,22 +17,36 @@ import {
   Search,
   Store as StoreIcon,
   UserX,
+  X,
 } from 'lucide-react';
 import clsx from 'clsx';
-import type { CancelReason, CourierAccountDTO, HoldReason, OrderDTO, OrderPaymentStatus, OrderStatsDTO, OrderTabKey, OrderTrendsDTO, StoreDTO } from '@zetsales/shared';
+import type { CancelReason, CourierAccountDTO, HoldReason, OrderDTO, OrderPaymentStatus, OrderStatsDTO, OrderTabKey, StoreDTO } from '@zetsales/shared';
 import { useAuth } from '../../context/AuthContext';
-import { blockCustomer, bulkMarkPaymentCollected, bulkUpdateOrders, getOrderStats, getOrderTrends, listCouriers, listInventory, listOrders, listStores, unblockCustomer } from '../../lib/commerceApi';
+import {
+  blockCustomer,
+  bulkMarkPaymentCollected,
+  bulkUpdateOrders,
+  getOrderStats,
+  listAllInventoryLevels,
+  listCouriers,
+  listOrders,
+  listStores,
+  splitOrder,
+  unblockCustomer,
+  type InventoryLevelDTO,
+} from '../../lib/commerceApi';
 import { OrderDetailDrawer } from '../../components/orders/OrderDetailDrawer';
 import { CreateOrderModal } from '../../components/orders/CreateOrderModal';
 import { PrintOrderModal, type PrintDocType } from '../../components/orders/PrintOrderModal';
 import { CourierLabelModal } from '../../components/orders/CourierLabelModal';
 import { BulkShipModal, type HandoverDetails } from '../../components/orders/BulkShipModal';
+import { BulkStockPopup, type BulkStockResolution } from '../../components/orders/BulkStockPopup';
 import { buildBinLookup, type BinLookup } from '../../components/orders/binLookup';
+import { buildStockLookup, classifyOrdersByStock, summarizeOrderStock } from '../../components/orders/stockLookup';
 import { ShopifyLogo, WooCommerceLogo } from '../../components/orders/platformLogos';
 import { STAGE_TONE, STAGE_LABEL, PAYMENT_METHOD_SHORT, CLAIM_TONE } from '../../components/orders/orderTone';
 import { ALL_HOLD_REASONS, CANCEL_REASONS_FOR_FILTER, canCancel, canHold, holdReasonsForMany } from '../../components/orders/reasons';
 import { ImportOrdersModal } from '../../components/integrations/ImportOrdersModal';
-import { StatsRow } from '../../components/orders/StatsRow';
 import { ORDER_TABS } from '../../components/orders/tabs';
 import { DateRangeMenu } from '../../components/orders/DateRangeMenu';
 import { FilterMenu } from '../../components/orders/FilterMenu';
@@ -59,7 +72,11 @@ const PLATFORM_META = {
 } as const;
 
 const NEW_ORDERS_POLL_MS = 25_000;
-const PAYMENT_STATUSES: OrderPaymentStatus[] = ['COD Pending', 'Advance Paid', 'Paid', 'Collected', 'Refunded', 'Failed'];
+// COD-workflow statuses first (COD Pending -> Advance Paid -> Collected, the path almost every
+// order actually takes) — Paid/Refunded/Failed are real statuses (driven by non-COD/online-paid
+// orders) but rare for a COD-heavy seller, so they trail behind rather than interrupting the ones
+// staff actually use day to day.
+const PAYMENT_STATUSES: OrderPaymentStatus[] = ['COD Pending', 'Advance Paid', 'Collected', 'Paid', 'Refunded', 'Failed'];
 
 type SortKey = 'number' | 'total' | 'date';
 
@@ -97,7 +114,6 @@ export function OrdersPage() {
   const [couriers, setCouriers] = useState<CourierAccountDTO[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(true);
   const [stats, setStats] = useState<OrderStatsDTO | null>(null);
-  const [trends, setTrends] = useState<OrderTrendsDTO | null>(null);
   const [tab, setTab] = useState<OrderTabKey>('all');
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
@@ -105,6 +121,7 @@ export function OrdersPage() {
   const [paymentFilter, setPaymentFilter] = useState<string>('all');
   const [holdReasonFilter, setHoldReasonFilter] = useState<string>('all');
   const [cancelReasonFilter, setCancelReasonFilter] = useState<string>('all');
+  const [stockStatusFilter, setStockStatusFilter] = useState<string>('all');
   const [dateRange, setDateRange] = useState<DateRangeKey>('all');
   const [statsDateRange, setStatsDateRange] = useState<DateRangeKey>('today');
   const [statsCustomRange, setStatsCustomRange] = useState<CustomDateRange | null>(null);
@@ -114,6 +131,10 @@ export function OrdersPage() {
   const [importTarget, setImportTarget] = useState<StoreDTO | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [confirmPopupData, setConfirmPopupData] = useState<{ ready: OrderDTO[]; mixed: OrderDTO[]; fullyShort: OrderDTO[] } | null>(null);
+  const [confirmPopupBusy, setConfirmPopupBusy] = useState(false);
+  const [packPopupData, setPackPopupData] = useState<{ ready: OrderDTO[]; mixed: OrderDTO[]; fullyShort: OrderDTO[] } | null>(null);
+  const [packPopupBusy, setPackPopupBusy] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [newOrdersCount, setNewOrdersCount] = useState(0);
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
@@ -124,6 +145,10 @@ export function OrdersPage() {
   const [labelModalOpen, setLabelModalOpen] = useState(false);
   const [shipModalOpen, setShipModalOpen] = useState(false);
   const [binLookup, setBinLookup] = useState<BinLookup | undefined>(undefined);
+  // Backs the Confirmed-tab "Ready to pack"/"N short" badge and the Pending/Flagged "Mixed stock"
+  // heads-up badge — loaded once up front (like stores/couriers) rather than per-tab, since both
+  // surfaces need it.
+  const [stockLevels, setStockLevels] = useState<InventoryLevelDTO[] | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const knownTabCountRef = useRef<number | null>(null);
 
@@ -163,24 +188,6 @@ export function OrdersPage() {
     }
   };
 
-  // Powers the per-card trend charts — the comparison period is resolved server-side from
-  // `statsDateRange` (today -> yesterday, a week -> the week before, a month -> the same elapsed
-  // span of the previous month, a year -> the previous year), so picking a different range here
-  // automatically re-targets what it's being compared against.
-  const loadTrends = async () => {
-    try {
-      const data = await getOrderTrends({
-        range: statsDateRange,
-        from: statsDateRange === 'custom' ? statsCustomRange?.from : undefined,
-        to: statsDateRange === 'custom' ? statsCustomRange?.to : undefined,
-        storeId: storeFilter !== 'all' ? storeFilter : undefined,
-      });
-      setTrends(data);
-    } catch {
-      // Trend charts are a secondary visual; the KPI numbers still work without them.
-    }
-  };
-
   const loadOrders = async (pageArg: number) => {
     setOrdersLoading(true);
     try {
@@ -191,6 +198,7 @@ export function OrdersPage() {
         paymentStatus: paymentFilter,
         holdReason: tab === 'hold' && holdReasonFilter !== 'all' ? (holdReasonFilter as HoldReason) : undefined,
         cancelReason: tab === 'cancelled' && cancelReasonFilter !== 'all' ? (cancelReasonFilter as CancelReason) : undefined,
+        stockStatus: tab === 'confirmed' && stockStatusFilter !== 'all' ? (stockStatusFilter as 'ready' | 'short') : undefined,
         search,
         dateFrom: from ?? undefined,
         dateTo: to ?? undefined,
@@ -216,7 +224,11 @@ export function OrdersPage() {
     void loadStores();
     void loadCouriers();
     void loadStats();
-    void loadTrends();
+    void listAllInventoryLevels()
+      .then((levels) => setStockLevels(levels))
+      .catch(() => {
+        // The stock badges/mixed-order gating are a nice-to-have hint; the list still works without them.
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -230,11 +242,10 @@ export function OrdersPage() {
     setSelected(new Set());
     void loadOrders(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storeFilter, tab, paymentFilter, holdReasonFilter, cancelReasonFilter, dateRange, advancedFilters, search, sort, pageSize]);
+  }, [storeFilter, tab, paymentFilter, holdReasonFilter, cancelReasonFilter, stockStatusFilter, dateRange, advancedFilters, search, sort, pageSize]);
 
   useEffect(() => {
     void loadStats();
-    void loadTrends();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeFilter, statsDateRange, statsCustomRange, tab]);
 
@@ -270,10 +281,10 @@ export function OrdersPage() {
   }, []);
 
   const storeById = useMemo(() => new Map(stores.map((s) => [s.id, s])), [stores]);
+  const stockLookup = useMemo(() => (stockLevels ? buildStockLookup(stockLevels) : undefined), [stockLevels]);
 
   const refreshAll = () => {
     void loadStats();
-    void loadTrends();
     void loadOrders(page);
   };
 
@@ -336,6 +347,83 @@ export function OrdersPage() {
     }
   };
 
+  // Same stock-check checkpoint as "Print & send to packing" (see PrintOrderModal), applied to
+  // every place a Confirm click can happen — the bulk action bar, the command palette, the
+  // fast-track banner, and even a single row's quick "Confirm order" — so a mixed or fully-short
+  // order is never silently confirmed no matter which of those a staff member happens to use.
+  // A clean selection (nothing mixed or fully out of stock) skips the popup entirely.
+  const handleBulkConfirm = (ids: string[], undoPatch?: Parameters<typeof bulkUpdateOrders>[1]) => {
+    if (ids.length === 0) return;
+    const selectedForConfirm = orders.filter((o) => ids.includes(o.id));
+    const { ready, mixed, fullyShort } = classifyOrdersByStock(selectedForConfirm, stockLookup);
+    if (mixed.length === 0 && fullyShort.length === 0) {
+      void runBulk(ids, { stage: 'Confirmed' }, undoPatch);
+      return;
+    }
+    setConfirmPopupData({ ready, mixed, fullyShort });
+  };
+
+  const handleConfirmPopupProceed = async (resolution: BulkStockResolution) => {
+    if (!confirmPopupData) return;
+    setConfirmPopupBusy(true);
+    try {
+      // Splitting a Pending/Flagged order already confirms both halves in one call (see
+      // splitOrder) — nothing further needed for those beyond the refresh below.
+      await Promise.all(resolution.splitIds.map((id) => splitOrder(id)));
+      const readyIds = confirmPopupData.ready.map((o) => o.id);
+      const finalIds = [...readyIds, ...resolution.fullyShortProceedIds];
+      setConfirmPopupData(null);
+      if (finalIds.length > 0) {
+        await runBulk(finalIds, { stage: 'Confirmed' });
+      } else {
+        setSelected(new Set());
+        refreshAll();
+        toast.push('Split complete.', 'success');
+      }
+    } catch (err) {
+      toast.push(err instanceof Error ? err.message : 'Could not resolve those orders.', 'info');
+    } finally {
+      setConfirmPopupBusy(false);
+    }
+  };
+
+  // Standalone "Send to packing" — same stock-check popup as "Print & send to packing"
+  // (PrintOrderModal), but independent of printing entirely: sellers who don't print, or who print
+  // separately from when packing actually starts, aren't forced through a print dialog to advance
+  // Confirmed -> Processing.
+  const handleBulkSendToPacking = (ids: string[]) => {
+    if (ids.length === 0) return;
+    const selectedForPacking = orders.filter((o) => ids.includes(o.id));
+    const { ready, mixed, fullyShort } = classifyOrdersByStock(selectedForPacking, stockLookup);
+    if (mixed.length === 0 && fullyShort.length === 0) {
+      void runBulk(ids, { stage: 'Processing' });
+      return;
+    }
+    setPackPopupData({ ready, mixed, fullyShort });
+  };
+
+  const handlePackPopupProceed = async (resolution: BulkStockResolution) => {
+    if (!packPopupData) return;
+    setPackPopupBusy(true);
+    try {
+      const splitResults = await Promise.all(resolution.splitIds.map((id) => splitOrder(id)));
+      const readyIds = packPopupData.ready.map((o) => o.id);
+      const finalIds = [...readyIds, ...splitResults.map((r) => r.original.id)];
+      setPackPopupData(null);
+      if (finalIds.length > 0) {
+        await runBulk(finalIds, { stage: 'Processing' });
+      } else {
+        setSelected(new Set());
+        refreshAll();
+        toast.push('Split complete — nothing was ready to send to packing yet.', 'success');
+      }
+    } catch (err) {
+      toast.push(err instanceof Error ? err.message : 'Could not resolve those orders.', 'info');
+    } finally {
+      setPackPopupBusy(false);
+    }
+  };
+
   // Folded into the order's own `note` field rather than a new dedicated field — no schema change,
   // and it shows up wherever an order's note already does (drawer, history). Only the parts staff
   // actually filled in appear; a rider pickup with no paperwork just logs the date.
@@ -395,13 +483,15 @@ export function OrdersPage() {
   };
 
   const downloadCsv = (ordersToExport: OrderDTO[], format: ExportFormat) => {
-    const headers = ['Order ID', 'Customer', 'Phone', 'Product', 'Amount', 'Currency', 'Stage', 'Payment Method', 'Payment Status', 'Placed'];
+    const headers = ['Order ID', 'Customer', 'Phone', 'Product', 'Amount', 'Advance', 'Balance Due', 'Currency', 'Stage', 'Payment Method', 'Payment Status', 'Placed'];
     const rows = ordersToExport.map((o) => [
       o.number,
       o.customerName ?? '',
       o.customerPhone ?? '',
       o.lineItems[0]?.title ?? '',
       o.total,
+      o.advanceAmount,
+      Math.max(0, o.total - o.advanceAmount),
       o.currency,
       o.stage,
       o.paymentMethod,
@@ -431,6 +521,7 @@ export function OrdersPage() {
       paymentStatus: paymentFilter,
       holdReason: tab === 'hold' && holdReasonFilter !== 'all' ? (holdReasonFilter as HoldReason) : undefined,
       cancelReason: tab === 'cancelled' && cancelReasonFilter !== 'all' ? (cancelReasonFilter as CancelReason) : undefined,
+      stockStatus: tab === 'confirmed' && stockStatusFilter !== 'all' ? (stockStatusFilter as 'ready' | 'short') : undefined,
       search,
       dateFrom: from ?? undefined,
       dateTo: to ?? undefined,
@@ -473,8 +564,8 @@ export function OrdersPage() {
   // Resolved per-order against each order's own fulfillmentWarehouseId (see binLookup.ts).
   const loadBinLookup = async () => {
     try {
-      const res = await listInventory();
-      setBinLookup(buildBinLookup(res.levels));
+      const levels = await listAllInventoryLevels();
+      setBinLookup(buildBinLookup(levels));
     } catch {
       // Bin numbers are a nice-to-have on the packing slip; staff can still work without them.
     }
@@ -491,9 +582,14 @@ export function OrdersPage() {
   // Same reasoning as collectibleSelectedIds above — an action shouldn't be offered (or silently
   // applied) for orders it doesn't make sense for. Confirm only ever applies to Pending/Flagged;
   // Hold/Cancel already have their own per-stage eligibility rules (canHold/canCancel), same ones
-  // the single-order drawer already gates its own buttons with.
+  // the single-order drawer already gates its own buttons with. Splitting a mixed-stock order is
+  // optional (see the drawer's split checkbox), so bulk-confirm doesn't exclude them — it behaves
+  // exactly like a plain single-order confirm would (oversell policy decides Confirmed vs Flagged).
   const confirmableSelectedOrders = selectedOrders.filter((o) => o.stage === 'Pending' || o.stage === 'Flagged');
   const confirmableSelectedIds = confirmableSelectedOrders.map((o) => o.id);
+  // Independent of printing — see BulkActionBar's onSendToPacking. Only Confirmed orders are
+  // eligible; the stock-check popup (same one the print flow uses) decides what actually proceeds.
+  const packableSelectedIds = selectedOrders.filter((o) => o.stage === 'Confirmed').map((o) => o.id);
   const holdableSelectedOrders = selectedOrders.filter((o) => canHold(o.stage));
   const holdableSelectedIds = holdableSelectedOrders.map((o) => o.id);
   const cancellableSelectedIds = selectedOrders.filter((o) => canCancel(o.stage)).map((o) => o.id);
@@ -521,10 +617,7 @@ export function OrdersPage() {
     setSort(defaultSortForTab(nextTab));
     if (nextTab !== 'hold') setHoldReasonFilter('all');
     if (nextTab !== 'cancelled') setCancelReasonFilter('all');
-  };
-
-  const handleStatsNavigate = (nextTab: OrderTabKey) => {
-    handleTabChange(nextTab);
+    if (nextTab !== 'confirmed') setStockStatusFilter('all');
   };
 
   const fastTrackIds = useMemo(() => (tab === 'pending' ? fastTrackEligibleIds(orders) : []), [tab, orders]);
@@ -538,6 +631,7 @@ export function OrdersPage() {
     paymentFilter === 'all' &&
     holdReasonFilter === 'all' &&
     cancelReasonFilter === 'all' &&
+    stockStatusFilter === 'all' &&
     dateRange === 'all' &&
     activeAdvancedFilterCount(advancedFilters) === 0;
 
@@ -554,7 +648,7 @@ export function OrdersPage() {
 
   return (
     <div className="flex min-h-full flex-col">
-      <div className="flex flex-wrap items-center justify-between gap-y-3 border-b border-slate-200 bg-white px-4 py-4 lg:px-8 lg:py-5">
+      <div className="flex flex-wrap items-center justify-between gap-y-3 bg-white px-4 pt-4 lg:px-8 lg:pt-5">
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-bold text-slate-900">Orders</h1>
@@ -604,60 +698,106 @@ export function OrdersPage() {
             </div>
           ) : (
             <>
-              <div className="border-b border-slate-200 bg-white px-4 py-4">
-                <div className="flex flex-wrap items-center gap-3">
-                  <DateRangeMenu
-                    value={statsDateRange}
-                    onChange={setStatsDateRange}
-                    customRange={statsCustomRange}
-                    onCustomRangeChange={setStatsCustomRange}
-                  />
-                  <FilterMenu
-                    icon={StoreIcon}
-                    allLabel="All Channels"
-                    value={storeFilter}
-                    options={stores.map((s) => ({ value: s.id, label: s.displayName }))}
-                    onChange={setStoreFilter}
-                  />
-                  <FilterMenu
-                    icon={Layers}
-                    allLabel="All Statuses"
-                    value={tab}
-                    options={ORDER_TABS.filter((t) => t.key !== 'all').map((t) => ({ value: t.key, label: t.label }))}
-                    onChange={(v) => handleTabChange(v as OrderTabKey)}
-                  />
-                  {tab === 'hold' && (
-                    <FilterMenu
-                      icon={PhoneCall}
-                      allLabel="All Hold Reasons"
-                      value={holdReasonFilter}
-                      options={ALL_HOLD_REASONS.map((r) => ({ value: r, label: r }))}
-                      onChange={setHoldReasonFilter}
+              <div className="border-b border-slate-200 bg-white px-4 pb-3 pt-5 lg:px-8">
+                {/* Status as flat underline tabs, not a dropdown or pill row — matches the pattern
+                    Linear/GitHub/Stripe/Shopify all converge on for "filter one list by status,
+                    show a live count" (see design-system references: joined pill tracks are for
+                    segmented controls/settings toggles, not this). Every stage is one click away,
+                    with its count right next to the label, nothing competing for visual weight. */}
+                <div className="-mx-1 flex items-center gap-5 overflow-x-auto border-b border-slate-100 px-1 pb-3">
+                  {ORDER_TABS.map((t) => {
+                    const active = tab === t.key;
+                    const count = stats?.tabCounts[t.key] ?? 0;
+                    return (
+                      <button
+                        key={t.key}
+                        onClick={() => handleTabChange(t.key)}
+                        className={clsx(
+                          'relative flex shrink-0 items-center gap-1.5 whitespace-nowrap pb-2.5 pt-1 text-sm font-medium transition-colors',
+                          active ? 'text-slate-900' : 'text-slate-500 hover:text-slate-700'
+                        )}
+                      >
+                        {t.label}
+                        <span
+                          className={clsx(
+                            'text-xs tabular-nums',
+                            active
+                              ? 'font-semibold text-slate-600'
+                              : t.key === 'priority' && count > 0
+                              ? 'font-semibold text-rose-600'
+                              : 'text-slate-400'
+                          )}
+                        >
+                          {count.toLocaleString()}
+                        </span>
+                        {active && <span className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-slate-900" />}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex flex-wrap items-center gap-3 pt-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <DateRangeMenu
+                      value={statsDateRange}
+                      onChange={setStatsDateRange}
+                      customRange={statsCustomRange}
+                      onCustomRangeChange={setStatsCustomRange}
                     />
-                  )}
-                  {tab === 'cancelled' && (
                     <FilterMenu
-                      icon={Ban}
-                      allLabel="All Cancel Reasons"
-                      value={cancelReasonFilter}
-                      options={CANCEL_REASONS_FOR_FILTER.map((r) => ({ value: r, label: r }))}
-                      onChange={setCancelReasonFilter}
+                      icon={StoreIcon}
+                      allLabel="All Channels"
+                      value={storeFilter}
+                      options={stores.map((s) => ({ value: s.id, label: s.displayName }))}
+                      onChange={setStoreFilter}
                     />
-                  )}
-                  <FilterMenu
-                    icon={CreditCard}
-                    allLabel="All Payment Types"
-                    value={paymentFilter}
-                    options={PAYMENT_STATUSES.map((s) => ({ value: s, label: s }))}
-                    onChange={setPaymentFilter}
-                  />
-                  <MoreFiltersMenu value={advancedFilters} onApply={setAdvancedFilters} />
-                  {(!noFiltersActive || statsDateRange !== 'today') && (
-                    <button onClick={clearFilters} className="text-xs font-medium text-slate-400 hover:text-slate-600">
-                      Clear filters
-                    </button>
-                  )}
-                  <div className="ml-auto flex items-center gap-2">
+                    {tab === 'hold' && (
+                      <FilterMenu
+                        icon={PhoneCall}
+                        allLabel="All Hold Reasons"
+                        value={holdReasonFilter}
+                        options={ALL_HOLD_REASONS.map((r) => ({ value: r, label: r }))}
+                        onChange={setHoldReasonFilter}
+                      />
+                    )}
+                    {tab === 'cancelled' && (
+                      <FilterMenu
+                        icon={Ban}
+                        allLabel="All Cancel Reasons"
+                        value={cancelReasonFilter}
+                        options={CANCEL_REASONS_FOR_FILTER.map((r) => ({ value: r, label: r }))}
+                        onChange={setCancelReasonFilter}
+                      />
+                    )}
+                    {tab === 'confirmed' && (
+                      <FilterMenu
+                        icon={Package}
+                        allLabel="All Stock"
+                        value={stockStatusFilter}
+                        options={[
+                          { value: 'ready', label: 'Ready to pack' },
+                          { value: 'short', label: 'Short on stock' },
+                        ]}
+                        onChange={setStockStatusFilter}
+                      />
+                    )}
+                    <FilterMenu
+                      icon={CreditCard}
+                      allLabel="All Payment Types"
+                      value={paymentFilter}
+                      options={PAYMENT_STATUSES.map((s) => ({ value: s, label: s }))}
+                      onChange={setPaymentFilter}
+                    />
+                    <MoreFiltersMenu value={advancedFilters} onApply={setAdvancedFilters} />
+                    {(!noFiltersActive || statsDateRange !== 'today') && (
+                      <button
+                        onClick={clearFilters}
+                        className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-slate-400 hover:bg-slate-50 hover:text-slate-600"
+                      >
+                        <X size={12} /> Clear filters
+                      </button>
+                    )}
+                  </div>
+                  <div className="ml-auto flex items-center gap-3 border-l border-slate-200 pl-3">
                     <div className="relative w-64 sm:w-80">
                       <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
                       <input
@@ -701,9 +841,6 @@ export function OrdersPage() {
                     </Popover>
                   </div>
                 </div>
-                <div className="mt-4">
-                  <StatsRow stats={stats} trends={trends} activeTab={tab} onNavigate={handleStatsNavigate} />
-                </div>
               </div>
 
               {tab !== 'priority' && (
@@ -719,7 +856,7 @@ export function OrdersPage() {
                 </button>
               )}
 
-              <FastTrackBanner count={fastTrackIds.length} loading={bulkBusy} onConfirmAll={() => void runBulk(fastTrackIds, { stage: 'Confirmed' })} />
+              <FastTrackBanner count={fastTrackIds.length} loading={bulkBusy} onConfirmAll={() => handleBulkConfirm(fastTrackIds)} />
 
               <div className={clsx('overflow-x-auto transition-opacity', ordersLoading && 'opacity-50')}>
                 {ordersLoading && orders.length === 0 ? (
@@ -754,11 +891,21 @@ export function OrdersPage() {
                         const isSelected = selected.has(order.id);
                         const urgency =
                           order.stage === 'Pending' || order.stage === 'Flagged' ? pendingUrgency(ageMinutes(order.createdAt)) : 'normal';
+                        // Only Confirmed orders get flagged here — that's the one stage where "no
+                        // stock" is actually actionable right now (send to packing or not). A
+                        // Pending/mixed order isn't a problem yet; it just hasn't been resolved,
+                        // and gets caught by the confirm-time popup instead of cluttering the list.
+                        const stockSummary = order.stage === 'Confirmed' && stockLookup ? summarizeOrderStock(order.lineItems, stockLookup) : null;
+                        const isShortConfirmed = Boolean(stockSummary && stockSummary.shortCount > 0);
                         return (
                           <tr
                             key={order.id}
                             onClick={() => setActiveOrder(order)}
-                            className={clsx('cursor-pointer border-b border-slate-100 transition-colors hover:bg-slate-50', isSelected && 'bg-indigo-50/50')}
+                            className={clsx(
+                              'cursor-pointer border-b border-l-4 border-slate-100 transition-colors hover:bg-slate-50',
+                              isShortConfirmed ? 'border-l-rose-400 bg-rose-50/50 hover:bg-rose-50/70' : 'border-l-transparent',
+                              !isShortConfirmed && isSelected && 'bg-indigo-50/50'
+                            )}
                           >
                             <td className="px-4 py-3" onClick={(e) => toggleSelect(order.id, e)}>
                               <input
@@ -816,8 +963,18 @@ export function OrdersPage() {
                               <p className="text-xs font-normal text-slate-400">{PAYMENT_METHOD_SHORT[order.paymentMethod]}</p>
                             </td>
                             <td className="px-3 py-3 whitespace-nowrap">
-                              <span className={clsx('inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset', STAGE_TONE[order.stage])}>
-                                {STAGE_LABEL[order.stage]}
+                              <span className="inline-flex items-center gap-1.5">
+                                <span className={clsx('inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset', STAGE_TONE[order.stage])}>
+                                  {STAGE_LABEL[order.stage]}
+                                </span>
+                                {isShortConfirmed && stockSummary && (
+                                  <span
+                                    className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-rose-500 text-white"
+                                    title={stockSummary.shortItems.map((s) => `${s.title}: only ${s.free} free of ${s.quantity}`).join(', ')}
+                                  >
+                                    <span className="text-[9px] font-bold leading-none">!</span>
+                                  </span>
+                                )}
                               </span>
                             </td>
                             <td className="px-3 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
@@ -854,7 +1011,7 @@ export function OrdersPage() {
                               <RowActionsMenu
                                 order={order}
                                 onView={() => setActiveOrder(order)}
-                                onConfirm={() => void runBulk([order.id], { stage: 'Confirmed' }, { stage: order.stage })}
+                                onConfirm={() => handleBulkConfirm([order.id], { stage: order.stage })}
                                 onCancel={(reason: CancelReason) =>
                                   void runBulk([order.id], { stage: 'Cancelled', cancelReason: reason, note: null }, { stage: order.stage })
                                 }
@@ -899,8 +1056,9 @@ export function OrdersPage() {
         count={selected.size}
         busy={bulkBusy}
         onClear={() => setSelected(new Set())}
-        onConfirm={confirmableSelectedIds.length > 0 ? () => void runBulk(confirmableSelectedIds, { stage: 'Confirmed' }) : undefined}
+        onConfirm={confirmableSelectedIds.length > 0 ? () => handleBulkConfirm(confirmableSelectedIds) : undefined}
         onMarkShipped={shippableSelectedIds.length > 0 ? () => setShipModalOpen(true) : undefined}
+        onSendToPacking={packableSelectedIds.length > 0 ? () => handleBulkSendToPacking(packableSelectedIds) : undefined}
         onHold={
           holdableSelectedIds.length > 0
             ? (reason, note, rescheduledFor) => void runBulk(holdableSelectedIds, { stage: 'On Hold', holdReason: reason as HoldReason, note: note || null, rescheduledFor })
@@ -933,7 +1091,7 @@ export function OrdersPage() {
         onClearFilters={clearFilters}
         onFocusSearch={() => searchRef.current?.focus()}
         selectedCount={confirmableSelectedIds.length}
-        onBulkConfirmSelected={() => void runBulk(confirmableSelectedIds, { stage: 'Confirmed' })}
+        onBulkConfirmSelected={() => handleBulkConfirm(confirmableSelectedIds)}
       />
 
       <OrderDetailDrawer
@@ -949,6 +1107,7 @@ export function OrdersPage() {
         orders={selectedOrders}
         docType={printDocType ?? 'invoice'}
         binLookup={binLookup}
+        stockLookup={stockLookup}
         onOrdersProcessed={refreshAll}
       />
       <CourierLabelModal open={labelModalOpen} onClose={() => setLabelModalOpen(false)} orders={selectedOrders} />
@@ -980,6 +1139,28 @@ export function OrdersPage() {
           refreshAll();
           setActiveOrder(order);
         }}
+      />
+      <BulkStockPopup
+        open={confirmPopupData !== null}
+        mode="confirm"
+        mixedOrders={confirmPopupData?.mixed ?? []}
+        fullyShortOrders={confirmPopupData?.fullyShort ?? []}
+        readyCount={confirmPopupData?.ready.length ?? 0}
+        stockLookup={stockLookup}
+        busy={confirmPopupBusy}
+        onClose={() => setConfirmPopupData(null)}
+        onProceed={(resolution) => void handleConfirmPopupProceed(resolution)}
+      />
+      <BulkStockPopup
+        open={packPopupData !== null}
+        mode="pack"
+        mixedOrders={packPopupData?.mixed ?? []}
+        fullyShortOrders={packPopupData?.fullyShort ?? []}
+        readyCount={packPopupData?.ready.length ?? 0}
+        stockLookup={stockLookup}
+        busy={packPopupBusy}
+        onClose={() => setPackPopupData(null)}
+        onProceed={(resolution) => void handlePackPopupProceed(resolution)}
       />
     </div>
   );

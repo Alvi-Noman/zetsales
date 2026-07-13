@@ -36,15 +36,16 @@ function MetricCard({
   );
 }
 
-type SortKey = 'name' | 'totalSpend' | 'shipmentCount' | 'totalUnits' | 'lastTransactionAt' | 'leadTimeDays';
+type SortKey = 'name' | 'totalSpend' | 'shipmentCount' | 'totalUnits' | 'lastTransactionAt';
 
 function AddSupplierModal({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
   const toast = useToast();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
-  const [leadTimeDays, setLeadTimeDays] = useState('');
-  const [paymentTerms, setPaymentTerms] = useState('');
+  const [contactPersonName, setContactPersonName] = useState('');
+  const [designation, setDesignation] = useState('');
+  const [billingAddress, setBillingAddress] = useState('');
   const [paymentType, setPaymentType] = useState<SupplierPaymentType>('prepaid');
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
@@ -54,14 +55,15 @@ function AddSupplierModal({ open, onClose, onSaved }: { open: boolean; onClose: 
       setName('');
       setPhone('');
       setEmail('');
-      setLeadTimeDays('');
-      setPaymentTerms('');
+      setContactPersonName('');
+      setDesignation('');
+      setBillingAddress('');
       setPaymentType('prepaid');
       setNote('');
     }
   }, [open]);
 
-  const canSave = name.trim().length > 0 && !saving;
+  const canSave = name.trim().length > 0 && contactPersonName.trim().length > 0 && designation.trim().length > 0 && billingAddress.trim().length > 0 && !saving;
 
   const save = async () => {
     if (!canSave) return;
@@ -71,8 +73,9 @@ function AddSupplierModal({ open, onClose, onSaved }: { open: boolean; onClose: 
         name: name.trim(),
         phone: phone.trim() || undefined,
         email: email.trim() || undefined,
-        leadTimeDays: leadTimeDays.trim() ? Number(leadTimeDays) : undefined,
-        paymentTerms: paymentTerms.trim() || undefined,
+        contactPersonName: contactPersonName.trim(),
+        designation: designation.trim(),
+        billingAddress: billingAddress.trim(),
         paymentType,
         note: note.trim() || undefined,
       });
@@ -105,13 +108,17 @@ function AddSupplierModal({ open, onClose, onSaved }: { open: boolean; onClose: 
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="mb-1.5 block text-xs font-semibold text-slate-600">Lead time (days)</label>
-            <input type="number" min="0" value={leadTimeDays} onChange={(e) => setLeadTimeDays(e.target.value)} className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15" />
+            <label className="mb-1.5 block text-xs font-semibold text-slate-600">Contact person</label>
+            <input value={contactPersonName} onChange={(e) => setContactPersonName(e.target.value)} placeholder="e.g. Rahim Uddin" className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15" />
           </div>
           <div>
-            <label className="mb-1.5 block text-xs font-semibold text-slate-600">Payment terms</label>
-            <input value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)} placeholder="e.g. Net 30" className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15" />
+            <label className="mb-1.5 block text-xs font-semibold text-slate-600">Designation</label>
+            <input value={designation} onChange={(e) => setDesignation(e.target.value)} placeholder="e.g. Sales Manager" className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15" />
           </div>
+        </div>
+        <div>
+          <label className="mb-1.5 block text-xs font-semibold text-slate-600">Billing address</label>
+          <input value={billingAddress} onChange={(e) => setBillingAddress(e.target.value)} placeholder="e.g. 12 Motijheel C/A, Dhaka 1000" className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15" />
         </div>
         <div>
           <label className="mb-1.5 block text-xs font-semibold text-slate-600">How do you pay this supplier?</label>
@@ -195,7 +202,6 @@ export function SuppliersPage() {
       let cmp = 0;
       if (sortKey === 'name') cmp = a.name.localeCompare(b.name);
       else if (sortKey === 'lastTransactionAt') cmp = (a.lastTransactionAt ?? '').localeCompare(b.lastTransactionAt ?? '');
-      else if (sortKey === 'leadTimeDays') cmp = (a.leadTimeDays ?? -1) - (b.leadTimeDays ?? -1);
       else cmp = a[sortKey] - b[sortKey];
       return sortDir === 'asc' ? cmp : -cmp;
     });
@@ -212,7 +218,10 @@ export function SuppliersPage() {
   );
 
   const SortHeader = ({ label, sortKeyName }: { label: string; sortKeyName: SortKey }) => (
-    <button onClick={() => toggleSort(sortKeyName)} className="flex items-center gap-1 text-left hover:text-slate-700">
+    // inline-flex (not flex) so this stays an inline-level box that the <th>'s text-left/text-right
+    // actually positions — a block-level `flex` button ignores the parent's text-align entirely,
+    // which is why sort headers used to sit flush left even under a right-aligned column.
+    <button onClick={() => toggleSort(sortKeyName)} className="inline-flex items-center gap-1 hover:text-slate-700">
       {label}
       {sortKey === sortKeyName ? sortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} /> : <ArrowUpDown size={11} className="text-slate-300" />}
     </button>
@@ -276,6 +285,7 @@ export function SuppliersPage() {
                       <th className="px-4 py-2.5 text-left font-semibold">
                         <SortHeader label="Name" sortKeyName="name" />
                       </th>
+                      <th className="px-4 py-2.5 text-left font-semibold">Contact person</th>
                       <th className="px-4 py-2.5 text-right font-semibold">
                         <SortHeader label="Total spend" sortKeyName="totalSpend" />
                       </th>
@@ -284,9 +294,6 @@ export function SuppliersPage() {
                       </th>
                       <th className="px-4 py-2.5 text-right font-semibold">
                         <SortHeader label="Units received" sortKeyName="totalUnits" />
-                      </th>
-                      <th className="px-4 py-2.5 text-right font-semibold">
-                        <SortHeader label="Lead time" sortKeyName="leadTimeDays" />
                       </th>
                       <th className="px-4 py-2.5 text-right font-semibold">
                         <SortHeader label="Last transaction" sortKeyName="lastTransactionAt" />
@@ -300,10 +307,13 @@ export function SuppliersPage() {
                           <p className="font-medium text-slate-800">{s.name}</p>
                           <p className="text-xs text-slate-400">{s.phone || s.email || '—'}</p>
                         </td>
+                        <td className="px-4 py-3">
+                          <p className="text-slate-700">{s.contactPersonName || '—'}</p>
+                          <p className="text-xs text-slate-400">{s.designation || ' '}</p>
+                        </td>
                         <td className="px-4 py-3 text-right font-semibold tabular-nums text-slate-800">{money(s.totalSpend)}</td>
                         <td className="px-4 py-3 text-right tabular-nums text-slate-600">{s.shipmentCount}</td>
                         <td className="px-4 py-3 text-right tabular-nums text-slate-600">{s.totalUnits}</td>
-                        <td className="px-4 py-3 text-right tabular-nums text-slate-500">{s.leadTimeDays != null ? `${s.leadTimeDays}d` : '—'}</td>
                         <td className="px-4 py-3 text-right text-slate-500">{s.lastTransactionAt ? new Date(s.lastTransactionAt).toLocaleDateString() : 'Never'}</td>
                       </tr>
                     ))}

@@ -27,6 +27,7 @@ import { ProductDetailDrawer } from '../../components/products/ProductDetailDraw
 import { ImportProductsModal } from '../../components/integrations/ImportProductsModal';
 import { DeleteProductModal } from '../../components/products/DeleteProductModal';
 import { AlibabaImportModal } from '../../components/products/AlibabaImportModal';
+import { Select } from '../../components/ui/Select';
 import { ShopifyLogo, WooCommerceLogo } from '../../components/orders/platformLogos';
 import { FilterMenu } from '../../components/orders/FilterMenu';
 import { Popover } from '../../components/ui/Popover';
@@ -415,17 +416,12 @@ export function ProductsPage() {
                         </div>
                       )}
                     </Popover>
-                    <select
-                      value={pageSize}
-                      onChange={(e) => setPageSize(Number(e.target.value))}
-                      className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-600 outline-none focus:border-indigo-400"
-                    >
-                      {PAGE_SIZE_OPTIONS.map((n) => (
-                        <option key={n} value={n}>
-                          {n}/page
-                        </option>
-                      ))}
-                    </select>
+                    <Select
+                      value={String(pageSize)}
+                      onChange={(v) => setPageSize(Number(v))}
+                      options={PAGE_SIZE_OPTIONS.map((n) => ({ value: String(n), label: `${n}/page` }))}
+                      className="h-8 py-0 text-xs"
+                    />
                   </div>
                 </div>
               </div>

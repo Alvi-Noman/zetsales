@@ -3,6 +3,7 @@ import type { ProductOptionDTO, ProductSourcePlatform, ProductWeightUnit } from 
 import { ImageGalleryUpload } from './ImageGalleryUpload';
 import { OptionsBuilder } from './OptionsBuilder';
 import { VariantTable, type VariantFormRow } from './VariantTable';
+import { Select } from '../ui/Select';
 
 export interface ProductFormState {
   title: string;
@@ -102,16 +103,16 @@ export function ProductFormFields({ value, onChange, showInitialQuantity }: Prod
         </div>
         <div>
           <label className="mb-1.5 block text-xs font-semibold text-slate-600">Unit</label>
-          <select
+          <Select
             value={value.weightUnit}
-            onChange={(e) => onChange({ ...value, weightUnit: e.target.value as ProductWeightUnit })}
-            className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15"
-          >
-            <option value="kg">kg</option>
-            <option value="g">g</option>
-            <option value="lb">lb</option>
-            <option value="oz">oz</option>
-          </select>
+            onChange={(v) => onChange({ ...value, weightUnit: v as ProductWeightUnit })}
+            options={[
+              { value: 'kg', label: 'kg' },
+              { value: 'g', label: 'g' },
+              { value: 'lb', label: 'lb' },
+              { value: 'oz', label: 'oz' },
+            ]}
+          />
         </div>
       </div>
 

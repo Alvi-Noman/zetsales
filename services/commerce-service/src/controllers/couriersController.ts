@@ -6,12 +6,47 @@ import { getDb } from '../utils/db.js';
 import { encryptSecret, decryptSecret } from '../utils/crypto.js';
 import logger from '../utils/logger.js';
 import type { AuthenticatedRequest } from '../middleware/authMiddleware.js';
-import type { CourierAccountDTO, CourierProvider, CourierSettlementDTO, CourierHandoverDTO, CourierHandoverDetailDTO, EligibleHandoverOrderDTO } from '@zetsales/shared';
+import type {
+  CourierAccountDTO,
+  CourierProvider,
+  CourierSettlementDTO,
+  CourierHandoverDTO,
+  CourierHandoverDetailDTO,
+  EligibleHandoverOrderDTO,
+  CourierZoneTier,
+  CourierSpeed,
+} from '@zetsales/shared';
 import { verifySteadfastCredentials, type SteadfastCredentials } from '../integrations/steadfastClient.js';
 import { verifyPathaoCredentials, type PathaoCredentials } from '../integrations/pathaoClient.js';
 
 function webhookBaseUrl(): string {
   return process.env.PUBLIC_COMMERCE_URL || 'http://localhost:8081/api/v1/commerce';
+}
+
+const ZONE_TIERS: CourierZoneTier[] = ['inside', 'outside', 'suburb'];
+const SPEEDS: CourierSpeed[] = ['regular', 'express'];
+
+// Legacy couriers only ever had a single flat `deliveryChargeRate` — surfaced here as the starting
+// value for every cell of the new rate matrix rather than leaving it blank, so a merchant who
+// connected before this existed doesn't suddenly see every rate wiped to "not set".
+function normalizeDeliveryRates(doc: any): CourierAccountDTO['deliveryRates'] {
+  const legacyFallback = typeof doc.deliveryChargeRate === 'number' ? doc.deliveryChargeRate : null;
+  const stored = doc.deliveryRates ?? {};
+  const result = {} as CourierAccountDTO['deliveryRates'];
+  for (const speed of SPEEDS) {
+    result[speed] = {} as Record<CourierZoneTier, number | null>;
+    for (const zone of ZONE_TIERS) {
+      result[speed][zone] = stored[speed]?.[zone] ?? legacyFallback;
+    }
+  }
+  return result;
+}
+
+function normalizeReturnRates(doc: any): CourierAccountDTO['returnRates'] {
+  const stored = doc.returnRates ?? {};
+  const result = {} as CourierAccountDTO['returnRates'];
+  for (const zone of ZONE_TIERS) result[zone] = stored[zone] ?? null;
+  return result;
 }
 
 function toCourierDto(doc: any): CourierAccountDTO {
@@ -22,10 +57,25 @@ function toCourierDto(doc: any): CourierAccountDTO {
     status: doc.status,
     webhookUrl: `${webhookBaseUrl()}/webhooks/${doc.provider}`,
     webhookSecret: decryptSecret(doc.webhookSecret),
-    deliveryChargeRate: doc.deliveryChargeRate ?? null,
+    deliveryRates: normalizeDeliveryRates(doc),
+    returnRates: normalizeReturnRates(doc),
     lastUsedAt: doc.lastUsedAt ? new Date(doc.lastUsedAt).toISOString() : null,
     createdAt: new Date(doc.createdAt).toISOString(),
   };
+}
+
+// Resolves the actual charge to snapshot onto an order at dispatch time — falls back through the
+// zone/speed matrix cell, then the legacy flat rate, then 0 (never blocks dispatch on a missing rate).
+export function resolveCourierCharge(doc: any, zoneTier: CourierZoneTier, speed: CourierSpeed): number {
+  const cell = doc.deliveryRates?.[speed]?.[zoneTier];
+  if (typeof cell === 'number') return cell;
+  if (typeof doc.deliveryChargeRate === 'number') return doc.deliveryChargeRate;
+  return 0;
+}
+
+export function resolveCourierReturnCharge(doc: any, zoneTier: CourierZoneTier): number {
+  const cell = doc.returnRates?.[zoneTier];
+  return typeof cell === 'number' ? cell : 0;
 }
 
 export async function listCouriers(req: AuthenticatedRequest, res: Response) {
@@ -111,21 +161,29 @@ export async function connectPathao(req: AuthenticatedRequest, res: Response) {
   }
 }
 
-const chargeRateSchema = z.object({ deliveryChargeRate: z.number().nonnegative().nullable() });
+const rateCellSchema = z.number().nonnegative().nullable();
+const chargeRateSchema = z.object({
+  deliveryRates: z.object({
+    regular: z.object({ inside: rateCellSchema, outside: rateCellSchema, suburb: rateCellSchema }),
+    express: z.object({ inside: rateCellSchema, outside: rateCellSchema, suburb: rateCellSchema }),
+  }),
+  returnRates: z.object({ inside: rateCellSchema, outside: rateCellSchema, suburb: rateCellSchema }),
+});
 
-// The flat per-parcel delivery fee the merchant configures by hand (see CourierAccountDTO comment)
-// — used only to snapshot onto new orders at dispatch time (ordersController's
-// dispatchCourierConsignment); changing it here never touches orders already dispatched.
+// The per-zone/per-speed delivery and return rate matrix the merchant configures by hand, mirroring
+// the courier's own published rate card (see CourierAccountDTO comment) — used only to snapshot
+// onto orders at dispatch/return time (ordersController's dispatchCourierConsignment and
+// applyCourierReturnCharge); changing it here never touches orders already snapshotted.
 export async function updateChargeRate(req: AuthenticatedRequest, res: Response) {
   const parsed = chargeRateSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ success: false, message: 'A non-negative delivery charge (or null to clear it) is required.' });
+    res.status(400).json({ success: false, message: 'A valid delivery/return rate matrix is required.' });
     return;
   }
   const db = getDb();
   const result = await db.collection('couriers').findOneAndUpdate(
     { _id: new ObjectId(req.params.courierId), tenantId: req.user!.tenantId },
-    { $set: { deliveryChargeRate: parsed.data.deliveryChargeRate, updatedAt: new Date() } },
+    { $set: { deliveryRates: parsed.data.deliveryRates, returnRates: parsed.data.returnRates, updatedAt: new Date() } },
     { returnDocument: 'after' }
   );
   if (!result) {

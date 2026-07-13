@@ -5,6 +5,7 @@ import {
   Check,
   ChevronDown,
   Clock,
+  Gift,
   Info,
   Landmark,
   Megaphone,
@@ -491,6 +492,7 @@ export function AccountingPage() {
               <MetricCard icon={Package} label="Cost of goods" value={money(pnl.cogs)} tone="rose" />
               <MetricCard icon={ShieldCheck} label="Gross profit" value={money(pnl.grossProfit)} detail={pct(pnl.grossMarginPct)} tone="indigo" />
               <MetricCard icon={TrendingDown} label="Loss" value={money(pnl.shrinkage)} tone="amber" />
+              <MetricCard icon={Gift} label="Gifts & giveaways" value={money(pnl.giftsAndGiveaways)} tone="amber" />
               <MetricCard icon={Wallet} label="Expenses" value={money(pnl.totalExpenses)} tone="amber" />
               <MetricCard icon={BarChart3} label="Net profit" value={money(pnl.netProfit)} detail={pct(pnl.netMarginPct)} tone={pnl.netProfit >= 0 ? 'emerald' : 'rose'} />
             </div>
@@ -515,6 +517,10 @@ export function AccountingPage() {
                   <div className="flex items-center justify-between border-t border-slate-100 pt-2.5">
                     <span className="text-slate-600">Inventory loss</span>
                     <span className="font-semibold tabular-nums text-rose-600">-{money(pnl.shrinkage)}</span>
+                  </div>
+                  <div className="flex items-center justify-between border-t border-slate-100 pt-2.5">
+                    <span className="text-slate-600">Gifts &amp; giveaways</span>
+                    <span className="font-semibold tabular-nums text-rose-600">-{money(pnl.giftsAndGiveaways)}</span>
                   </div>
                   {pnl.expensesByCategory.length === 0 ? (
                     <div className="flex items-center justify-between border-t border-slate-100 pt-2.5">

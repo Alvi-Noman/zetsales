@@ -6,7 +6,9 @@ import type { StoreDTO } from '@zetsales/shared';
 import { createProduct, listStores, listWarehouses, type WarehouseDTO } from '../../lib/commerceApi';
 import { ProductFormFields, EMPTY_PRODUCT_FORM, type ProductFormState } from '../../components/products/ProductFormFields';
 import { ProductPushProgress, pushProgressLabel, type PushProgressItem } from '../../components/products/ProductPushProgress';
+import { Select } from '../../components/ui/Select';
 import { useToast } from '../../components/ui/ToastProvider';
+import { BinPicker, hasRealBins } from '../inventory/InventoryPage';
 
 const PLATFORM_META = {
   shopify: { label: 'Shopify', color: 'bg-[#95BF47]', icon: ShoppingBag },
@@ -46,6 +48,9 @@ export function AddProductPage() {
   // The warehouse/bin picker is only relevant once a starting quantity is actually entered for
   // some variant — no point asking where to put stock nobody said exists yet.
   const hasInitialQuantity = form.variants.some((v) => Number(v.initialQuantity) > 0);
+  const selectedWarehouse = warehouses.find((w) => w.id === warehouseId);
+  const binOptions = selectedWarehouse ? [...selectedWarehouse.bins, ...selectedWarehouse.systemBins] : [];
+  const usesBins = hasRealBins(binOptions);
 
   const toggleStore = (id: string) => {
     setSelected((prev) => {
@@ -150,31 +155,25 @@ export function AddProductPage() {
             <ProductFormFields value={form} onChange={setForm} showInitialQuantity />
 
             {hasInitialQuantity && (
-              <div className="grid gap-3 sm:grid-cols-[1fr_1fr]">
+              <div className={clsx('grid gap-3', usesBins ? 'sm:grid-cols-[1fr_1fr]' : 'sm:grid-cols-1')}>
                 <div>
                   <label className="mb-1.5 block text-xs font-semibold text-slate-600">Warehouse</label>
-                  <select
+                  <Select
                     value={warehouseId}
-                    onChange={(e) => setWarehouseId(e.target.value)}
-                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15"
-                  >
-                    {warehouses.length === 0 && <option value="">Main Warehouse (created automatically)</option>}
-                    {warehouses.map((w) => (
-                      <option key={w.id} value={w.id}>
-                        {w.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="mb-1.5 block text-xs font-semibold text-slate-600">Bin</label>
-                  <input
-                    value={bin}
-                    onChange={(e) => setBin(e.target.value)}
-                    placeholder="Optional"
-                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15"
+                    onChange={(v) => { setWarehouseId(v); setBin(''); }}
+                    options={
+                      warehouses.length === 0
+                        ? [{ value: '', label: 'Main Warehouse (created automatically)' }]
+                        : warehouses.map((w) => ({ value: w.id, label: w.name }))
+                    }
                   />
                 </div>
+                {usesBins && (
+                  <div>
+                    <label className="mb-1.5 block text-xs font-semibold text-slate-600">Shelf/Bin</label>
+                    <BinPicker value={bin} onChange={setBin} options={binOptions} placeholder="Optional" />
+                  </div>
+                )}
               </div>
             )}
 

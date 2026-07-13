@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Ban, Check, CheckCircle2, ChevronDown, ClipboardList, Copy, Package, Plus, Printer, RefreshCw, Trash2, Truck, X as XIcon } from 'lucide-react';
 import clsx from 'clsx';
-import type { CourierAccountDTO, CourierProvider, CourierSettlementDTO, CourierHandoverDTO, CourierHandoverDetailDTO, EligibleHandoverOrderDTO } from '@zetsales/shared';
+import type { CourierAccountDTO, CourierProvider, CourierSettlementDTO, CourierHandoverDTO, CourierHandoverDetailDTO, EligibleHandoverOrderDTO, CourierSpeed, CourierZoneTier } from '@zetsales/shared';
 import {
   listCouriers,
   regenerateCourierWebhookSecret,
@@ -26,43 +26,92 @@ function formatMoney(v: number) {
   return `৳${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 }
 
+const ZONE_TIERS: CourierZoneTier[] = ['inside', 'outside', 'suburb'];
+const ZONE_TIER_LABEL: Record<CourierZoneTier, string> = { inside: 'Inside', outside: 'Outside', suburb: 'Suburb' };
+const SPEEDS: CourierSpeed[] = ['regular', 'express'];
+const SPEED_LABEL: Record<CourierSpeed, string> = { regular: 'Regular', express: 'Express' };
+
+// Cell state as strings (not numbers) so an in-progress edit like "1" while typing "150" doesn't
+// get clobbered by Number("1") = 1 on every keystroke — parsed back to number | null only on save.
+type RateCells = Record<string, string>;
+
+function cellsFromRates(deliveryRates: CourierAccountDTO['deliveryRates'], returnRates: CourierAccountDTO['returnRates']): RateCells {
+  const cells: RateCells = {};
+  for (const speed of SPEEDS) {
+    for (const zone of ZONE_TIERS) {
+      const v = deliveryRates[speed][zone];
+      cells[`d:${speed}:${zone}`] = v != null ? String(v) : '';
+    }
+  }
+  for (const zone of ZONE_TIERS) {
+    const v = returnRates[zone];
+    cells[`r:${zone}`] = v != null ? String(v) : '';
+  }
+  return cells;
+}
+
 function ChargeRateEditor({ courier, onUpdated }: { courier: CourierAccountDTO; onUpdated: (c: CourierAccountDTO) => void }) {
   const toast = useToast();
-  const [value, setValue] = useState(courier.deliveryChargeRate != null ? String(courier.deliveryChargeRate) : '');
+  const [cells, setCells] = useState<RateCells>(() => cellsFromRates(courier.deliveryRates, courier.returnRates));
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
-    const parsed = value.trim() === '' ? null : Number(value);
-    if (parsed != null && (Number.isNaN(parsed) || parsed < 0)) {
-      toast.push('Enter a non-negative amount, or leave it blank.', 'info');
-      return;
+    for (const value of Object.values(cells)) {
+      if (value.trim() !== '' && (Number.isNaN(Number(value)) || Number(value) < 0)) {
+        toast.push('Enter a non-negative amount, or leave a cell blank.', 'info');
+        return;
+      }
     }
+    const cell = (key: string) => (cells[key]?.trim() ? Number(cells[key]) : null);
     setSaving(true);
     try {
-      const { courier: updated } = await updateCourierChargeRate(courier.id, parsed);
+      const { courier: updated } = await updateCourierChargeRate(courier.id, {
+        deliveryRates: {
+          regular: { inside: cell('d:regular:inside'), outside: cell('d:regular:outside'), suburb: cell('d:regular:suburb') },
+          express: { inside: cell('d:express:inside'), outside: cell('d:express:outside'), suburb: cell('d:express:suburb') },
+        },
+        returnRates: { inside: cell('r:inside'), outside: cell('r:outside'), suburb: cell('r:suburb') },
+      });
       onUpdated(updated);
-      toast.push('Delivery charge saved.');
+      setCells(cellsFromRates(updated.deliveryRates, updated.returnRates));
+      toast.push('Delivery charges saved.');
     } catch {
-      toast.push('Could not save the delivery charge.', 'info');
+      toast.push('Could not save delivery charges.', 'info');
     } finally {
       setSaving(false);
     }
   };
 
+  const rateInput = (key: string) => (
+    <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-1.5 py-1">
+      <span className="text-[10px] text-slate-400">৳</span>
+      <input
+        type="number"
+        min="0"
+        value={cells[key] ?? ''}
+        onChange={(e) => setCells((prev) => ({ ...prev, [key]: e.target.value }))}
+        onBlur={() => JSON.stringify(cells) !== JSON.stringify(cellsFromRates(courier.deliveryRates, courier.returnRates)) && save()}
+        placeholder="Not set"
+        className="w-14 text-xs text-slate-700 outline-none"
+      />
+    </div>
+  );
+
   return (
-    <div className="flex items-center gap-2">
-      <span className="text-xs font-medium text-slate-500">Delivery charge / parcel</span>
-      <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1">
-        <span className="text-xs text-slate-400">৳</span>
-        <input
-          type="number"
-          min="0"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onBlur={() => value !== (courier.deliveryChargeRate != null ? String(courier.deliveryChargeRate) : '') && save()}
-          placeholder="Not set"
-          className="w-16 text-xs text-slate-700 outline-none"
-        />
+    <div className="space-y-2">
+      <div className="grid grid-cols-4 items-center gap-1.5 text-[11px]">
+        <span className="text-slate-400">Delivery</span>
+        {ZONE_TIERS.map((zone) => (
+          <span key={zone} className="text-center font-medium text-slate-500">{ZONE_TIER_LABEL[zone]}</span>
+        ))}
+        {SPEEDS.map((speed) => (
+          <div key={speed} className="contents">
+            <span className="text-slate-500">{SPEED_LABEL[speed]}</span>
+            {ZONE_TIERS.map((zone) => <div key={zone}>{rateInput(`d:${speed}:${zone}`)}</div>)}
+          </div>
+        ))}
+        <span className="text-slate-400">Return</span>
+        {ZONE_TIERS.map((zone) => <div key={zone}>{rateInput(`r:${zone}`)}</div>)}
       </div>
       {saving && <span className="text-[10px] text-slate-400">Saving...</span>}
     </div>
@@ -663,7 +712,7 @@ function CourierCard({
       <div className="mt-4 border-t border-slate-100 pt-3">
         <ChargeRateEditor courier={courier} onUpdated={onChargeRateUpdated} />
         <p className="mt-1 text-[11px] text-slate-400">
-          A flat estimate per parcel — {meta.label} doesn't expose real per-shipment cost via API, so this feeds the Courier Reconciliation report as "expected receivable," not an exact bill.
+          Estimates per parcel by speed and zone — {meta.label} doesn't expose real per-shipment cost via API, so this feeds the Courier Reconciliation report as "expected receivable," not an exact bill.
         </p>
       </div>
 

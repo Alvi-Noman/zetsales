@@ -5,7 +5,9 @@ export interface UserDTO {
   tenantId: string | null;
   isOnboarded: boolean;
   businessName: string | null;
+  businessType: BusinessType | null;
   role: TeamRole | null;
+  installedPlugins: ModuleKey[];
 }
 
 export type TeamRole = 'owner' | 'admin' | 'manager' | 'agent' | 'viewer';
@@ -15,10 +17,13 @@ export const MODULE_KEYS = [
   'orders',
   'products',
   'inventory',
+  'preOrders',
+  'printOut',
   'customers',
   'adPerformance',
   'customerService',
   'callCenter',
+  'fraudChecker',
   'supplyChain',
   'accounting',
   'analytics',
@@ -27,6 +32,12 @@ export const MODULE_KEYS = [
   'settings',
 ] as const;
 export type ModuleKey = (typeof MODULE_KEYS)[number];
+
+// The subset of modules that a tenant must explicitly "install" (see PluginsPage /
+// pluginsController) before they're usable at all — independent of and in addition to
+// the role check below. Everything else is a "core" module: visible whenever the
+// signed-in user's role permits it, no install step needed.
+export const PLUGIN_MODULES: ModuleKey[] = ['fraudChecker', 'callCenter', 'adPerformance', 'customerService'];
 
 export interface RoleDefinition {
   role: TeamRole;
@@ -64,10 +75,13 @@ export const ROLE_DEFINITIONS: Record<TeamRole, RoleDefinition> = {
       'orders',
       'products',
       'inventory',
+      'preOrders',
+      'printOut',
       'customers',
       'adPerformance',
       'customerService',
       'callCenter',
+      'fraudChecker',
       'supplyChain',
       'analytics',
     ],
@@ -86,7 +100,7 @@ export const ROLE_DEFINITIONS: Record<TeamRole, RoleDefinition> = {
     role: 'viewer',
     label: 'Viewer',
     description: 'Read-only access for reporting and oversight.',
-    modules: ['home', 'orders', 'products', 'inventory', 'customers', 'analytics'],
+    modules: ['home', 'orders', 'products', 'inventory', 'preOrders', 'customers', 'analytics'],
     canManageTeam: false,
     canWrite: false,
   },
@@ -127,14 +141,42 @@ export interface AcceptInvitePreviewDTO {
 }
 
 export type BusinessType =
-  | 'Fashion & Apparel'
-  | 'Electronics'
-  | 'Beauty & Cosmetics'
-  | 'Home & Living'
-  | 'Grocery & Food'
-  | 'Other';
+  | 'I manufacture my own products'
+  | 'I import my products'
+  | 'I buy from local wholesalers'
+  | 'I dropship — I never hold stock';
 
 export type SalesChannel = 'Facebook' | 'Instagram' | 'WhatsApp' | 'Website' | 'Physical Store';
+
+export interface PreOrderTargetDTO {
+  productId: string;
+  variantId: string;
+  targetQuantity: number;
+  updatedAt: string;
+}
+
+export type PrintPaperSize = 'A4' | 'A5';
+
+export interface InvoiceTemplateDTO {
+  id: string;
+  name: string;
+  logoUrl: string | null;
+  businessNameOverride: string | null;
+  address: string | null;
+  phone: string | null;
+  paperSize: PrintPaperSize;
+  showItemImages: boolean;
+  showSkuVariant: boolean;
+  showCustomerAddress: boolean;
+  showPaymentBox: boolean;
+  showDeliveryBox: boolean;
+  showBarcode: boolean;
+  showCodCallout: boolean;
+  footerNote: string;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface OnboardingPayload {
   businessName: string;
@@ -154,6 +196,7 @@ export interface BusinessDTO {
   monthlyOrders: string;
   teamSize: string;
   currency: string;
+  installedPlugins: ModuleKey[];
 }
 
 export type StorePlatform = 'shopify' | 'woocommerce';
@@ -175,6 +218,8 @@ export interface StoreDTO {
 
 export type CourierProvider = 'steadfast' | 'pathao';
 export type CourierStatus = 'connected' | 'error';
+export type CourierZoneTier = 'inside' | 'outside' | 'suburb';
+export type CourierSpeed = 'regular' | 'express';
 
 export interface CourierAccountDTO {
   id: string;
@@ -187,10 +232,13 @@ export interface CourierAccountDTO {
   // The shared secret the merchant also pastes into that same panel field, so the webhook handler
   // can tell which tenant's account a given incoming call belongs to (see couriersController.ts).
   webhookSecret: string;
-  // A flat per-parcel delivery fee the merchant configures by hand — couriers don't expose a real
-  // per-shipment charge via API (it's zone/weight-dependent and only known to them), so this is a
-  // deliberate estimate, not a fetched actual cost. Null until the merchant sets one.
-  deliveryChargeRate: number | null;
+  // Per-parcel delivery fee, by speed and zone tier — couriers don't expose a real per-shipment
+  // charge via API, so this is a manually configured estimate mirroring the courier's own published
+  // rate card. Cells are null until the merchant fills them in.
+  deliveryRates: Record<CourierSpeed, Record<CourierZoneTier, number | null>>;
+  // What the courier charges back when a parcel fails delivery and is returned — no speed dimension,
+  // couriers price returns the same regardless of how the outbound leg was booked.
+  returnRates: Record<CourierZoneTier, number | null>;
   lastUsedAt: string | null;
   createdAt: string;
 }
@@ -424,6 +472,90 @@ export type RiskLabel = 'Trusted' | 'Normal' | 'Risky' | 'New Customer';
 export type PaymentMethod = 'Cash on Delivery' | 'bKash' | 'Nagad' | 'Rocket' | 'Card' | 'Other';
 export type CourierPartner = 'Steadfast' | 'Pathao';
 
+// Cosmetic bucketing of order.courierStatus (raw courier webhook text) for the Delivery Partners
+// dashboard only. Deliberately separate from courierStatusMapper.ts on the backend, which maps the
+// same raw text into OrderStage to drive order pipeline restaging — that mapping is lossy (several
+// distinct courier states collapse into one stage) and must never be reused for display, just as
+// this bucketing must never be reused for restaging.
+export const COURIER_STATUS_BUCKETS = [
+  'awaiting_sync',
+  'accepted',
+  'picked',
+  'in_transit',
+  'delivered',
+  'partial',
+  'returned',
+  'cancelled',
+  'hold',
+  'other',
+] as const;
+export type CourierStatusBucket = (typeof COURIER_STATUS_BUCKETS)[number];
+
+export const COURIER_STATUS_BUCKET_LABEL: Record<CourierStatusBucket, string> = {
+  awaiting_sync: 'Awaiting sync',
+  accepted: 'Accepted',
+  picked: 'Picked up',
+  in_transit: 'In transit',
+  delivered: 'Delivered',
+  partial: 'Partial delivery',
+  returned: 'Returned',
+  cancelled: 'Cancelled',
+  hold: 'On hold',
+  other: 'Other',
+};
+
+// Beyond the vocab courierStatusMapper.ts documents (itself admittedly unverified against live
+// webhooks), real order data already on file uses a noticeably richer set of raw values — notably
+// a whole family of return-flow statuses and qc_pending, plus in_transit for Steadfast too. Covered
+// here so the dashboard doesn't dump most real shipments into the generic "other" bucket.
+const STEADFAST_STATUS_BUCKETS: Record<string, CourierStatusBucket> = {
+  pending: 'accepted',
+  in_review: 'accepted',
+  in_transit: 'in_transit',
+  delivered: 'delivered',
+  partial_delivered: 'partial',
+  partial_return: 'partial',
+  returned: 'returned',
+  return_in_transit: 'returned',
+  cancelled: 'cancelled',
+  qc_pending: 'hold',
+  hold: 'hold',
+};
+
+const PATHAO_STATUS_BUCKETS: Record<string, CourierStatusBucket> = {
+  pending: 'accepted',
+  pickup_requested: 'accepted',
+  assigned_for_pickup: 'accepted',
+  picked: 'picked',
+  in_transit: 'in_transit',
+  delivered: 'delivered',
+  partial_delivery: 'partial',
+  partial_returned: 'partial',
+  return: 'returned',
+  returning: 'returned',
+  returned: 'returned',
+  returned_to_hub: 'returned',
+  return_in_transit: 'returned',
+  cancelled: 'cancelled',
+  exchange: 'returned',
+  return_dispute: 'hold',
+  qc_pending: 'hold',
+  hold: 'hold',
+};
+
+// courierStatus === null means a courier is assigned but no webhook has landed yet.
+export function bucketForCourierStatus(courierPartner: CourierPartner | null, courierStatus: string | null): CourierStatusBucket {
+  if (!courierStatus) return 'awaiting_sync';
+  const key = courierStatus.trim().toLowerCase().replace(/\s+/g, '_');
+  const table = courierPartner === 'Steadfast' ? STEADFAST_STATUS_BUCKETS : courierPartner === 'Pathao' ? PATHAO_STATUS_BUCKETS : null;
+  return table?.[key] ?? 'other';
+}
+
+export interface CourierShipmentStatsDTO {
+  total: number;
+  bucketCounts: Record<CourierStatusBucket, number>;
+}
+
 export interface OrderRiskDTO {
   label: RiskLabel;
   totalOrders: number;
@@ -470,6 +602,11 @@ export interface OrderDTO {
   subtotal: number;
   shippingFee: number;
   discount: number;
+  // Collected from the customer up front (e.g. a delivery-charge advance via bKash/Nagad) before
+  // the courier ever delivers — money already in hand against `total`, which itself never changes
+  // to account for it. Whatever shows the amount still owed (COD-to-collect, invoice, packing
+  // slip) subtracts this; `total` alone always means "full order value."
+  advanceAmount: number;
   total: number;
   currency: string;
   tags: string[];
@@ -482,6 +619,14 @@ export interface OrderDTO {
   holdReason: HoldReason | null;
   cancelReason: CancelReason | null;
   flagReason: string | null;
+  // Set only on an order created by splitting a mixed-stock order at confirm time — points back at
+  // the order it was split from. Null for every order that was never split off.
+  splitFromOrderId: string | null;
+  splitFromOrderNumber: string | null;
+  // Set only on the original order once it's been split — points forward at the new order that was
+  // spun off to hold the out-of-stock line items. Null if this order was never split.
+  splitIntoOrderId: string | null;
+  splitIntoOrderNumber: string | null;
   note: string | null;
   // Set only when holdReason is 'Customer requested reschedule' and a date/time was picked — the
   // structured instant a "Priority calls" queue can filter/sort on. `note` carries the same
@@ -501,10 +646,18 @@ export interface OrderDTO {
   courierConsignmentId: string | null;
   courierStatus: string | null;
   courierSyncedAt: string | null;
-  // Snapshotted from the courier account's configured deliveryChargeRate at the moment this order
-  // dispatched — later rate changes never retroactively alter it. Null if no rate was configured
-  // yet, or the order never dispatched through a connected courier account.
+  // Snapshotted from the courier account's rate table (for this order's zone/speed) at the moment
+  // this order dispatched — later rate changes never retroactively alter it. Null if no matching
+  // rate was configured yet, or the order never dispatched through a connected courier account.
   courierCharge: number | null;
+  // Snapshotted the first time the order's stage becomes 'Returned' after having shipped — the
+  // courier's rate-card cost for a failed delivery, which is otherwise invisible to reconciliation.
+  courierReturnCharge: number | null;
+  // Best-effort auto-detected from the address (see zoneDetection.ts), editable by staff before
+  // dispatch — determines which deliveryRates/returnRates cell applies.
+  courierZoneTier: CourierZoneTier | null;
+  // Chosen manually per order (defaults to 'regular') — the other axis of the deliveryRates cell.
+  courierSpeed: CourierSpeed | null;
   deliveryZone: string | null;
   callAttempts: number;
   history: OrderTimelineEventDTO[];
@@ -523,6 +676,10 @@ export interface OrderDTO {
   updatedAt: string;
   claimedBy: OrderClaimDTO;
   claimedAt: string | null;
+  // Set the moment any invoice/packing-slip/label print actually fires for this order (see
+  // PrintOrderModal.tsx / CourierLabelModal.tsx) — not when a print dialog merely opens. Null means
+  // never printed, which is what the Orders "ready to pack" banner filters on.
+  printedAt: string | null;
 }
 
 export type OrderTabKey = 'all' | 'priority' | 'pending' | 'confirmed' | 'processing' | 'shipped' | 'returning' | 'delivered' | 'codDue' | 'hold' | 'cancelled';
@@ -1205,6 +1362,7 @@ export interface CourierReconciliationRowDTO {
   displayName: string;
   deliveredCodAmount: number;
   courierCharges: number;
+  returnCharges: number;
   expectedReceivable: number;
   paid: number;
   due: number;

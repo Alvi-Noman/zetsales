@@ -85,7 +85,10 @@ export function CustomersPage() {
   }, [rows, sortKey, sortDir]);
 
   const SortHeader = ({ label, sortKeyName }: { label: string; sortKeyName: SortKey }) => (
-    <button onClick={() => toggleSort(sortKeyName)} className="flex items-center gap-1 text-left hover:text-slate-700">
+    // inline-flex (not flex) so this stays an inline-level box the <th>'s text-left/text-right
+    // actually positions — a block-level `flex` button ignores the parent's text-align, which left
+    // every right-aligned sort header sitting flush left instead of over its column's data.
+    <button onClick={() => toggleSort(sortKeyName)} className="inline-flex items-center gap-1 hover:text-slate-700">
       {label}
       {sortKey === sortKeyName ? sortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} /> : <ArrowUpDown size={11} className="text-slate-300" />}
     </button>

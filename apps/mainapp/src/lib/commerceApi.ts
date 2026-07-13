@@ -1,4 +1,4 @@
-import type { AdAccountDTO, AdCampaignDTO, AdCreativeAssetDTO, CreateAdCampaignPayload, AdChannel, AdCostEntryDTO, AdPerformanceReportDTO, BulkOrderResultDTO, CallOutcome, CancelReason, CourierAccountDTO, CourierSettlementDTO, CourierHandoverDTO, CourierHandoverDetailDTO, EligibleHandoverOrderDTO, CustomerListDTO, CustomerDetailDTO, CustomerOrderRowDTO, HoldReason, OrderDTO, OrderRiskDTO, OrderStage, OrderStatsDTO, OrderTabKey, OrderTrendsDTO, PaymentMethod, ProductCollectionDTO, ProductDTO, ProductListItemDTO, ProductPublishTargetDTO, ProductPushResultDTO, ProductWritePayload, StoreDTO, SupplierProductDraftDTO } from '@zetsales/shared';
+import type { AdAccountDTO, AdCampaignDTO, AdCreativeAssetDTO, CreateAdCampaignPayload, AdChannel, AdCostEntryDTO, AdPerformanceReportDTO, BulkOrderResultDTO, CallOutcome, CancelReason, CourierAccountDTO, CourierSettlementDTO, CourierHandoverDTO, CourierHandoverDetailDTO, EligibleHandoverOrderDTO, CourierShipmentStatsDTO, CustomerListDTO, CustomerDetailDTO, CustomerOrderRowDTO, HoldReason, InvoiceTemplateDTO, ModuleKey, OrderDTO, OrderRiskDTO, OrderStage, OrderStatsDTO, OrderTabKey, OrderTrendsDTO, PaymentMethod, PreOrderTargetDTO, PrintPaperSize, ProductCollectionDTO, ProductDTO, ProductListItemDTO, ProductPublishTargetDTO, ProductPushResultDTO, ProductWritePayload, StoreDTO, SupplierProductDraftDTO } from '@zetsales/shared';
 import { api } from './api';
 
 export async function getCapabilities() {
@@ -81,8 +81,11 @@ export async function regenerateCourierWebhookSecret(courierId: string) {
   return res.data as { success: boolean; courier: CourierAccountDTO };
 }
 
-export async function updateCourierChargeRate(courierId: string, deliveryChargeRate: number | null) {
-  const res = await api.patch(`/commerce/couriers/${courierId}/charge-rate`, { deliveryChargeRate });
+export async function updateCourierChargeRate(
+  courierId: string,
+  rates: { deliveryRates: CourierAccountDTO['deliveryRates']; returnRates: CourierAccountDTO['returnRates'] }
+) {
+  const res = await api.patch(`/commerce/couriers/${courierId}/charge-rate`, rates);
   return res.data as { success: boolean; courier: CourierAccountDTO };
 }
 
@@ -244,6 +247,16 @@ export async function findProductByUrl(url: string) {
   return res.data as { success: boolean; product: { id: string; title: string } | null };
 }
 
+export async function getInstalledPlugins() {
+  const res = await api.get('/commerce/plugins');
+  return res.data.installedPlugins as ModuleKey[];
+}
+
+export async function updateInstalledPlugins(plugins: ModuleKey[]) {
+  const res = await api.patch('/commerce/plugins', { plugins });
+  return res.data.installedPlugins as ModuleKey[];
+}
+
 export async function updateProduct(id: string, payload: ProductWritePayload, onEvent?: (event: ProductPushEvent) => void) {
   return streamProductPush('PATCH', `/commerce/products/${id}`, payload, onEvent ?? (() => {}));
 }
@@ -311,8 +324,9 @@ export interface SupplierDTO {
   name: string;
   phone: string | null;
   email: string | null;
-  leadTimeDays: number | null;
-  paymentTerms: string | null;
+  contactPersonName: string | null;
+  designation: string | null;
+  billingAddress: string | null;
   // 'prepaid' — cash already left the business before the shipment ships, so open shipments from
   // this supplier are inventory-in-transit, not a debt. 'credit' — genuinely owed, unpaid. Defaults
   // to 'prepaid' server-side for any supplier that's never had this set.
@@ -420,6 +434,26 @@ export async function listInventory(params: ListInventoryParams = {}) {
   };
 }
 
+// listInventory is paginated (50 rows by default, capped at 200/page server-side) — fine for the
+// Inventory table itself, but anything building a whole-tenant lookup (bin-by-SKU for packing
+// slips, free-stock-by-SKU for the mixed-order/readiness badges) needs every row, not just the
+// first page's worth sorted by onHand. Without this, a tenant with more than ~50-200 tracked SKUs
+// would silently miss any SKU that didn't sort onto that first page — a zero-stock SKU sorts last
+// and is exactly the one these lookups most need to find. Same "loop until exhausted" shape as
+// OrdersPage's fetchAllMatching.
+export async function listAllInventoryLevels(params: Omit<ListInventoryParams, 'page' | 'pageSize'> = {}): Promise<InventoryLevelDTO[]> {
+  const pageSize = 200;
+  const all: InventoryLevelDTO[] = [];
+  let page = 1;
+  while (true) {
+    const res = await listInventory({ ...params, page, pageSize });
+    all.push(...res.levels);
+    if (all.length >= res.total || res.levels.length === 0 || all.length >= 20_000) break;
+    page += 1;
+  }
+  return all;
+}
+
 export async function listVariantLocations(productId: string, variantId: string) {
   const res = await api.get('/commerce/inventory/variant-locations', { params: { productId, variantId } });
   return res.data as { success: boolean; levels: InventoryLevelDTO[] };
@@ -428,6 +462,21 @@ export async function listVariantLocations(productId: string, variantId: string)
 export async function listStockShortfalls(params: { search?: string; page?: number; pageSize?: number } = {}) {
   const res = await api.get('/commerce/inventory/stock-shortfalls', { params });
   return res.data as { success: boolean; rows: StockShortfallRowDTO[]; total: number; page: number; pageSize: number; summary: StockShortfallsSummaryDTO };
+}
+
+export async function listPreOrderTargets() {
+  const res = await api.get('/commerce/pre-orders/targets');
+  return res.data as { success: boolean; targets: PreOrderTargetDTO[] };
+}
+
+export async function setPreOrderTarget(productId: string, variantId: string, targetQuantity: number) {
+  const res = await api.put(`/commerce/pre-orders/targets/${productId}/${variantId}`, { targetQuantity });
+  return res.data as { success: boolean; target: PreOrderTargetDTO };
+}
+
+export async function deletePreOrderTarget(productId: string, variantId: string) {
+  const res = await api.delete(`/commerce/pre-orders/targets/${productId}/${variantId}`);
+  return res.data as { success: boolean };
 }
 
 export interface ListMovementsParams {
@@ -458,6 +507,7 @@ export async function listBins(warehouseId: string) {
 export interface WarehouseDTO {
   id: string;
   name: string;
+  address: string | null;
   bins: string[];
   // Bins genuinely in use (a real count, shipment, or the QC holding location Returns to process
   // creates on its own) that were never manually added via Manage warehouses — read-only here.
@@ -471,13 +521,13 @@ export async function listWarehouses() {
   return res.data as { success: boolean; warehouses: WarehouseDTO[] };
 }
 
-export async function createWarehouse(name: string) {
-  const res = await api.post('/commerce/warehouses', { name });
+export async function createWarehouse(name: string, address?: string) {
+  const res = await api.post('/commerce/warehouses', { name, address });
   return res.data as { success: boolean; warehouse: WarehouseDTO };
 }
 
-export async function renameWarehouse(id: string, name: string) {
-  const res = await api.patch(`/commerce/warehouses/${id}`, { name });
+export async function renameWarehouse(id: string, name: string, address?: string) {
+  const res = await api.patch(`/commerce/warehouses/${id}`, { name, address });
   return res.data as { success: boolean; warehouse: WarehouseDTO };
 }
 
@@ -737,7 +787,7 @@ export async function listSuppliers() {
   return res.data as { success: boolean; suppliers: SupplierDTO[] };
 }
 
-export async function createSupplier(payload: { name: string; phone?: string; email?: string; leadTimeDays?: number; paymentTerms?: string; paymentType?: SupplierPaymentType; note?: string }) {
+export async function createSupplier(payload: { name: string; phone?: string; email?: string; contactPersonName?: string; designation?: string; billingAddress?: string; paymentType?: SupplierPaymentType; note?: string }) {
   const res = await api.post('/commerce/suppliers', payload);
   return res.data as { success: boolean; supplier: SupplierDTO };
 }
@@ -749,7 +799,7 @@ export interface InventoryCountPayload {
   warehouseName: string;
   bin: string;
   quantity: number;
-  reason: 'Opening balance' | 'Cycle count' | 'Manual adjustment' | 'Damaged stock' | 'Lost' | 'Wrong entry' | 'Found stock' | 'Transfer in';
+  reason: 'Opening balance' | 'Restock' | 'Cycle count' | 'Manual adjustment' | 'Damaged stock' | 'Lost' | 'Wrong entry' | 'Found stock' | 'Gift/Giveaway' | 'Transfer in';
   // Same landed-cost breakdown as Incoming Stock — an Opening balance is still real stock
   // with a real cost, just not framed as "a shipment."
   unitPrice?: number;
@@ -848,6 +898,14 @@ export interface ListOrdersParams {
   amountMax?: number;
   callAttemptsMin?: number;
   courierPartner?: string;
+  // Scopes to "has ever been dispatched to a courier" — ignored server-side if courierPartner is
+  // also set. Used by the Delivery Partners dashboard's base shipment set.
+  hasCourierPartner?: boolean;
+  // Comma-separated CourierStatusBucket values — Delivery Partners dashboard's tile filter.
+  courierStatusBucket?: string;
+  // 'ready' = every line item has enough free stock; 'short' = at least one doesn't. Same
+  // computation as the Confirmed-tab "Ready to pack"/"N short" badge, applied as a filter.
+  stockStatus?: 'ready' | 'short';
   sortKey?: 'number' | 'total' | 'date' | 'updated';
   sortDir?: 'asc' | 'desc';
   page?: number;
@@ -857,6 +915,65 @@ export interface ListOrdersParams {
 export async function listOrders(params: ListOrdersParams = {}) {
   const res = await api.get('/commerce/orders', { params });
   return res.data as { success: boolean; orders: OrderDTO[]; total: number; page: number; pageSize: number };
+}
+
+export async function listReadyToPrintOrders() {
+  const res = await api.get('/commerce/orders/ready-to-print');
+  return res.data as { success: boolean; orders: OrderDTO[]; total: number };
+}
+
+export async function markOrdersPrinted(orderIds: string[]) {
+  const res = await api.post('/commerce/orders/mark-printed', { orderIds });
+  return res.data as { success: boolean };
+}
+
+export interface PrintTemplateFields {
+  name: string;
+  logoUrl?: string;
+  businessNameOverride?: string;
+  address?: string;
+  phone?: string;
+  paperSize: PrintPaperSize;
+  showItemImages: boolean;
+  showSkuVariant: boolean;
+  showCustomerAddress: boolean;
+  showPaymentBox: boolean;
+  showDeliveryBox: boolean;
+  showBarcode: boolean;
+  showCodCallout: boolean;
+  footerNote: string;
+}
+
+export async function listPrintTemplates() {
+  const res = await api.get('/commerce/print-templates');
+  return res.data as { success: boolean; templates: InvoiceTemplateDTO[] };
+}
+
+export async function createPrintTemplate(fields: PrintTemplateFields) {
+  const res = await api.post('/commerce/print-templates', fields);
+  return res.data as { success: boolean; template: InvoiceTemplateDTO };
+}
+
+export async function updatePrintTemplate(id: string, fields: PrintTemplateFields) {
+  const res = await api.patch(`/commerce/print-templates/${id}`, fields);
+  return res.data as { success: boolean; template: InvoiceTemplateDTO };
+}
+
+export async function deletePrintTemplate(id: string) {
+  const res = await api.delete(`/commerce/print-templates/${id}`);
+  return res.data as { success: boolean };
+}
+
+export async function setDefaultPrintTemplate(id: string) {
+  const res = await api.post(`/commerce/print-templates/${id}/set-default`, {});
+  return res.data as { success: boolean };
+}
+
+export async function uploadPrintTemplateLogo(file: File) {
+  const form = new FormData();
+  form.append('logo', file);
+  const res = await api.post('/commerce/print-templates/logo', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+  return res.data as { success: boolean; url: string };
 }
 
 export async function getOrder(id: string) {
@@ -872,9 +989,11 @@ export interface CreateOrderPayload {
   customerEmail?: string | null;
   address?: string | null;
   deliveryZone?: string | null;
+  courierSpeed?: 'regular' | 'express';
   paymentMethod: PaymentMethod;
   shippingFee: number;
   discount: number;
+  advanceAmount: number;
   lineItems: { productId: string; variantId: string; quantity: number }[];
 }
 
@@ -898,9 +1017,12 @@ export interface UpdateOrderPayload {
   courierPartner?: string | null;
   courierTrackingId?: string | null;
   courierCharge?: number | null;
+  courierZoneTier?: 'inside' | 'outside' | 'suburb' | null;
+  courierSpeed?: 'regular' | 'express' | null;
   deliveryZone?: string | null;
   shippingFee?: number;
   discount?: number;
+  advanceAmount?: number;
   incrementCallAttempt?: boolean;
   callOutcome?: CallOutcome;
   customerName?: string;
@@ -953,6 +1075,15 @@ export async function upsellOrder(id: string, payload: { productId: string; vari
   return res.data as { success: boolean; order: OrderDTO };
 }
 
+// Optional split for a mixed-stock order: confirms the in-stock line items on this order and
+// spins the out-of-stock ones off into a new, separately Confirmed order. See splitOrder in
+// ordersController.ts — `original` is this order (now Confirmed, fewer line items), `created` is
+// the new order.
+export async function splitOrder(id: string) {
+  const res = await api.post(`/commerce/orders/${id}/split`);
+  return res.data as { success: boolean; message?: string; original: OrderDTO; created: OrderDTO };
+}
+
 export async function bulkMarkPaymentCollected(orderIds: string[]) {
   const res = await api.post('/commerce/orders/bulk/mark-collected', { orderIds });
   return res.data as { success: boolean; matchedCount: number; modifiedCount: number };
@@ -982,6 +1113,11 @@ export async function unblockCustomer(id: string) {
 export async function getOrderStats(params: { storeId?: string; dateFrom?: string; dateTo?: string } = {}) {
   const res = await api.get('/commerce/orders/stats', { params });
   return res.data as { success: boolean } & OrderStatsDTO;
+}
+
+export async function getCourierShipmentStats(params: { storeId?: string; courierPartner?: string; dateFrom?: string; dateTo?: string } = {}) {
+  const res = await api.get('/commerce/orders/courier-stats', { params });
+  return res.data as { success: boolean } & CourierShipmentStatsDTO;
 }
 
 export async function getOrderTrends(params: { range: string; from?: string; to?: string; storeId?: string }) {
@@ -1036,6 +1172,7 @@ export interface ProfitAndLossDTO {
   grossProfit: number;
   grossMarginPct: number | null;
   shrinkage: number;
+  giftsAndGiveaways: number;
   expensesByCategory: { category: string; amount: number }[];
   totalExpenses: number;
   netProfit: number;
@@ -1196,7 +1333,7 @@ export async function getSupplier(id: string) {
 // Same upsert-by-name logic as createSupplier() above, mounted under the supplyChain module gate
 // instead of inventory — so the Suppliers page's own "Add supplier" works under its own permission,
 // not borrowed from Inventory's.
-export async function createSupplierRecord(payload: { name: string; phone?: string; email?: string; leadTimeDays?: number; paymentTerms?: string; paymentType?: SupplierPaymentType; note?: string }) {
+export async function createSupplierRecord(payload: { name: string; phone?: string; email?: string; contactPersonName?: string; designation?: string; billingAddress?: string; paymentType?: SupplierPaymentType; note?: string }) {
   const res = await api.post('/commerce/supply-chain/suppliers', payload);
   return res.data as { success: boolean; supplier: SupplierDTO };
 }
@@ -1205,8 +1342,9 @@ export interface SupplierUpdatePayload {
   name?: string;
   phone?: string;
   email?: string;
-  leadTimeDays?: number | null;
-  paymentTerms?: string;
+  contactPersonName?: string;
+  designation?: string;
+  billingAddress?: string;
   paymentType?: SupplierPaymentType;
   note?: string;
 }
@@ -1317,6 +1455,109 @@ export async function listSupplierShipments(
 ) {
   const res = await api.get(`/commerce/supply-chain/suppliers/${id}/shipments`, { params });
   return res.data as { success: boolean; shipments: ShipmentDTO[]; total: number; page: number; pageSize: number };
+}
+
+// ---- Purchase Orders: optional per-supplier document/invoice, wraps the same Incoming Stock
+// machinery above (a "Confirm & add to Incoming Stock" action creates real shipments/inventoryLevels
+// changes) rather than a parallel stock model. Types live here, not packages/shared, matching the
+// existing precedent that all Supplier-adjacent types (SupplierDTO, ShipmentDTO above) do too. ----
+
+export type PurchaseOrderStatus = 'draft' | 'sent' | 'partially_received' | 'received' | 'cancelled';
+
+export interface PurchaseOrderLine {
+  productId: string;
+  variantId: string;
+  sku: string | null;
+  productTitle: string;
+  variantLabel: string | null;
+  bin: string | null;
+  quantity: number;
+  unitPrice: number;
+  shippingCost: number;
+  dutiesCost: number;
+  receivedQuantity: number;
+  writtenOffQuantity: number;
+  shipmentId: string | null;
+}
+
+export interface PurchaseOrderDTO {
+  id: string;
+  poNumber: string;
+  supplierId: string;
+  supplierName: string;
+  warehouseId: string;
+  warehouseName: string;
+  status: PurchaseOrderStatus;
+  lines: PurchaseOrderLine[];
+  subtotal: number;
+  shippingTotal: number;
+  dutiesTotal: number;
+  total: number;
+  notes: string | null;
+  expectedAt: string | null;
+  createdAt: string;
+  createdBy: string | null;
+  sentAt: string | null;
+  cancelledAt: string | null;
+}
+
+export interface PurchaseOrderLinePayload {
+  productId: string;
+  variantId: string;
+  sku?: string | null;
+  productTitle: string;
+  variantLabel?: string | null;
+  bin?: string;
+  quantity: number;
+  unitPrice: number;
+  shippingCost?: number;
+  dutiesCost?: number;
+}
+
+export interface PurchaseOrderPayload {
+  supplierId: string;
+  supplierName: string;
+  warehouseId: string;
+  warehouseName: string;
+  lines: PurchaseOrderLinePayload[];
+  notes?: string;
+  expectedAt?: string;
+}
+
+export async function listSupplierPurchaseOrders(id: string, params: { status?: PurchaseOrderStatus; page?: number; pageSize?: number } = {}) {
+  const res = await api.get(`/commerce/supply-chain/suppliers/${id}/purchase-orders`, { params });
+  return res.data as { success: boolean; purchaseOrders: PurchaseOrderDTO[]; total: number; page: number; pageSize: number };
+}
+
+export async function getPurchaseOrder(id: string) {
+  const res = await api.get(`/commerce/supply-chain/purchase-orders/${id}`);
+  return res.data as { success: boolean; purchaseOrder: PurchaseOrderDTO };
+}
+
+export async function createPurchaseOrder(payload: PurchaseOrderPayload) {
+  const res = await api.post('/commerce/supply-chain/purchase-orders', payload);
+  return res.data as { success: boolean; purchaseOrder: PurchaseOrderDTO };
+}
+
+export async function updatePurchaseOrder(id: string, payload: PurchaseOrderPayload) {
+  const res = await api.patch(`/commerce/supply-chain/purchase-orders/${id}`, payload);
+  return res.data as { success: boolean; purchaseOrder?: PurchaseOrderDTO; message?: string };
+}
+
+export async function deletePurchaseOrder(id: string) {
+  const res = await api.delete(`/commerce/supply-chain/purchase-orders/${id}`);
+  return res.data as { success: boolean; message?: string };
+}
+
+// The "Confirm & add to Incoming Stock" action — see purchaseOrdersController.ts's sendPurchaseOrder.
+export async function sendPurchaseOrder(id: string) {
+  const res = await api.post(`/commerce/supply-chain/purchase-orders/${id}/send`, {});
+  return res.data as { success: boolean; purchaseOrder?: PurchaseOrderDTO; message?: string };
+}
+
+export async function cancelPurchaseOrder(id: string) {
+  const res = await api.post(`/commerce/supply-chain/purchase-orders/${id}/cancel`, {});
+  return res.data as { success: boolean; purchaseOrder?: PurchaseOrderDTO; message?: string };
 }
 
 // ---- Customers: lifetime directory + per-customer profile, derived from orders grouped by phone ----

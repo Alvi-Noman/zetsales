@@ -14,21 +14,33 @@ import {
   Hourglass,
   Landmark,
   Mail,
+  MapPin,
   Package,
   Pencil,
   Phone,
+  Plus,
+  Printer,
   RefreshCw,
+  Send,
   Trash2,
   Truck,
+  User,
+  X,
 } from 'lucide-react';
 import clsx from 'clsx';
 import {
+  cancelPurchaseOrder,
+  deletePurchaseOrder,
   deleteSupplier,
   getSupplier,
   getSupplierSummary,
+  listSupplierPurchaseOrders,
   listSupplierShipments,
   listSupplierTransactions,
+  sendPurchaseOrder,
   updateSupplier,
+  type PurchaseOrderDTO,
+  type PurchaseOrderStatus,
   type ShipmentDTO,
   type SupplierDTO,
   type SupplierPaymentType,
@@ -38,6 +50,9 @@ import {
 import { Modal } from '../../components/ui/Modal';
 import { Popover } from '../../components/ui/Popover';
 import { useToast } from '../../components/ui/ToastProvider';
+import { Select } from '../../components/ui/Select';
+import { CreatePurchaseOrderModal } from '../../components/supplyChain/CreatePurchaseOrderModal';
+import { PrintPurchaseOrderModal } from '../../components/supplyChain/PrintPurchaseOrderModal';
 
 function money(value: number) {
   const sign = value < 0 ? '-' : '';
@@ -48,6 +63,23 @@ function monthLabel(key: string) {
   const [y, m] = key.split('-').map(Number);
   return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'short' });
 }
+
+// 'sent' displays as "Confirmed" (not "Sent") — matches the "Confirm & add to Incoming Stock"
+// button copy, since nothing about this action actually emails the supplier.
+const PO_STATUS_LABEL: Record<PurchaseOrderStatus, string> = {
+  draft: 'Draft',
+  sent: 'Confirmed',
+  partially_received: 'Partially received',
+  received: 'Received',
+  cancelled: 'Cancelled',
+};
+const PO_STATUS_TONE: Record<PurchaseOrderStatus, string> = {
+  draft: 'bg-slate-100 text-slate-600',
+  sent: 'bg-amber-50 text-amber-700',
+  partially_received: 'bg-sky-50 text-sky-700',
+  received: 'bg-emerald-50 text-emerald-700',
+  cancelled: 'bg-rose-50 text-rose-700',
+};
 
 function MetricCard({ icon: Icon, label, value, detail, tone = 'slate' }: { icon: typeof Package; label: string; value: string; detail?: string; tone?: 'slate' | 'emerald' | 'indigo' | 'amber' }) {
   const toneClass = { slate: 'bg-slate-100 text-slate-500', emerald: 'bg-emerald-50 text-emerald-600', indigo: 'bg-indigo-50 text-indigo-600', amber: 'bg-amber-50 text-amber-600' }[tone];
@@ -185,8 +217,9 @@ function EditSupplierModal({ open, supplier, onClose, onSaved }: { open: boolean
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
-  const [leadTimeDays, setLeadTimeDays] = useState('');
-  const [paymentTerms, setPaymentTerms] = useState('');
+  const [contactPersonName, setContactPersonName] = useState('');
+  const [designation, setDesignation] = useState('');
+  const [billingAddress, setBillingAddress] = useState('');
   const [paymentType, setPaymentType] = useState<SupplierPaymentType>('prepaid');
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
@@ -196,14 +229,15 @@ function EditSupplierModal({ open, supplier, onClose, onSaved }: { open: boolean
       setName(supplier.name);
       setPhone(supplier.phone ?? '');
       setEmail(supplier.email ?? '');
-      setLeadTimeDays(supplier.leadTimeDays != null ? String(supplier.leadTimeDays) : '');
-      setPaymentTerms(supplier.paymentTerms ?? '');
+      setContactPersonName(supplier.contactPersonName ?? '');
+      setDesignation(supplier.designation ?? '');
+      setBillingAddress(supplier.billingAddress ?? '');
       setPaymentType(supplier.paymentType);
       setNote(supplier.note ?? '');
     }
   }, [open, supplier]);
 
-  const canSave = name.trim().length > 0 && !saving;
+  const canSave = name.trim().length > 0 && contactPersonName.trim().length > 0 && designation.trim().length > 0 && billingAddress.trim().length > 0 && !saving;
 
   const save = async () => {
     if (!canSave || !supplier) return;
@@ -213,8 +247,9 @@ function EditSupplierModal({ open, supplier, onClose, onSaved }: { open: boolean
         name: name.trim(),
         phone: phone.trim(),
         email: email.trim(),
-        leadTimeDays: leadTimeDays.trim() ? Number(leadTimeDays) : null,
-        paymentTerms: paymentTerms.trim(),
+        contactPersonName: contactPersonName.trim(),
+        designation: designation.trim(),
+        billingAddress: billingAddress.trim(),
         paymentType,
         note: note.trim(),
       });
@@ -251,13 +286,17 @@ function EditSupplierModal({ open, supplier, onClose, onSaved }: { open: boolean
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="mb-1.5 block text-xs font-semibold text-slate-600">Lead time (days)</label>
-            <input type="number" min="0" value={leadTimeDays} onChange={(e) => setLeadTimeDays(e.target.value)} className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15" />
+            <label className="mb-1.5 block text-xs font-semibold text-slate-600">Contact person</label>
+            <input value={contactPersonName} onChange={(e) => setContactPersonName(e.target.value)} className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15" />
           </div>
           <div>
-            <label className="mb-1.5 block text-xs font-semibold text-slate-600">Payment terms</label>
-            <input value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)} className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15" />
+            <label className="mb-1.5 block text-xs font-semibold text-slate-600">Designation</label>
+            <input value={designation} onChange={(e) => setDesignation(e.target.value)} className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15" />
           </div>
+        </div>
+        <div>
+          <label className="mb-1.5 block text-xs font-semibold text-slate-600">Billing address</label>
+          <input value={billingAddress} onChange={(e) => setBillingAddress(e.target.value)} className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15" />
         </div>
         <div>
           <label className="mb-1.5 block text-xs font-semibold text-slate-600">How do you pay this supplier?</label>
@@ -313,6 +352,14 @@ export function SupplierDetailPage() {
   const [shipmentsTotal, setShipmentsTotal] = useState(0);
   const [shipmentsPage, setShipmentsPage] = useState(1);
   const [shipmentsStatusFilter, setShipmentsStatusFilter] = useState<'' | 'open' | 'closed'>('');
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrderDTO[]>([]);
+  const [purchaseOrdersTotal, setPurchaseOrdersTotal] = useState(0);
+  const [purchaseOrdersPage, setPurchaseOrdersPage] = useState(1);
+  const [purchaseOrdersStatusFilter, setPurchaseOrdersStatusFilter] = useState<'' | PurchaseOrderStatus>('');
+  const [createPoOpen, setCreatePoOpen] = useState(false);
+  const [editingPo, setEditingPo] = useState<PurchaseOrderDTO | null>(null);
+  const [printingPo, setPrintingPo] = useState<PurchaseOrderDTO | null>(null);
+  const [poActionBusyId, setPoActionBusyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -378,6 +425,21 @@ export function SupplierDetailPage() {
     }
   };
 
+  const loadPurchaseOrders = async () => {
+    if (!id) return;
+    try {
+      const res = await listSupplierPurchaseOrders(id, {
+        status: purchaseOrdersStatusFilter || undefined,
+        page: purchaseOrdersPage,
+        pageSize: PAGE_SIZE,
+      });
+      setPurchaseOrders(res.purchaseOrders);
+      setPurchaseOrdersTotal(res.total);
+    } catch {
+      toast.push('Could not load purchase orders.', 'info');
+    }
+  };
+
   useEffect(() => {
     void loadHeaderAndSummary();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -394,12 +456,77 @@ export function SupplierDetailPage() {
   }, [id, range.from.getTime(), range.to.getTime(), shipmentsStatusFilter, shipmentsPage]);
 
   useEffect(() => {
+    void loadPurchaseOrders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, purchaseOrdersStatusFilter, purchaseOrdersPage]);
+
+  useEffect(() => {
     setPage(1);
   }, [reasonFilter, skuFilter, range.from, range.to]);
 
   useEffect(() => {
     setShipmentsPage(1);
   }, [shipmentsStatusFilter, range.from, range.to]);
+
+  useEffect(() => {
+    setPurchaseOrdersPage(1);
+  }, [purchaseOrdersStatusFilter]);
+
+  const refreshPurchaseOrders = () => {
+    void loadPurchaseOrders();
+    void loadShipments();
+  };
+
+  const handleSendPo = async (po: PurchaseOrderDTO) => {
+    setPoActionBusyId(po.id);
+    try {
+      const res = await sendPurchaseOrder(po.id);
+      if (!res.success) {
+        toast.push(res.message || 'Could not confirm this purchase order.', 'info');
+        return;
+      }
+      toast.push('Added to Incoming Stock.', 'success');
+      refreshPurchaseOrders();
+    } catch (err) {
+      toast.push((err as Error).message || 'Could not confirm this purchase order.', 'info');
+    } finally {
+      setPoActionBusyId(null);
+    }
+  };
+
+  const handleCancelPo = async (po: PurchaseOrderDTO) => {
+    setPoActionBusyId(po.id);
+    try {
+      const res = await cancelPurchaseOrder(po.id);
+      if (!res.success) {
+        toast.push(res.message || 'Could not cancel this purchase order.', 'info');
+        return;
+      }
+      toast.push('Purchase order cancelled.', 'success');
+      refreshPurchaseOrders();
+    } catch (err) {
+      toast.push((err as Error).message || 'Could not cancel this purchase order.', 'info');
+    } finally {
+      setPoActionBusyId(null);
+    }
+  };
+
+  const handleDeletePo = async (po: PurchaseOrderDTO) => {
+    setPoActionBusyId(po.id);
+    try {
+      const res = await deletePurchaseOrder(po.id);
+      if (!res.success) {
+        toast.push(res.message || 'Could not delete this purchase order.', 'info');
+        return;
+      }
+      toast.push('Purchase order deleted.', 'success');
+      refreshPurchaseOrders();
+    } catch (err) {
+      toast.push((err as Error).message || 'Could not delete this purchase order.', 'info');
+    } finally {
+      setPoActionBusyId(null);
+    }
+  };
 
   const confirmDelete = async () => {
     if (!supplier) return;
@@ -448,14 +575,15 @@ export function SupplierDetailPage() {
                   <Mail size={12} /> {supplier.email}
                 </span>
               )}
-              {supplier.paymentTerms && (
+              {supplier.contactPersonName && (
                 <span className="flex items-center gap-1">
-                  <Landmark size={12} /> {supplier.paymentTerms}
+                  <User size={12} /> {supplier.contactPersonName}
+                  {supplier.designation && ` · ${supplier.designation}`}
                 </span>
               )}
-              {supplier.leadTimeDays != null && (
+              {supplier.billingAddress && (
                 <span className="flex items-center gap-1">
-                  <Clock size={12} /> {supplier.leadTimeDays}d lead time
+                  <MapPin size={12} /> {supplier.billingAddress}
                 </span>
               )}
               <span className={clsx('rounded-full px-1.5 py-0.5 text-[10px] font-semibold', supplier.paymentType === 'credit' ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700')}>
@@ -552,11 +680,16 @@ export function SupplierDetailPage() {
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-sm font-bold text-slate-900">Transaction ledger</h2>
                 <div className="flex items-center gap-2">
-                  <select value={reasonFilter} onChange={(e) => setReasonFilter(e.target.value as any)} className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-indigo-400">
-                    <option value="">All reasons</option>
-                    <option value="Opening balance">Opening balance</option>
-                    <option value="Incoming Stock">Incoming Stock</option>
-                  </select>
+                  <Select
+                    value={reasonFilter}
+                    onChange={(v) => setReasonFilter(v as any)}
+                    options={[
+                      { value: '', label: 'All reasons' },
+                      { value: 'Opening balance', label: 'Opening balance' },
+                      { value: 'Incoming Stock', label: 'Incoming Stock' },
+                    ]}
+                    className="h-8 py-0 text-xs"
+                  />
                   <input value={skuFilter} onChange={(e) => setSkuFilter(e.target.value)} placeholder="Filter by SKU" className="h-8 w-32 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-indigo-400" />
                 </div>
               </div>
@@ -632,11 +765,16 @@ export function SupplierDetailPage() {
             <section className="rounded-xl border border-slate-200 p-4">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-sm font-bold text-slate-900">Shipments</h2>
-                <select value={shipmentsStatusFilter} onChange={(e) => setShipmentsStatusFilter(e.target.value as any)} className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-indigo-400">
-                  <option value="">All statuses</option>
-                  <option value="open">Open</option>
-                  <option value="closed">Closed</option>
-                </select>
+                <Select
+                  value={shipmentsStatusFilter}
+                  onChange={(v) => setShipmentsStatusFilter(v as any)}
+                  options={[
+                    { value: '', label: 'All statuses' },
+                    { value: 'open', label: 'Open' },
+                    { value: 'closed', label: 'Closed' },
+                  ]}
+                  className="h-8 py-0 text-xs"
+                />
               </div>
               <p className="mb-3 text-[11px] text-slate-400">Every shipment logged from this supplier — ordered vs. received vs. still outstanding vs. written off, one row per shipment.</p>
               {shipments.length === 0 ? (
@@ -714,11 +852,168 @@ export function SupplierDetailPage() {
                 </>
               )}
             </section>
+
+            <section className="rounded-xl border border-slate-200 p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-sm font-bold text-slate-900">Purchase orders</h2>
+                <div className="flex items-center gap-2">
+                  <Select
+                    value={purchaseOrdersStatusFilter}
+                    onChange={(v) => setPurchaseOrdersStatusFilter(v as any)}
+                    options={[
+                      { value: '', label: 'All statuses' },
+                      { value: 'draft', label: 'Draft' },
+                      { value: 'sent', label: 'Confirmed' },
+                      { value: 'partially_received', label: 'Partially received' },
+                      { value: 'received', label: 'Received' },
+                      { value: 'cancelled', label: 'Cancelled' },
+                    ]}
+                    className="h-8 py-0 text-xs"
+                  />
+                  <button
+                    onClick={() => setCreatePoOpen(true)}
+                    className="flex h-8 items-center gap-1.5 rounded-lg bg-indigo-600 px-3 text-xs font-semibold text-white hover:bg-indigo-700"
+                  >
+                    <Plus size={13} /> New purchase order
+                  </button>
+                </div>
+              </div>
+              <p className="mb-3 text-[11px] text-slate-400">
+                Fully optional — a draft is just a document until you confirm it. Confirming creates real Incoming Stock entries, same as logging one directly from Inventory.
+              </p>
+              {purchaseOrders.length === 0 ? (
+                <p className="py-8 text-center text-sm text-slate-400">No purchase orders match this filter.</p>
+              ) : (
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead className="text-slate-400">
+                        <tr>
+                          <th className="px-2 py-2 text-left font-semibold">PO number</th>
+                          <th className="px-2 py-2 text-left font-semibold">Date</th>
+                          <th className="px-2 py-2 text-right font-semibold">Lines</th>
+                          <th className="px-2 py-2 text-right font-semibold">Total</th>
+                          <th className="px-2 py-2 text-left font-semibold">Status</th>
+                          <th className="px-2 py-2 text-left font-semibold">Expected</th>
+                          <th className="px-2 py-2 text-right font-semibold">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {purchaseOrders.map((po) => {
+                          const busy = poActionBusyId === po.id;
+                          return (
+                            <tr key={po.id}>
+                              <td className="whitespace-nowrap px-2 py-2 font-semibold text-slate-800">{po.poNumber}</td>
+                              <td className="whitespace-nowrap px-2 py-2 text-slate-500">{new Date(po.createdAt).toLocaleDateString()}</td>
+                              <td className="px-2 py-2 text-right tabular-nums text-slate-600">{po.lines.length}</td>
+                              <td className="px-2 py-2 text-right tabular-nums font-medium text-slate-800">{money(po.total)}</td>
+                              <td className="whitespace-nowrap px-2 py-2">
+                                <span className={clsx('rounded-full px-1.5 py-0.5 text-[10px] font-semibold', PO_STATUS_TONE[po.status])}>{PO_STATUS_LABEL[po.status]}</span>
+                              </td>
+                              <td className="whitespace-nowrap px-2 py-2 text-slate-500">{po.expectedAt ? new Date(po.expectedAt).toLocaleDateString() : '—'}</td>
+                              <td className="whitespace-nowrap px-2 py-2 text-right">
+                                <div className="flex items-center justify-end gap-1">
+                                  <button
+                                    onClick={() => setPrintingPo(po)}
+                                    title="Print"
+                                    className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                                  >
+                                    <Printer size={13} />
+                                  </button>
+                                  {po.status === 'draft' && (
+                                    <>
+                                      <button
+                                        onClick={() => setEditingPo(po)}
+                                        title="Edit"
+                                        className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                                      >
+                                        <Pencil size={13} />
+                                      </button>
+                                      <button
+                                        onClick={() => void handleSendPo(po)}
+                                        disabled={busy}
+                                        title="Confirm & add to Incoming Stock"
+                                        className="rounded-md p-1.5 text-indigo-500 hover:bg-indigo-50 disabled:opacity-40"
+                                      >
+                                        <Send size={13} />
+                                      </button>
+                                      <button
+                                        onClick={() => void handleCancelPo(po)}
+                                        disabled={busy}
+                                        title="Cancel"
+                                        className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
+                                      >
+                                        <X size={13} />
+                                      </button>
+                                      <button
+                                        onClick={() => void handleDeletePo(po)}
+                                        disabled={busy}
+                                        title="Delete"
+                                        className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
+                                      >
+                                        <Trash2 size={13} />
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
+                    <span>
+                      {purchaseOrdersTotal} purchase order{purchaseOrdersTotal === 1 ? '' : 's'}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => setPurchaseOrdersPage((p) => Math.max(1, p - 1))} disabled={purchaseOrdersPage <= 1} className="rounded-md p-1 hover:bg-slate-100 disabled:opacity-30">
+                        <ChevronLeft size={14} />
+                      </button>
+                      <span>
+                        Page {purchaseOrdersPage} of {Math.max(1, Math.ceil(purchaseOrdersTotal / PAGE_SIZE))}
+                      </span>
+                      <button
+                        onClick={() => setPurchaseOrdersPage((p) => Math.min(Math.max(1, Math.ceil(purchaseOrdersTotal / PAGE_SIZE)), p + 1))}
+                        disabled={purchaseOrdersPage >= Math.max(1, Math.ceil(purchaseOrdersTotal / PAGE_SIZE))}
+                        className="rounded-md p-1 hover:bg-slate-100 disabled:opacity-30"
+                      >
+                        <ChevronRight size={14} />
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </section>
           </div>
         )}
       </div>
 
       <EditSupplierModal open={editOpen} supplier={supplier} onClose={() => setEditOpen(false)} onSaved={() => void loadHeaderAndSummary()} />
+
+      {supplier && (
+        <>
+          <CreatePurchaseOrderModal
+            open={createPoOpen}
+            mode="create"
+            supplierId={supplier.id}
+            supplierName={supplier.name}
+            onClose={() => setCreatePoOpen(false)}
+            onSaved={refreshPurchaseOrders}
+          />
+          <CreatePurchaseOrderModal
+            open={editingPo !== null}
+            mode="edit"
+            supplierId={supplier.id}
+            supplierName={supplier.name}
+            initial={editingPo}
+            onClose={() => setEditingPo(null)}
+            onSaved={refreshPurchaseOrders}
+          />
+        </>
+      )}
+      <PrintPurchaseOrderModal open={printingPo !== null} purchaseOrder={printingPo} onClose={() => setPrintingPo(null)} />
 
       <Modal open={deleteOpen} onClose={() => setDeleteOpen(false)} title="Delete supplier?" widthClass="max-w-sm">
         <div className="space-y-4">

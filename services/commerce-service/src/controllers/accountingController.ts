@@ -88,7 +88,10 @@ export async function deleteExpense(req: AuthenticatedRequest, res: Response) {
 export const COGS_REASONS = ['Order fulfilled', 'Order returned'];
 
 // The exact same allow-list getShrinkageReport uses — genuine inventory loss, not a data-entry
-// correction ('Wrong entry' stays excluded) and not a cost-neutral internal transfer.
+// correction ('Wrong entry' stays excluded) and not a cost-neutral internal transfer. 'Gift/Giveaway'
+// is deliberately excluded too (same "leave it off the list" pattern) — giving stock away on purpose
+// is a marketing cost, not a loss, and lumping it in here would inflate the loss/theft/damage number
+// with spend the business chose to make. See giftsInRange below for where it's actually counted.
 const SHRINKAGE_REASONS = ['Damaged stock', 'Lost', 'Wrong Product', 'Lost in transit', 'Manual adjustment', 'Cycle count'];
 
 type Db = ReturnType<typeof getDb>;
@@ -152,6 +155,21 @@ async function shrinkageInRange(db: Db, tenantId: string, dateFrom: Date, dateTo
   return Math.max(0, grossLoss - recovered);
 }
 
+// Stock given away on purpose (samples, customer gifts, promos) — a real cost, but not shrinkage
+// (see the comment on SHRINKAGE_REASONS above) and not an `expenses` row either, since it's never
+// entered there — it's derived the same way COGS/shrinkage are, straight from inventoryMovements,
+// using whatever cost basis the SKU already carried at the time (same as a Damaged/Lost deduction).
+async function giftsInRange(db: Db, tenantId: string, dateFrom: Date, dateTo: Date) {
+  const agg = await db
+    .collection('inventoryMovements')
+    .aggregate([
+      { $match: { tenantId, reason: 'Gift/Giveaway', delta: { $lt: 0 }, createdAt: { $gte: dateFrom, $lte: dateTo } } },
+      { $group: { _id: null, total: { $sum: { $abs: '$valueDelta' } } } },
+    ])
+    .toArray();
+  return agg[0]?.total ?? 0;
+}
+
 // Revenue is recognized off each order's own 'Delivered'/'Partial Delivered' history timestamp,
 // not `updatedAt` (which changes on unrelated later edits — a note, a courier status ping — with no
 // corresponding stage-labeled history entry). COGS keys off inventoryMovements.createdAt the same
@@ -169,10 +187,11 @@ export async function getProfitAndLoss(req: AuthenticatedRequest, res: Response)
   const dateFrom = typeof req.query.dateFrom === 'string' ? new Date(req.query.dateFrom) : new Date(now.getFullYear(), now.getMonth(), 1);
   const dateTo = typeof req.query.dateTo === 'string' ? new Date(req.query.dateTo) : now;
 
-  const [revenue, cogs, shrinkage, expenseAgg] = await Promise.all([
+  const [revenue, cogs, shrinkage, giftsAndGiveaways, expenseAgg] = await Promise.all([
     revenueInRange(db, tenantId, dateFrom, dateTo),
     cogsInRange(db, tenantId, dateFrom, dateTo),
     shrinkageInRange(db, tenantId, dateFrom, dateTo),
+    giftsInRange(db, tenantId, dateFrom, dateTo),
     db
       .collection('expenses')
       .aggregate([
@@ -186,7 +205,7 @@ export async function getProfitAndLoss(req: AuthenticatedRequest, res: Response)
   const expensesByCategory = expenseAgg.map((e) => ({ category: e._id as string, amount: e.amount as number }));
   const totalExpenses = expensesByCategory.reduce((sum, e) => sum + e.amount, 0);
   const grossProfit = revenue - cogs;
-  const netProfit = grossProfit - shrinkage - totalExpenses;
+  const netProfit = grossProfit - shrinkage - giftsAndGiveaways - totalExpenses;
   const grossMarginPct = revenue > 0 ? (grossProfit / revenue) * 100 : null;
   const netMarginPct = revenue > 0 ? (netProfit / revenue) * 100 : null;
 
@@ -230,6 +249,7 @@ export async function getProfitAndLoss(req: AuthenticatedRequest, res: Response)
     grossProfit,
     grossMarginPct,
     shrinkage,
+    giftsAndGiveaways,
     expensesByCategory,
     totalExpenses,
     netProfit,

@@ -1,7 +1,9 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { ObjectId } from 'mongodb';
 import { env } from '@zetsales/config/validateEnv';
 import { ROLE_DEFINITIONS, type ModuleKey, type TeamRole } from '@zetsales/shared';
+import { getDb } from '../utils/db.js';
 
 export interface AuthenticatedRequest extends Request {
   user?: {
@@ -58,6 +60,25 @@ export function requireModule(module: ModuleKey) {
     }
     if (req.method !== 'GET' && !definition.canWrite) {
       res.status(403).json({ success: false, message: 'Your role has read-only access.' });
+      return;
+    }
+    next();
+  };
+}
+
+// Gates a route behind tenant-level plugin install state — independent of and in addition to
+// requireModule's role check. A tenant must explicitly install a plugin module (see
+// pluginsController) before any role can use it.
+export function requirePlugin(module: ModuleKey) {
+  return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    const business = await getDb()
+      .collection('businesses')
+      .findOne({ _id: new ObjectId(req.user!.tenantId!) }, { projection: { installedPlugins: 1 } });
+    if (!business?.installedPlugins?.includes(module)) {
+      res.status(403).json({
+        success: false,
+        message: "This feature isn't installed. Ask an owner or admin to enable it in Settings → Plugins.",
+      });
       return;
     }
     next();
