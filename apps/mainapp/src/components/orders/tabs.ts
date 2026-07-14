@@ -6,8 +6,8 @@ import type { OrderTabKey } from '@zetsales/shared';
 export const ORDER_TABS: { key: OrderTabKey; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'priority', label: 'Priority calls' },
-  { key: 'hold', label: 'On hold' },
   { key: 'pending', label: 'Pending' },
+  { key: 'hold', label: 'On hold' },
   { key: 'confirmed', label: 'Confirmed' },
   { key: 'processing', label: 'Packing' },
   { key: 'shipped', label: 'In transit' },

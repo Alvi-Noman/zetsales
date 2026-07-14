@@ -28,7 +28,9 @@ interface OrderProductsCellProps {
 // A stacked thumbnail cluster (like an avatar group) instead of "first item + '+N more' text" —
 // glanceable at a distance, and hovering opens the full itemized breakdown with quantities and
 // line totals, the way Shopify/Amazon order lists let you preview a multi-item order without
-// opening it.
+// opening it. Below the 2xl breakpoint (laptop-width screens) the title/qty text is dropped
+// entirely so the Product column doesn't blow out the table's width on a smaller screen — desktop
+// keeps the full text since there's room for it there.
 export function OrderProductsCell({ lineItems, currency }: OrderProductsCellProps) {
   const first = lineItems[0];
   const stack = lineItems.slice(0, 3);
@@ -65,7 +67,7 @@ export function OrderProductsCell({ lineItems, currency }: OrderProductsCellProp
               </div>
             )}
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 max-2xl:hidden">
             <p className="max-w-[170px] truncate font-medium text-slate-700">{first.title}</p>
             <p className="text-xs text-slate-400">
               {lineItems.length > 1 ? (

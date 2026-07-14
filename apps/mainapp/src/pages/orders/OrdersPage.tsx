@@ -63,6 +63,7 @@ import { RowActionsMenu } from '../../components/orders/RowActionsMenu';
 import { OrderProductsCell } from '../../components/orders/OrderProductsCell';
 import { Pagination } from '../../components/orders/Pagination';
 import { Popover } from '../../components/ui/Popover';
+import { Tooltip } from '../../components/ui/Tooltip';
 import { getRangeBounds, type CustomDateRange, type DateRangeKey } from '../../components/orders/dateRange';
 import { fastTrackEligibleIds } from '../../components/orders/fastTrack';
 import { formatAbsoluteDateTime, relativeDayLabel, ageMinutes, pendingUrgency } from '../../components/orders/time';
@@ -90,8 +91,14 @@ const SORT_OPTIONS: { label: string; key: SortKey; dir: 'asc' | 'desc' }[] = [
   { label: 'Lowest amount', key: 'total', dir: 'asc' },
 ];
 
+// Oldest-first for every tab that's a queue staff work through in order (so nothing sits waiting
+// longer than it has to — a call, a pack, a courier check-in, a COD collection); newest-first only
+// for the tabs that are really just browsing/archive views (All, Delivered, Cancelled) where seeing
+// the latest activity first is more useful than working oldest-to-newest.
+const NEWEST_FIRST_TABS: OrderTabKey[] = ['all', 'delivered', 'cancelled'];
+
 function defaultSortForTab(tab: OrderTabKey): { key: SortKey; dir: 'asc' | 'desc' } {
-  return { key: 'date', dir: tab === 'pending' || tab === 'hold' || tab === 'priority' ? 'asc' : 'desc' };
+  return { key: 'date', dir: NEWEST_FIRST_TABS.includes(tab) ? 'desc' : 'asc' };
 }
 
 function TableSkeleton() {
@@ -898,10 +905,10 @@ export function OrdersPage() {
                 {ordersLoading && orders.length === 0 ? (
                   <TableSkeleton />
                 ) : (
-                  <table className="w-full min-w-[1100px] border-collapse text-sm">
+                  <table className="w-full min-w-[1100px] table-auto max-2xl:min-w-0 max-2xl:table-fixed border-collapse text-sm">
                     <thead>
                       <tr className="border-b border-slate-200 text-left text-xs font-semibold text-slate-500">
-                        <th className="w-10 px-4 py-2.5">
+                        <th className="w-10 px-4 py-2.5 max-2xl:w-[4%] max-2xl:px-2">
                           <input
                             type="checkbox"
                             checked={orders.length > 0 && selected.size === orders.length}
@@ -909,15 +916,15 @@ export function OrdersPage() {
                             className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                           />
                         </th>
-                        <th className="px-3 py-2.5">Order</th>
-                        <th className="px-3 py-2.5">Customer</th>
-                        <th className="px-3 py-2.5">Product</th>
-                        <th className="px-3 py-2.5">Channel</th>
-                        <th className="px-3 py-2.5">Amount</th>
-                        <th className="px-3 py-2.5">Status</th>
-                        <th className="px-3 py-2.5">Contact</th>
-                        <th className="px-3 py-2.5">Date</th>
-                        <th className="px-3 py-2.5" />
+                        <th className="px-3 py-2.5 max-2xl:w-[11%]">Order</th>
+                        <th className="px-3 py-2.5 max-2xl:w-[24%]">Customer</th>
+                        <th className="px-3 py-2.5 max-2xl:w-[8%]">Product</th>
+                        <th className="px-3 py-2.5 max-2xl:w-[5%]">Channel</th>
+                        <th className="px-3 py-2.5 max-2xl:w-[11%]">Amount</th>
+                        <th className="px-3 py-2.5 max-2xl:w-[14%]">Status</th>
+                        <th className="px-3 py-2.5 max-2xl:w-[8%]">Contact</th>
+                        <th className="px-3 py-2.5 max-2xl:w-[11%]">Date</th>
+                        <th className="w-10 px-3 py-2.5 max-2xl:w-[4%] max-2xl:px-2" />
                       </tr>
                     </thead>
                     <tbody>
@@ -940,7 +947,7 @@ export function OrdersPage() {
                             onClick={() => setActiveOrder(order)}
                             className={clsx(
                               'cursor-pointer border-b border-l-4 border-slate-100 transition-colors hover:bg-slate-50',
-                              isShortConfirmed ? 'border-l-rose-400 bg-rose-50/50 hover:bg-rose-50/70' : 'border-l-transparent',
+                              isShortConfirmed ? 'border-l-amber-400 bg-amber-50/50 hover:bg-amber-50/70' : 'border-l-transparent',
                               !isShortConfirmed && isSelected && 'bg-indigo-50/50',
                               isClaimedByOther && 'bg-slate-50/80 opacity-60 grayscale-[30%] hover:bg-slate-50/80'
                             )}
@@ -954,7 +961,7 @@ export function OrdersPage() {
                               />
                             </td>
                             <td className="px-3 py-3 font-medium text-slate-800 whitespace-nowrap">
-                              <div className="flex items-center gap-1.5">
+                              <div className="flex items-center gap-1.5 max-2xl:flex-wrap">
                                 {order.isPriorityCall && (
                                   <span title={order.priorityNote ?? 'Marked as priority call'} className="text-orange-500">
                                     <PhoneCall size={13} />
@@ -978,10 +985,10 @@ export function OrdersPage() {
                               </div>
                             </td>
                             <td className="px-3 py-3 whitespace-nowrap">
-                              <p className="font-medium text-slate-700">{order.customerName || 'No name'}</p>
+                              <p className="max-2xl:truncate font-medium text-slate-700">{order.customerName || 'No name'}</p>
                               {order.customerPhone && (
                                 <div className="flex items-center gap-1">
-                                  <p className="text-xs text-slate-400">{order.customerPhone}</p>
+                                  <p className="max-2xl:truncate text-xs text-slate-400">{order.customerPhone}</p>
                                   <button
                                     onClick={(e) => copyPhone(order, e)}
                                     title="Copy phone number"
@@ -1033,9 +1040,9 @@ export function OrdersPage() {
                             </td>
                             <td className="px-3 py-3 whitespace-nowrap">
                               {meta && store && (
-                                <span className="inline-flex items-center gap-1.5 text-slate-600">
+                                <span title={store.displayName} className="inline-flex items-center gap-1.5 text-slate-600">
                                   <meta.logo size={18} className="shrink-0 rounded" />
-                                  {store.displayName}
+                                  <span className="max-2xl:hidden">{store.displayName}</span>
                                 </span>
                               )}
                             </td>
@@ -1045,22 +1052,23 @@ export function OrdersPage() {
                             </td>
                             <td className="px-3 py-3 whitespace-nowrap">
                               <span className="inline-flex items-center gap-1.5">
-                                <span className={clsx('inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset', STAGE_TONE[order.stage])}>
-                                  {STAGE_LABEL[order.stage]}
-                                </span>
-                                {isShortConfirmed && stockSummary && (
-                                  <span
-                                    className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-rose-500 text-white"
-                                    title={stockSummary.shortItems.map((s) => `${s.title}: only ${s.free} free of ${s.quantity}`).join(', ')}
-                                  >
-                                    <span className="text-[9px] font-bold leading-none">!</span>
+                                {isShortConfirmed && stockSummary ? (
+                                  <Tooltip label="Product out of stock">
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20">
+                                      <Package size={11} />
+                                      {STAGE_LABEL[order.stage]}
+                                    </span>
+                                  </Tooltip>
+                                ) : (
+                                  <span className={clsx('inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset', STAGE_TONE[order.stage])}>
+                                    {STAGE_LABEL[order.stage]}
                                   </span>
                                 )}
                               </span>
                             </td>
                             <td className="px-3 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                               {order.customerPhone ? (
-                                <div className="flex items-center gap-1">
+                                <div className="flex items-center gap-1 max-2xl:flex-wrap">
                                   <a href={telLink(order.customerPhone)} title="Call" className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-indigo-600">
                                     <Phone size={14} />
                                   </a>
