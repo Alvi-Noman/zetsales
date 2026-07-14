@@ -98,8 +98,8 @@ function delay(ms: number) {
 // installApp() itself is a near-instant DB flag flip — these steps just give the install a real
 // sense of weight (npm/pip-style), same reasoning a real OAuth app-review/consent redirect would
 // naturally add for an oauth-type app.
-const INSTALL_STEPS = ['Fetching app manifest…', 'Installing packages…', 'Extracting files…', 'Setting up your workspace…', 'Finishing up…'];
-const INSTALL_STEP_MS = 900;
+const INSTALL_STEPS = ['Downloading…', 'Installing…', 'Extracting…', 'Configuring…', 'Almost done…'];
+const INSTALL_STEP_MS = 1400;
 
 function Row({ label, values }: { label: string; values: string[] }) {
   return (
