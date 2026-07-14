@@ -86,6 +86,11 @@ const APP_META: Record<string, AppMeta> = {
   },
 };
 
+// Pastel captions behind the 3 highlight thumbnails, same shape as Shopify's own app-listing
+// thumbnails — no image-generation tool is available here, so these are illustrated with plain
+// CSS instead of a fabricated screenshot.
+const THUMB_GRADIENTS = ['from-cyan-200 to-teal-100', 'from-lime-200 to-yellow-100', 'from-sky-200 to-indigo-100'];
+
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -244,15 +249,43 @@ export function AppDetailPage() {
             </div>
           </div>
 
-          {/* Right column — hero banner, headline, real feature list, honest metadata rows */}
+          {/* Right column — illustrated UI preview + real feature list, honest metadata rows */}
           <div>
-            <div className={`flex items-center justify-between gap-6 overflow-hidden rounded-2xl bg-gradient-to-br ${meta.gradient} px-10 py-12`}>
-              <div>
-                <div className="text-2xl font-bold text-slate-900">{manifest.name}</div>
-                <p className="mt-2 max-w-sm text-sm text-slate-800/80">{manifest.description}</p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_150px]">
+              {/* Main preview — a stylized mockup of the app's own screen (a "browser card"
+                  listing what it actually connects to), not a real screenshot. */}
+              <div className={`overflow-hidden rounded-2xl bg-gradient-to-br ${meta.gradient} p-6`}>
+                <div className="overflow-hidden rounded-xl bg-white shadow-lg">
+                  <div className="flex items-center gap-1.5 border-b border-slate-100 px-4 py-2.5">
+                    <span className="h-2.5 w-2.5 rounded-full bg-rose-300" />
+                    <span className="h-2.5 w-2.5 rounded-full bg-amber-300" />
+                    <span className="h-2.5 w-2.5 rounded-full bg-emerald-300" />
+                    <span className="ml-2 flex items-center gap-1.5 text-[10px] font-semibold text-slate-400">
+                      <Icon size={11} /> {manifest.name}
+                    </span>
+                  </div>
+                  <div className="divide-y divide-slate-100 px-4 py-1.5">
+                    {meta.worksWith.map((w) => (
+                      <div key={w} className="flex items-center justify-between py-2.5">
+                        <div className="flex items-center gap-2.5">
+                          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-indigo-50 text-[10px] font-bold text-indigo-500">
+                            {w[0]}
+                          </span>
+                          <span className="text-xs font-medium text-slate-700">{w}</span>
+                        </div>
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-400">Connect</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
-              <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-white/70 shadow-sm">
-                <Icon size={36} className="text-slate-800" />
+              {/* 3 highlight thumbnails, same shape as Shopify's captioned mini-previews */}
+              <div className="flex flex-row gap-3 sm:flex-col">
+                {meta.features.slice(0, 3).map((f, i) => (
+                  <div key={f} className={`flex flex-1 items-center rounded-xl bg-gradient-to-br p-3 ${THUMB_GRADIENTS[i % THUMB_GRADIENTS.length]}`}>
+                    <p className="text-[11px] font-medium leading-snug text-slate-800">{f}</p>
+                  </div>
+                ))}
               </div>
             </div>
 
