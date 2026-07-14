@@ -95,6 +95,12 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// installApp() itself is a near-instant DB flag flip — these steps just give the install a real
+// sense of weight (npm/pip-style), same reasoning a real OAuth app-review/consent redirect would
+// naturally add for an oauth-type app.
+const INSTALL_STEPS = ['Fetching app manifest…', 'Installing packages…', 'Extracting files…', 'Setting up your workspace…', 'Finishing up…'];
+const INSTALL_STEP_MS = 900;
+
 function Row({ label, values }: { label: string; values: string[] }) {
   return (
     <div className="flex items-start justify-between gap-6 py-4 text-sm">
@@ -116,12 +122,14 @@ export function AppDetailPage() {
   const queryClient = useQueryClient();
   const { data: apps, isLoading } = useQuery({ queryKey: ['apps', user?.tenantId], queryFn: listApps, enabled: !!user?.tenantId });
   const [installing, setInstalling] = useState(false);
+  const [installStep, setInstallStep] = useState(0);
 
   const entry = apps?.find((a) => a.manifest.key === appKey);
   const canManage = user?.role === 'owner' || user?.role === 'admin';
 
   const handleInstall = async (manifest: AppManifestDTO) => {
     setInstalling(true);
+    setInstallStep(0);
     if (manifest.authType === 'oauth') {
       if (!manifest.clientId || !manifest.homepageUrl) {
         toast.push('This app is missing its OAuth configuration.', 'info');
@@ -136,20 +144,21 @@ export function AppDetailPage() {
       window.location.href = `/api/v1/oauth/authorize?client_id=${encodeURIComponent(manifest.clientId)}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}`;
       return;
     }
+    // Cycles the visible step label while installApp() (a near-instant DB flag flip) runs
+    // underneath — the real work finishes almost immediately, this just paces how it's shown.
+    const stepTimer = setInterval(() => {
+      setInstallStep((s) => Math.min(s + 1, INSTALL_STEPS.length - 1));
+    }, INSTALL_STEP_MS);
     try {
-      // installApp() itself is near-instant (a single DB flag flip) — race it against a minimum
-      // display duration so installing never feels suspiciously instantaneous, same reasoning a
-      // real OAuth app-review/consent step would naturally add.
-      await Promise.all([installApp(manifest.key), delay(1400)]);
+      await Promise.all([installApp(manifest.key), delay(INSTALL_STEPS.length * INSTALL_STEP_MS)]);
       await Promise.all([queryClient.invalidateQueries({ queryKey: ['apps'] }), refresh()]);
       toast.push(`${manifest.name} installed.`);
-      if (manifest.isEmbeddedApp) {
-        navigate(manifest.sidebarPath ?? '/home');
-        return;
-      }
+      // Stay on this page — the user opens the app themselves via the Open button below,
+      // same as Shopify never auto-navigating you away from the listing after install.
     } catch (err) {
       toast.push(err instanceof Error ? err.message : 'Could not install this app.', 'info');
     } finally {
+      clearInterval(stepTimer);
       setInstalling(false);
     }
   };
@@ -231,19 +240,29 @@ export function AppDetailPage() {
                   </button>
                 </div>
               ) : (
-                <button
-                  disabled={!canManage || installing}
-                  onClick={() => handleInstall(manifest)}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
-                >
-                  {installing ? (
-                    <>
-                      <Loader2 size={14} className="animate-spin" /> Installing…
-                    </>
-                  ) : (
-                    'Install'
+                <div>
+                  <button
+                    disabled={!canManage || installing}
+                    onClick={() => handleInstall(manifest)}
+                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {installing ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin" /> {INSTALL_STEPS[installStep]}
+                      </>
+                    ) : (
+                      'Install'
+                    )}
+                  </button>
+                  {installing && (
+                    <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-slate-100">
+                      <div
+                        className="h-full rounded-full bg-slate-900 transition-all duration-500 ease-out"
+                        style={{ width: `${((installStep + 1) / INSTALL_STEPS.length) * 100}%` }}
+                      />
+                    </div>
                   )}
-                </button>
+                </div>
               )}
               {!canManage && <p className="mt-2 text-[11px] text-slate-400">Only an owner or admin can install apps.</p>}
             </div>
