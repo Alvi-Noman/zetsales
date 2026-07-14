@@ -22,6 +22,7 @@ import { dispatchAppWebhook } from '../utils/appEvents.js';
 import { getSteadfastFraudCheck } from '../integrations/steadfastFraudClient.js';
 import { getPathaoFraudCheck } from '../integrations/pathaoFraudClient.js';
 import { recordCourierFraudHistory, getCourierFraudHistory } from '../utils/courierFraudHistory.js';
+import { normalizeBdPhone } from '../utils/phoneNormalize.js';
 import {
   mapShopifyOrderStage,
   mapShopifyPaymentStatus,
@@ -76,7 +77,8 @@ function toOrderDto(doc: any): OrderDTO {
     priorityNote: doc.priorityNote ?? null,
     isCustomerBlocked: false, // overwritten by attachBlockedFlags where relevant — not knowable from the doc alone
     isReturningCustomer: false, // overwritten by attachReturningFlags where relevant — needs a count across all of the phone's orders
-    isFraudAlert: false, // overwritten by attachFraudAlertFlags where relevant — needs a delivery-success count across the phone's orders
+    riskLabel: null, // overwritten by attachRiskLabels where relevant — needs a batched lookup across the phone's history
+    riskSuccessRate: null,
     steadfastFraudCheck: doc.steadfastFraudCheck
       ? {
           totalDelivered: doc.steadfastFraudCheck.totalDelivered,
@@ -504,39 +506,82 @@ async function attachReturningFlags(db: ReturnType<typeof getDb>, tenantId: stri
   }
 }
 
-// Same "Risky" threshold as computeOrderRisk (≥2 resolved orders, <40% delivered) — this is the
-// batched version for list rows, so it counts each phone's orders in one aggregate query instead
-// of one lookup per row. Always pools across every tenant on ZetSales (matching the drawer's
-// scope switcher default) — there's no per-row UI to pick a narrower scope the way the drawer
-// offers. Unlike computeOrderRisk it doesn't exclude the current order from its own phone's
-// count; with a real repeat-offender history that one extra order doesn't change the threshold
-// outcome, so this is an accepted simplification for row display. No-ops entirely unless ZetSales
-// Order Risk Checker is installed for this tenant.
-async function attachFraudAlertFlags(db: ReturnType<typeof getDb>, tenantId: string, orders: OrderDTO[]) {
+// Batched version for list rows — one query (or two) for the whole page instead of one lookup per
+// row. Prefers real Steadfast/Pathao ground truth from courierFraudHistory when a record exists
+// for the phone (same preference order as the drawer's ZetSales Network scope), falling back to
+// pooling ZetSales' own network-wide order-stage history (same ≥2-resolved-orders threshold as
+// computeOrderRisk) only for phones with no courier history yet. Unlike computeOrderRisk the
+// order-fallback path doesn't exclude the current order from its own phone's count; with a real
+// history that one extra order doesn't change the threshold outcome, an accepted simplification
+// for row display. No-ops entirely unless ZetSales Order Risk Checker is installed for this
+// tenant.
+async function attachRiskLabels(db: ReturnType<typeof getDb>, tenantId: string, orders: OrderDTO[]) {
   if (!(await isFraudCheckerInstalled(tenantId))) return;
   const phones = [...new Set(orders.map((o) => o.customerPhone).filter((p): p is string => !!p))];
   if (phones.length === 0) return;
 
-  const rows = await db
-    .collection('orders')
-    .aggregate([
-      { $match: { customerPhone: { $in: phones } } },
-      {
-        $group: {
-          _id: '$customerPhone',
-          delivered: { $sum: { $cond: [{ $in: ['$stage', ['Delivered', 'Partial Delivered']] }, 1, 0] } },
-          failed: { $sum: { $cond: [{ $in: ['$stage', ['Cancelled', 'Returned']] }, 1, 0] } },
+  const normalizedByPhone = new Map<string, string>();
+  const normalizedPhones: string[] = [];
+  for (const phone of phones) {
+    const normalized = normalizeBdPhone(phone);
+    if (normalized) {
+      normalizedByPhone.set(phone, normalized);
+      normalizedPhones.push(normalized);
+    }
+  }
+  const historyDocs = normalizedPhones.length
+    ? await db.collection('courierFraudHistory').find({ phone: { $in: normalizedPhones } }).toArray()
+    : [];
+  const historyByNormalizedPhone = new Map(historyDocs.map((h) => [h.phone as string, h]));
+
+  const phonesNeedingOrderFallback = phones.filter((p) => {
+    const normalized = normalizedByPhone.get(p);
+    const history = normalized ? historyByNormalizedPhone.get(normalized) : undefined;
+    return !history?.steadfast && !history?.pathao;
+  });
+  const orderStatsByPhone = new Map<string, { delivered: number; failed: number }>();
+  if (phonesNeedingOrderFallback.length > 0) {
+    const rows = await db
+      .collection('orders')
+      .aggregate([
+        { $match: { customerPhone: { $in: phonesNeedingOrderFallback } } },
+        {
+          $group: {
+            _id: '$customerPhone',
+            delivered: { $sum: { $cond: [{ $in: ['$stage', ['Delivered', 'Partial Delivered']] }, 1, 0] } },
+            failed: { $sum: { $cond: [{ $in: ['$stage', ['Cancelled', 'Returned']] }, 1, 0] } },
+          },
         },
-      },
-    ])
-    .toArray();
-  const byPhone = new Map(rows.map((r) => [r._id as string, { delivered: r.delivered as number, failed: r.failed as number }]));
+      ])
+      .toArray();
+    for (const r of rows) orderStatsByPhone.set(r._id as string, { delivered: r.delivered as number, failed: r.failed as number });
+  }
+
   for (const order of orders) {
     if (!order.customerPhone) continue;
-    const stats = byPhone.get(order.customerPhone);
-    if (!stats) continue;
-    const resolved = stats.delivered + stats.failed;
-    order.isFraudAlert = resolved >= 2 && stats.delivered / resolved < 0.4;
+    const normalized = normalizedByPhone.get(order.customerPhone);
+    const history = normalized ? historyByNormalizedPhone.get(normalized) : undefined;
+
+    let delivered: number;
+    let failed: number;
+    if (history?.steadfast || history?.pathao) {
+      delivered = (history.steadfast?.totalDelivered ?? 0) + (history.pathao?.totalDelivered ?? 0);
+      failed = (history.steadfast?.totalCancelled ?? 0) + (history.pathao?.totalCancelled ?? 0);
+    } else {
+      const stats = orderStatsByPhone.get(order.customerPhone);
+      if (!stats) continue;
+      delivered = stats.delivered;
+      failed = stats.failed;
+    }
+
+    const resolved = delivered + failed;
+    if (resolved < 2) continue;
+    const successRate = Math.round((delivered / resolved) * 100);
+    let label: RiskLabel = 'Normal';
+    if (successRate >= 70) label = 'Trusted';
+    else if (successRate < 40) label = 'Risky';
+    order.riskLabel = label;
+    order.riskSuccessRate = successRate;
   }
 }
 
@@ -697,7 +742,7 @@ export async function listOrders(req: AuthenticatedRequest, res: Response) {
   const orders = (result?.data ?? []).map(toOrderDto);
   await attachBlockedFlags(db, tenantId, orders);
   await attachReturningFlags(db, tenantId, orders);
-  await attachFraudAlertFlags(db, tenantId, orders);
+  await attachRiskLabels(db, tenantId, orders);
   const total = result?.totalCount?.[0]?.count ?? 0;
 
   res.json({ success: true, orders, total, page, pageSize });
@@ -718,7 +763,7 @@ export async function getReadyToPrintOrders(req: AuthenticatedRequest, res: Resp
   const orders = docs.map(toOrderDto);
   await attachBlockedFlags(db, tenantId, orders);
   await attachReturningFlags(db, tenantId, orders);
-  await attachFraudAlertFlags(db, tenantId, orders);
+  await attachRiskLabels(db, tenantId, orders);
 
   res.json({ success: true, orders, total });
 }
@@ -1224,7 +1269,7 @@ export async function getOrder(req: AuthenticatedRequest, res: Response) {
   const dto = toOrderDto(doc);
   await attachBlockedFlags(db, tenantId, [dto]);
   await attachReturningFlags(db, tenantId, [dto]);
-  await attachFraudAlertFlags(db, tenantId, [dto]);
+  await attachRiskLabels(db, tenantId, [dto]);
   res.json({ success: true, order: dto, risk, courierUnavailable });
 }
 
@@ -1366,7 +1411,7 @@ export async function createOrder(req: AuthenticatedRequest, res: Response) {
   const dto = toOrderDto({ ...doc, _id: result.insertedId });
   await attachBlockedFlags(db, tenantId, [dto]);
   await attachReturningFlags(db, tenantId, [dto]);
-  await attachFraudAlertFlags(db, tenantId, [dto]);
+  await attachRiskLabels(db, tenantId, [dto]);
   void dispatchAppWebhook(tenantId, 'orders/create', dto);
   void checkAndStoreSteadfastFraud(tenantId, { _id: result.insertedId }, doc.customerPhone);
   void checkAndStorePathaoFraud(tenantId, { _id: result.insertedId }, doc.customerPhone);
@@ -1684,7 +1729,7 @@ export async function updateOrder(req: AuthenticatedRequest, res: Response) {
   const dto = toOrderDto(result);
   await attachBlockedFlags(db, tenantId, [dto]);
   await attachReturningFlags(db, tenantId, [dto]);
-  await attachFraudAlertFlags(db, tenantId, [dto]);
+  await attachRiskLabels(db, tenantId, [dto]);
   void dispatchAppWebhook(tenantId, 'orders/updated', dto);
   if (result.stage === 'Confirmed' && current.stage !== 'Confirmed') void dispatchAppWebhook(tenantId, 'orders/confirmed', dto);
   if (result.stage === 'Cancelled' && current.stage !== 'Cancelled') void dispatchAppWebhook(tenantId, 'orders/cancelled', dto);
@@ -1760,7 +1805,7 @@ export async function upsellOrder(req: AuthenticatedRequest, res: Response) {
   const dto = toOrderDto(result);
   await attachBlockedFlags(db, tenantId, [dto]);
   await attachReturningFlags(db, tenantId, [dto]);
-  await attachFraudAlertFlags(db, tenantId, [dto]);
+  await attachRiskLabels(db, tenantId, [dto]);
   res.json({ success: true, order: dto });
 }
 
@@ -1932,7 +1977,7 @@ export async function splitOrder(req: AuthenticatedRequest, res: Response) {
   const createdDto = toOrderDto(newOrderDocWithId);
   await attachBlockedFlags(db, tenantId, [originalDto, createdDto]);
   await attachReturningFlags(db, tenantId, [originalDto, createdDto]);
-  await attachFraudAlertFlags(db, tenantId, [originalDto, createdDto]);
+  await attachRiskLabels(db, tenantId, [originalDto, createdDto]);
   res.json({ success: true, original: originalDto, created: createdDto });
 }
 
@@ -2092,7 +2137,7 @@ export async function markPaymentCollected(req: AuthenticatedRequest, res: Respo
   const dto = toOrderDto(result!);
   await attachBlockedFlags(db, tenantId, [dto]);
   await attachReturningFlags(db, tenantId, [dto]);
-  await attachFraudAlertFlags(db, tenantId, [dto]);
+  await attachRiskLabels(db, tenantId, [dto]);
   void dispatchAppWebhook(tenantId, 'payments/collected', dto);
   res.json({ success: true, order: dto });
 }
@@ -2239,7 +2284,7 @@ export async function markPartialDelivered(req: AuthenticatedRequest, res: Respo
   const dto = toOrderDto(result!);
   await attachBlockedFlags(db, tenantId, [dto]);
   await attachReturningFlags(db, tenantId, [dto]);
-  await attachFraudAlertFlags(db, tenantId, [dto]);
+  await attachRiskLabels(db, tenantId, [dto]);
   res.json({ success: true, order: dto });
 }
 

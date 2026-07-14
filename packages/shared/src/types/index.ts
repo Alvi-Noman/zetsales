@@ -727,10 +727,14 @@ export interface OrderDTO {
   // Derived from counting this phone's orders tenant-wide (all-time), not stored on the order —
   // "returning" means more than one order exists for the phone, "new" means this is the only one.
   isReturningCustomer: boolean;
-  // Derived the same way — a low delivery-success rate for this phone across this tenant's own
-  // order history (Steadfast/Pathao stages only). Only ever computed when ZetSales Order Risk
-  // Checker is installed; otherwise always false.
-  isFraudAlert: boolean;
+  // Derived the same way — this phone's delivery-success label/rate, batched for row display.
+  // Prefers courierFraudHistory (real Steadfast/Pathao ground truth) when a record exists for the
+  // phone, falling back to ZetSales' own network-wide order-stage history otherwise — same
+  // preference order as the drawer's ZetSales Network scope. Null until at least 2 resolved
+  // orders exist (matches computeOrderRisk's own threshold for a label to be meaningful), or if
+  // ZetSales Order Risk Checker isn't installed.
+  riskLabel: RiskLabel | null;
+  riskSuccessRate: number | null;
   // Cached result of a live Steadfast dashboard fraud-check (see steadfastFraudClient.ts), keyed
   // to this order's own customerPhone — checked once in the background right after the order is
   // created. Null until that background check completes (or if it fails/isn't configured).

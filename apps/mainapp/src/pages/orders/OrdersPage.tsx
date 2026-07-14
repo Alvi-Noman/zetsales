@@ -981,12 +981,19 @@ export function OrdersPage() {
                                     {order.isReturningCustomer ? 'Returning' : 'New'}
                                   </span>
                                 )}
-                                {user?.installedPlugins?.includes('fraudChecker') && order.isFraudAlert && (
+                                {user?.installedPlugins?.includes('fraudChecker') && order.riskLabel && (
                                   <span
-                                    title="Low delivery-success rate for this customer with Steadfast/Pathao"
-                                    className="inline-flex items-center rounded-full bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600 ring-1 ring-inset ring-rose-600/20"
+                                    title={`${order.riskLabel} — ${order.riskSuccessRate}% delivery success with Steadfast/Pathao`}
+                                    className={clsx(
+                                      'inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset',
+                                      order.riskLabel === 'Trusted'
+                                        ? 'bg-emerald-50 text-emerald-600 ring-emerald-600/20'
+                                        : order.riskLabel === 'Risky'
+                                          ? 'bg-rose-50 text-rose-600 ring-rose-600/20'
+                                          : 'bg-slate-100 text-slate-500 ring-slate-500/10'
+                                    )}
                                   >
-                                    Fraud Alert
+                                    {order.riskLabel} {order.riskSuccessRate}%
                                   </span>
                                 )}
                                 {order.claimedBy && order.claimedBy.userId !== user?.id && (

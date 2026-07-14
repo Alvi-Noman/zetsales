@@ -391,7 +391,8 @@ export interface OrderDTO {
     priorityNote: string | null;
     isCustomerBlocked: boolean;
     isReturningCustomer: boolean;
-    isFraudAlert: boolean;
+    riskLabel: RiskLabel | null;
+    riskSuccessRate: number | null;
     steadfastFraudCheck: {
         totalDelivered: number;
         totalCancelled: number;

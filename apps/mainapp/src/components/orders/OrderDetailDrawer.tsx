@@ -623,9 +623,18 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                     {detail.isReturningCustomer ? 'Returning customer' : 'New customer'}
                   </span>
                 )}
-                {fraudCheckerInstalled && detail.isFraudAlert && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700 ring-1 ring-inset ring-rose-600/20">
-                    <ShieldAlert size={11} /> Fraud Alert
+                {fraudCheckerInstalled && detail.riskLabel && (
+                  <span
+                    className={clsx(
+                      'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset',
+                      detail.riskLabel === 'Trusted'
+                        ? 'bg-emerald-50 text-emerald-700 ring-emerald-600/20'
+                        : detail.riskLabel === 'Risky'
+                          ? 'bg-rose-50 text-rose-700 ring-rose-600/20'
+                          : 'bg-slate-100 text-slate-600 ring-slate-500/10'
+                    )}
+                  >
+                    <ShieldAlert size={11} /> {detail.riskLabel} {detail.riskSuccessRate}%
                   </span>
                 )}
                 {detail.tags.map((t) => (
