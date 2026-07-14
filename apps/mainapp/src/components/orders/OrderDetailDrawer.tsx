@@ -618,7 +618,11 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
               <section className="rounded-xl border border-slate-200 p-4">
                 <div className="mb-3 flex items-center justify-between">
                   <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                    {fraudCheckerInstalled ? 'Customer & delivery risk' : 'Customer'}
+                    {fraudCheckerInstalled
+                      ? user?.crossTenantRiskEnabled
+                        ? 'Customer & delivery risk (ZetSales network)'
+                        : 'Customer & delivery risk (this store)'
+                      : 'Customer'}
                   </h3>
                   {fraudCheckerInstalled && (
                     <button

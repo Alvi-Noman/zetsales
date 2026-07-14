@@ -260,6 +260,13 @@ export async function uninstallApp(appKey: ModuleKey) {
   await api.delete(`/commerce/apps/${appKey}/install`);
 }
 
+// ZetSales Order Risk Checker's one setting — whether risk checks pool order outcomes across
+// every tenant on ZetSales instead of just this store's own history.
+export async function updateOrderRiskCheckerSettings(crossTenantRiskEnabled: boolean) {
+  const res = await api.patch('/commerce/order-risk-checker/settings', { crossTenantRiskEnabled });
+  return res.data as { success: boolean; crossTenantRiskEnabled: boolean };
+}
+
 // For an installed oauth-type app's AppBlock iframe (see components/apps/AppBlock.tsx) or the
 // generic full-page Embedded App host (pages/apps/AppHostPage.tsx) — mints a short-lived session
 // token (App Bridge's own term) scoped to this extension target/context. `target` is omitted for

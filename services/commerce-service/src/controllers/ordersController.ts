@@ -482,21 +482,34 @@ async function attachReturningFlags(db: ReturnType<typeof getDb>, tenantId: stri
   }
 }
 
+// Whether this tenant has opted into pooling order outcomes across every tenant on ZetSales,
+// instead of just its own history — set via PATCH /order-risk-checker/settings
+// (orderRiskCheckerController.ts). Off by default; never enabled implicitly. Only ever affects
+// which orders are counted (aggregate numbers), never which order-level details get returned —
+// findPossibleDuplicates deliberately stays tenant-scoped regardless, since it returns real order
+// numbers and duplicate detection has no reason to look outside this tenant's own operations.
+async function isCrossTenantRiskEnabled(tenantId: string): Promise<boolean> {
+  const business = await getDb().collection('businesses').findOne({ _id: new ObjectId(tenantId) }, { projection: { crossTenantRiskEnabled: 1 } });
+  return !!business?.crossTenantRiskEnabled;
+}
+
 // Same "Risky" threshold as computeOrderRisk (≥2 resolved orders, <40% delivered) — this is the
-// batched version for list rows, so it counts each phone's orders tenant-wide in one aggregate
-// query instead of one lookup per row. Unlike computeOrderRisk it doesn't exclude the current
-// order from its own phone's count; with a real repeat-offender history that one extra order
-// doesn't change the threshold outcome, so this is an accepted simplification for row display.
-// No-ops entirely unless ZetSales Order Risk Checker is installed for this tenant.
+// batched version for list rows, so it counts each phone's orders tenant-wide (or platform-wide,
+// see isCrossTenantRiskEnabled) in one aggregate query instead of one lookup per row. Unlike
+// computeOrderRisk it doesn't exclude the current order from its own phone's count; with a real
+// repeat-offender history that one extra order doesn't change the threshold outcome, so this is
+// an accepted simplification for row display. No-ops entirely unless ZetSales Order Risk Checker
+// is installed for this tenant.
 async function attachFraudAlertFlags(db: ReturnType<typeof getDb>, tenantId: string, orders: OrderDTO[]) {
   if (!(await isFraudCheckerInstalled(tenantId))) return;
   const phones = [...new Set(orders.map((o) => o.customerPhone).filter((p): p is string => !!p))];
   if (phones.length === 0) return;
 
+  const crossTenant = await isCrossTenantRiskEnabled(tenantId);
   const rows = await db
     .collection('orders')
     .aggregate([
-      { $match: { tenantId, customerPhone: { $in: phones } } },
+      { $match: { ...(crossTenant ? {} : { tenantId }), customerPhone: { $in: phones } } },
       {
         $group: {
           _id: '$customerPhone',
@@ -936,9 +949,10 @@ async function computeOrderRisk(tenantId: string, customerPhone: string | null, 
   }
 
   const db = getDb();
+  const crossTenant = await isCrossTenantRiskEnabled(tenantId);
   const priorOrders = await db
     .collection('orders')
-    .find({ tenantId, customerPhone, _id: { $ne: excludeOrderId } })
+    .find({ ...(crossTenant ? {} : { tenantId }), customerPhone, _id: { $ne: excludeOrderId } })
     .project({ stage: 1, courierPartner: 1 })
     .toArray();
 

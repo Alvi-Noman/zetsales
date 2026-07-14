@@ -38,12 +38,14 @@ export async function toUserDto(user: {
   let businessName: string | null = null;
   let businessType: UserDTO['businessType'] = null;
   let installedPlugins: UserDTO['installedPlugins'] = [];
+  let crossTenantRiskEnabled = false;
   if (user.tenantId) {
     const db = getDb();
     const business = await db.collection('businesses').findOne({ _id: new ObjectId(user.tenantId) });
     businessName = business?.name ?? null;
     businessType = business?.businessType ?? null;
     installedPlugins = business?.installedPlugins ?? [];
+    crossTenantRiskEnabled = business?.crossTenantRiskEnabled ?? false;
   }
   return {
     id: user._id.toString(),
@@ -55,6 +57,7 @@ export async function toUserDto(user: {
     businessType,
     role: user.role ?? null,
     installedPlugins,
+    crossTenantRiskEnabled,
   };
 }
 
@@ -104,6 +107,7 @@ export async function signup(req: Request, res: Response) {
       businessType: null,
       role: null,
       installedPlugins: [],
+      crossTenantRiskEnabled: false,
     };
 
     res.status(201).json({ success: true, user: userDto, token });
@@ -239,6 +243,7 @@ export async function completeOnboarding(req: AuthenticatedRequest, res: Respons
       businessType: payload.businessType,
       role: 'owner',
       installedPlugins: [],
+      crossTenantRiskEnabled: false,
     };
 
     res.status(200).json({ success: true, user: userDto, token });
