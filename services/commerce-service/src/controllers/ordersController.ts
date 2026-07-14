@@ -20,6 +20,7 @@ import { resolveActiveClaim, CLAIM_STALE_MS } from '../utils/claim.js';
 import { maybeAutoFlagForFraud, isFraudCheckerInstalled } from '../utils/fraudChecks.js';
 import { dispatchAppWebhook } from '../utils/appEvents.js';
 import { getSteadfastFraudCheck } from '../integrations/steadfastFraudClient.js';
+import { getPathaoFraudCheck } from '../integrations/pathaoFraudClient.js';
 import {
   mapShopifyOrderStage,
   mapShopifyPaymentStatus,
@@ -80,6 +81,13 @@ function toOrderDto(doc: any): OrderDTO {
           totalDelivered: doc.steadfastFraudCheck.totalDelivered,
           totalCancelled: doc.steadfastFraudCheck.totalCancelled,
           checkedAt: new Date(doc.steadfastFraudCheck.checkedAt).toISOString(),
+        }
+      : null,
+    pathaoFraudCheck: doc.pathaoFraudCheck
+      ? {
+          totalDelivered: doc.pathaoFraudCheck.totalDelivered,
+          totalCancelled: doc.pathaoFraudCheck.totalCancelled,
+          checkedAt: new Date(doc.pathaoFraudCheck.checkedAt).toISOString(),
         }
       : null,
     courierPartner: doc.courierPartner ?? null,
@@ -202,6 +210,7 @@ export async function upsertShopifyOrder(tenantId: string, storeId: string, orde
   if (!existing) {
     void dispatchAppWebhook(tenantId, 'orders/create', { storeId, externalId: String(order.id), number: setFields.number, stage: setFields.stage ?? newStage });
     void checkAndStoreSteadfastFraud(tenantId, { tenantId, storeId, externalId: String(order.id) }, setFields.customerPhone as string | null);
+    void checkAndStorePathaoFraud(tenantId, { tenantId, storeId, externalId: String(order.id) }, setFields.customerPhone as string | null);
   }
 
   // A brand-new order (no `existing`) has no prior inventory state to release — it's as if it
@@ -279,6 +288,7 @@ export async function upsertWooOrder(tenantId: string, storeId: string, order: W
   if (!existing) {
     void dispatchAppWebhook(tenantId, 'orders/create', { storeId, externalId: String(order.id), number: setFields.number, stage: setFields.stage ?? newStage });
     void checkAndStoreSteadfastFraud(tenantId, { tenantId, storeId, externalId: String(order.id) }, setFields.customerPhone as string | null);
+    void checkAndStorePathaoFraud(tenantId, { tenantId, storeId, externalId: String(order.id) }, setFields.customerPhone as string | null);
   }
 
   if (stageChanging) {
@@ -544,6 +554,20 @@ async function checkAndStoreSteadfastFraud(tenantId: string, orderFilter: Record
   await getDb()
     .collection('orders')
     .updateOne(orderFilter, { $set: { steadfastFraudCheck: { ...result, checkedAt: new Date() } } });
+}
+
+// Same as checkAndStoreSteadfastFraud, for Pathao's own dashboard fraud-check (see
+// pathaoFraudClient.ts) — a separate call with its own independent randomized delay, not chained
+// after the Steadfast one, so a slow/failing courier never delays the other.
+async function checkAndStorePathaoFraud(tenantId: string, orderFilter: Record<string, unknown>, customerPhone: string | null) {
+  if (!customerPhone) return;
+  if (!(await isFraudCheckerInstalled(tenantId))) return;
+  await new Promise((resolve) => setTimeout(resolve, 300 + Math.random() * 1200));
+  const result = await getPathaoFraudCheck(customerPhone);
+  if (!result) return;
+  await getDb()
+    .collection('orders')
+    .updateOne(orderFilter, { $set: { pathaoFraudCheck: { ...result, checkedAt: new Date() } } });
 }
 
 export async function listOrders(req: AuthenticatedRequest, res: Response) {
@@ -1045,25 +1069,34 @@ async function findPossibleDuplicates(tenantId: string, customerPhone: string | 
   return siblings.map((s) => s.number);
 }
 
-// Maps a Steadfast dashboard fraud-check result onto the same OrderRiskDTO shape computeOrderRisk
-// produces, reusing the same label thresholds — so the drawer's RiskBadge/courierBreakdown UI
-// works identically regardless of which scope is selected, no special-casing needed there.
-function steadfastResultToRiskDto(result: { totalDelivered: number; totalCancelled: number } | null): Omit<OrderRiskDTO, 'possibleDuplicateOrders'> {
-  const totalOrders = result ? result.totalDelivered + result.totalCancelled : 0;
-  if (!result || totalOrders === 0) {
+// Maps combined Steadfast + Pathao dashboard fraud-check results onto the same OrderRiskDTO shape
+// computeOrderRisk produces, reusing the same label thresholds — so the drawer's RiskBadge/
+// courierBreakdown UI works identically regardless of which scope is selected. A courier whose
+// check failed/is unavailable is simply omitted from courierBreakdown rather than shown as a
+// zero — a zero would look like a real "no orders" result instead of "we don't know."
+function courierResultsToRiskDto(
+  results: { courierPartner: CourierPartner; result: { totalDelivered: number; totalCancelled: number } | null }[]
+): Omit<OrderRiskDTO, 'possibleDuplicateOrders'> {
+  const available = results.filter(
+    (r): r is { courierPartner: CourierPartner; result: { totalDelivered: number; totalCancelled: number } } => r.result !== null
+  );
+  const deliveredCount = available.reduce((sum, r) => sum + r.result.totalDelivered, 0);
+  const cancelledOrReturnedCount = available.reduce((sum, r) => sum + r.result.totalCancelled, 0);
+  const totalOrders = deliveredCount + cancelledOrReturnedCount;
+  if (available.length === 0 || totalOrders === 0) {
     return { label: 'New Customer', totalOrders: 0, deliveredCount: 0, cancelledOrReturnedCount: 0, successRate: null, courierBreakdown: [] };
   }
-  const successRate = Math.round((result.totalDelivered / totalOrders) * 100);
+  const successRate = Math.round((deliveredCount / totalOrders) * 100);
   let label: RiskLabel = 'Normal';
   if (successRate >= 70) label = 'Trusted';
   else if (successRate < 40) label = 'Risky';
   return {
     label,
     totalOrders,
-    deliveredCount: result.totalDelivered,
-    cancelledOrReturnedCount: result.totalCancelled,
+    deliveredCount,
+    cancelledOrReturnedCount,
     successRate,
-    courierBreakdown: [{ courierPartner: 'Steadfast', delivered: result.totalDelivered, failed: result.totalCancelled }],
+    courierBreakdown: available.map((r) => ({ courierPartner: r.courierPartner, delivered: r.result.totalDelivered, failed: r.result.totalCancelled })),
   };
 }
 
@@ -1083,23 +1116,44 @@ export async function getOrder(req: AuthenticatedRequest, res: Response) {
   // able to tell them apart when something's actually wrong.
   let courierUnavailable = false;
   if (req.query.riskScope === 'courier') {
-    // Serves the cached background check if one already landed; otherwise (or when ?forceRecheck=
-    // true, from the drawer's "Recheck risk" button) fetches live so the drawer either shows
-    // something for an order that predates this feature, or gets a genuinely fresh number instead
-    // of re-serving what's cached.
-    let check = doc.steadfastFraudCheck ?? null;
-    if (!check || req.query.forceRecheck === 'true') {
-      const live = await getSteadfastFraudCheck(doc.customerPhone);
-      if (live) {
-        check = { ...live, checkedAt: new Date() };
-        await db.collection('orders').updateOne({ _id: doc._id }, { $set: { steadfastFraudCheck: check } });
-      } else {
-        check = null; // a failed (re)check should show "unavailable" rather than stale/fabricated numbers
-        if (doc.customerPhone) courierUnavailable = true; // no phone at all isn't a failure, just nothing to check
+    // Serves each courier's cached background check if one already landed; otherwise (or when
+    // ?forceRecheck=true, from the drawer's "Recheck risk" button) fetches live so the drawer
+    // either shows something for an order that predates this feature, or gets genuinely fresh
+    // numbers instead of re-serving what's cached. The two couriers are independent — one being
+    // unavailable doesn't block showing the other's real data.
+    let steadfastCheck = doc.steadfastFraudCheck ?? null;
+    let pathaoCheck = doc.pathaoFraudCheck ?? null;
+    const needsSteadfast = !steadfastCheck || req.query.forceRecheck === 'true';
+    const needsPathao = !pathaoCheck || req.query.forceRecheck === 'true';
+    if (needsSteadfast || needsPathao) {
+      const [steadfastLive, pathaoLive] = await Promise.all([
+        needsSteadfast ? getSteadfastFraudCheck(doc.customerPhone) : Promise.resolve(undefined),
+        needsPathao ? getPathaoFraudCheck(doc.customerPhone) : Promise.resolve(undefined),
+      ]);
+      const setFields: Record<string, unknown> = {};
+      if (needsSteadfast) {
+        steadfastCheck = steadfastLive ? { ...steadfastLive, checkedAt: new Date() } : null;
+        if (steadfastCheck) setFields.steadfastFraudCheck = steadfastCheck;
+      }
+      if (needsPathao) {
+        pathaoCheck = pathaoLive ? { ...pathaoLive, checkedAt: new Date() } : null;
+        if (pathaoCheck) setFields.pathaoFraudCheck = pathaoCheck;
+      }
+      if (Object.keys(setFields).length > 0) {
+        await db.collection('orders').updateOne({ _id: doc._id }, { $set: setFields });
       }
     }
+    // Only "unavailable" if a phone existed but neither courier could return anything — one
+    // working courier is still a real, useful result, not a failure state.
+    if (doc.customerPhone && !steadfastCheck && !pathaoCheck) courierUnavailable = true;
     const possibleDuplicateOrders = await findPossibleDuplicates(tenantId, doc.customerPhone, doc.createdAt, doc._id);
-    risk = { ...steadfastResultToRiskDto(check), possibleDuplicateOrders };
+    risk = {
+      ...courierResultsToRiskDto([
+        { courierPartner: 'Steadfast', result: steadfastCheck },
+        { courierPartner: 'Pathao', result: pathaoCheck },
+      ]),
+      possibleDuplicateOrders,
+    };
   } else {
     // ?riskScope=store narrows the risk check to this tenant's own orders; anything else (missing
     // or 'network') defaults to pooling across every tenant on ZetSales.
@@ -1258,6 +1312,7 @@ export async function createOrder(req: AuthenticatedRequest, res: Response) {
   await attachFraudAlertFlags(db, tenantId, [dto]);
   void dispatchAppWebhook(tenantId, 'orders/create', dto);
   void checkAndStoreSteadfastFraud(tenantId, { _id: result.insertedId }, doc.customerPhone);
+  void checkAndStorePathaoFraud(tenantId, { _id: result.insertedId }, doc.customerPhone);
   res.json({ success: true, order: dto });
 }
 

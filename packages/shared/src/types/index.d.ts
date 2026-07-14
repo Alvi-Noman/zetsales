@@ -395,6 +395,11 @@ export interface OrderDTO {
         totalCancelled: number;
         checkedAt: string;
     } | null;
+    pathaoFraudCheck: {
+        totalDelivered: number;
+        totalCancelled: number;
+        checkedAt: string;
+    } | null;
     courierPartner: CourierPartner | null;
     courierTrackingId: string | null;
     courierConsignmentId: string | null;
@@ -447,6 +452,7 @@ export interface OrderStatsDTO {
     cancelledAmountTrend: number | null;
     tabCounts: Record<OrderTabKey, number>;
     dailySeries: OrderDailyStatDTO[];
+    restockedReadyCount: number;
 }
 export type TrendGranularity = 'hour' | 'day' | 'month';
 export interface TrendPointDTO {

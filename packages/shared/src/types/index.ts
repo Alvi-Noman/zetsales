@@ -733,6 +733,9 @@ export interface OrderDTO {
   // to this order's own customerPhone — checked once in the background right after the order is
   // created. Null until that background check completes (or if it fails/isn't configured).
   steadfastFraudCheck: { totalDelivered: number; totalCancelled: number; checkedAt: string } | null;
+  // Same as steadfastFraudCheck, for Pathao's own dashboard fraud-check (see
+  // pathaoFraudClient.ts) — independent of Steadfast's, checked and cached separately.
+  pathaoFraudCheck: { totalDelivered: number; totalCancelled: number; checkedAt: string } | null;
   courierPartner: CourierPartner | null;
   courierTrackingId: string | null;
   courierConsignmentId: string | null;
@@ -802,6 +805,11 @@ export interface OrderStatsDTO {
   cancelledAmountTrend: number | null;
   tabCounts: Record<OrderTabKey, number>;
   dailySeries: OrderDailyStatDTO[];
+  // Confirmed orders that were short of stock at confirm time (wasShortOfStock) and have since
+  // become fully coverable — the "call the customer, their pre-order is back in stock" queue.
+  // Backs RestockedOrdersBanner; independent of tabCounts since it only ever counts a subset of
+  // the Confirmed tab, not a tab of its own.
+  restockedReadyCount: number;
 }
 
 export type TrendGranularity = 'hour' | 'day' | 'month';
