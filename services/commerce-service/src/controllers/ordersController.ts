@@ -19,6 +19,7 @@ import { detectZoneTier } from '../integrations/zoneDetection.js';
 import { resolveActiveClaim, CLAIM_STALE_MS } from '../utils/claim.js';
 import { maybeAutoFlagForFraud, isFraudCheckerInstalled } from '../utils/fraudChecks.js';
 import { dispatchAppWebhook } from '../utils/appEvents.js';
+import { getSteadfastFraudCheck } from '../integrations/steadfastFraudClient.js';
 import {
   mapShopifyOrderStage,
   mapShopifyPaymentStatus,
@@ -62,6 +63,7 @@ function toOrderDto(doc: any): OrderDTO {
     holdReason: doc.holdReason ?? null,
     cancelReason: doc.cancelReason ?? null,
     flagReason: doc.flagReason ?? null,
+    wasShortOfStock: doc.wasShortOfStock ?? false,
     splitFromOrderId: doc.splitFromOrderId ?? null,
     splitFromOrderNumber: doc.splitFromOrderNumber ?? null,
     splitIntoOrderId: doc.splitIntoOrderId ?? null,
@@ -73,6 +75,13 @@ function toOrderDto(doc: any): OrderDTO {
     isCustomerBlocked: false, // overwritten by attachBlockedFlags where relevant — not knowable from the doc alone
     isReturningCustomer: false, // overwritten by attachReturningFlags where relevant — needs a count across all of the phone's orders
     isFraudAlert: false, // overwritten by attachFraudAlertFlags where relevant — needs a delivery-success count across the phone's orders
+    steadfastFraudCheck: doc.steadfastFraudCheck
+      ? {
+          totalDelivered: doc.steadfastFraudCheck.totalDelivered,
+          totalCancelled: doc.steadfastFraudCheck.totalCancelled,
+          checkedAt: new Date(doc.steadfastFraudCheck.checkedAt).toISOString(),
+        }
+      : null,
     courierPartner: doc.courierPartner ?? null,
     courierTrackingId: doc.courierTrackingId ?? null,
     courierConsignmentId: doc.courierConsignmentId ?? null,
@@ -192,6 +201,7 @@ export async function upsertShopifyOrder(tenantId: string, storeId: string, orde
   await db.collection('orders').updateOne({ tenantId, storeId, externalId: String(order.id) }, update, { upsert: true });
   if (!existing) {
     void dispatchAppWebhook(tenantId, 'orders/create', { storeId, externalId: String(order.id), number: setFields.number, stage: setFields.stage ?? newStage });
+    void checkAndStoreSteadfastFraud(tenantId, { tenantId, storeId, externalId: String(order.id) }, setFields.customerPhone as string | null);
   }
 
   // A brand-new order (no `existing`) has no prior inventory state to release — it's as if it
@@ -268,6 +278,7 @@ export async function upsertWooOrder(tenantId: string, storeId: string, order: W
   await db.collection('orders').updateOne({ tenantId, storeId, externalId: String(order.id) }, update, { upsert: true });
   if (!existing) {
     void dispatchAppWebhook(tenantId, 'orders/create', { storeId, externalId: String(order.id), number: setFields.number, stage: setFields.stage ?? newStage });
+    void checkAndStoreSteadfastFraud(tenantId, { tenantId, storeId, externalId: String(order.id) }, setFields.customerPhone as string | null);
   }
 
   if (stageChanging) {
@@ -518,6 +529,23 @@ async function attachFraudAlertFlags(db: ReturnType<typeof getDb>, tenantId: str
   }
 }
 
+// Fire-and-forget: checks Steadfast's own dashboard fraud-check for this order's phone number and
+// caches the result on the order document, so by the time anyone opens it in the drawer it's
+// already there. The random delay means this doesn't fire on an obviously fixed, bot-like cadence
+// relative to order creation, even though it starts the moment the order exists. `orderFilter` is
+// whatever uniquely identifies the order document (an _id for manually created orders, or the
+// tenantId/storeId/externalId triple for synced orders whose insertedId isn't read back).
+async function checkAndStoreSteadfastFraud(tenantId: string, orderFilter: Record<string, unknown>, customerPhone: string | null) {
+  if (!customerPhone) return;
+  if (!(await isFraudCheckerInstalled(tenantId))) return;
+  await new Promise((resolve) => setTimeout(resolve, 300 + Math.random() * 1200));
+  const result = await getSteadfastFraudCheck(customerPhone);
+  if (!result) return;
+  await getDb()
+    .collection('orders')
+    .updateOne(orderFilter, { $set: { steadfastFraudCheck: { ...result, checkedAt: new Date() } } });
+}
+
 export async function listOrders(req: AuthenticatedRequest, res: Response) {
   const db = getDb();
   const tenantId = req.user!.tenantId!;
@@ -588,6 +616,16 @@ export async function listOrders(req: AuthenticatedRequest, res: Response) {
       })
       .map((o) => o._id);
     match._id = { $in: matchedIds };
+  }
+
+  // "Restocked only" — narrows an already-"ready to pack" list down to orders that were confirmed
+  // while short of stock (wasShortOfStock, set by applyOutOfStockPolicy) and have since become
+  // packable, i.e. the subset actually worth a "your order is back in stock" customer call. Only
+  // meaningful alongside stockStatus=ready — a restocked order that's still short belongs in the
+  // "short on stock" view, not here, and this stays a *narrowing* of match rather than a separate
+  // mutually-exclusive filter so "Ready to pack" itself never loses these orders.
+  if (stockStatus === 'ready' && req.query.restockedOnly === 'true') {
+    match.wasShortOfStock = true;
   }
 
   // Delivery Partners dashboard's tile filter — same candidate-fetch-then-narrow-_id shape as the
@@ -1007,6 +1045,28 @@ async function findPossibleDuplicates(tenantId: string, customerPhone: string | 
   return siblings.map((s) => s.number);
 }
 
+// Maps a Steadfast dashboard fraud-check result onto the same OrderRiskDTO shape computeOrderRisk
+// produces, reusing the same label thresholds — so the drawer's RiskBadge/courierBreakdown UI
+// works identically regardless of which scope is selected, no special-casing needed there.
+function steadfastResultToRiskDto(result: { totalDelivered: number; totalCancelled: number } | null): Omit<OrderRiskDTO, 'possibleDuplicateOrders'> {
+  const totalOrders = result ? result.totalDelivered + result.totalCancelled : 0;
+  if (!result || totalOrders === 0) {
+    return { label: 'New Customer', totalOrders: 0, deliveredCount: 0, cancelledOrReturnedCount: 0, successRate: null, courierBreakdown: [] };
+  }
+  const successRate = Math.round((result.totalDelivered / totalOrders) * 100);
+  let label: RiskLabel = 'Normal';
+  if (successRate >= 70) label = 'Trusted';
+  else if (successRate < 40) label = 'Risky';
+  return {
+    label,
+    totalOrders,
+    deliveredCount: result.totalDelivered,
+    cancelledOrReturnedCount: result.totalCancelled,
+    successRate,
+    courierBreakdown: [{ courierPartner: 'Steadfast', delivered: result.totalDelivered, failed: result.totalCancelled }],
+  };
+}
+
 export async function getOrder(req: AuthenticatedRequest, res: Response) {
   const db = getDb();
   const tenantId = req.user!.tenantId!;
@@ -1016,15 +1076,34 @@ export async function getOrder(req: AuthenticatedRequest, res: Response) {
     return;
   }
 
-  // ?riskScope=store narrows the risk check to this tenant's own orders; anything else (missing,
-  // 'network', or an unrecognized value) defaults to pooling across every tenant on ZetSales —
-  // the default the drawer's scope switcher starts on.
-  const crossTenant = req.query.riskScope !== 'store';
-  const [riskBase, possibleDuplicateOrders] = await Promise.all([
-    computeOrderRisk(tenantId, doc.customerPhone, doc._id, crossTenant),
-    findPossibleDuplicates(tenantId, doc.customerPhone, doc.createdAt, doc._id),
-  ]);
-  const risk: OrderRiskDTO = { ...riskBase, possibleDuplicateOrders };
+  let risk: OrderRiskDTO;
+  if (req.query.riskScope === 'courier') {
+    // Serves the cached background check if one already landed; otherwise (or when ?forceRecheck=
+    // true, from the drawer's "Recheck risk" button) fetches live so the drawer either shows
+    // something for an order that predates this feature, or gets a genuinely fresh number instead
+    // of re-serving what's cached.
+    let check = doc.steadfastFraudCheck ?? null;
+    if (!check || req.query.forceRecheck === 'true') {
+      const live = await getSteadfastFraudCheck(doc.customerPhone);
+      if (live) {
+        check = { ...live, checkedAt: new Date() };
+        await db.collection('orders').updateOne({ _id: doc._id }, { $set: { steadfastFraudCheck: check } });
+      } else if (req.query.forceRecheck === 'true') {
+        check = null; // a failed forced recheck should show "no data" rather than stale cached numbers
+      }
+    }
+    const possibleDuplicateOrders = await findPossibleDuplicates(tenantId, doc.customerPhone, doc.createdAt, doc._id);
+    risk = { ...steadfastResultToRiskDto(check), possibleDuplicateOrders };
+  } else {
+    // ?riskScope=store narrows the risk check to this tenant's own orders; anything else (missing
+    // or 'network') defaults to pooling across every tenant on ZetSales.
+    const crossTenant = req.query.riskScope !== 'store';
+    const [riskBase, possibleDuplicateOrders] = await Promise.all([
+      computeOrderRisk(tenantId, doc.customerPhone, doc._id, crossTenant),
+      findPossibleDuplicates(tenantId, doc.customerPhone, doc.createdAt, doc._id),
+    ]);
+    risk = { ...riskBase, possibleDuplicateOrders };
+  }
   const dto = toOrderDto(doc);
   await attachBlockedFlags(db, tenantId, [dto]);
   await attachReturningFlags(db, tenantId, [dto]);
@@ -1172,6 +1251,7 @@ export async function createOrder(req: AuthenticatedRequest, res: Response) {
   await attachReturningFlags(db, tenantId, [dto]);
   await attachFraudAlertFlags(db, tenantId, [dto]);
   void dispatchAppWebhook(tenantId, 'orders/create', dto);
+  void checkAndStoreSteadfastFraud(tenantId, { _id: result.insertedId }, doc.customerPhone);
   res.json({ success: true, order: dto });
 }
 
@@ -1219,6 +1299,10 @@ const updateOrderSchema = z.object({
   customerPhone: z.string().trim().min(1).max(30).optional(),
   customerAltPhone: z.string().trim().max(30).nullable().optional(),
   address: z.string().trim().max(500).nullable().optional(),
+  // Only ever set server-side (applyOutOfStockPolicy) or cleared server-side (buildOrderUpdate on
+  // stage advance) — present in the schema so it can flow through the same patch/setFields plumbing
+  // every other field uses, not because a client is expected to send it.
+  wasShortOfStock: z.boolean().optional(),
 });
 type UpdateOrderPatch = z.infer<typeof updateOrderSchema>;
 
@@ -1303,11 +1387,17 @@ function buildOrderUpdate(current: any, patch: UpdateOrderPatch, actor: string |
     setFields.note = null;
     setFields.rescheduledFor = null;
     if (rest.isPriorityCall === undefined) { setFields.isPriorityCall = false; setFields.priorityNote = null; }
+    if (current.wasShortOfStock && restored !== 'Confirmed') setFields.wasShortOfStock = false;
     historyEntry = { label: restored, detail: 'Resumed from hold', at: now, by: actor };
   } else if (stage) {
     setFields.stage = stage;
     setFields.stageSource = 'manual';
     if (stage === 'On Hold') setFields.heldFromStage = current.stage;
+    // The "was a pre-order" breadcrumb only matters while the order is still sitting in Confirmed
+    // waiting to be packed — once it actually advances (Processing and beyond), it's been dealt
+    // with, so the flag clears rather than lingering as a stale "Restocked" tag. Not cleared on a
+    // hold (still logically Confirmed-but-paused) or the manual re-flag-to-Confirmed no-op.
+    if (current.wasShortOfStock && stage !== 'On Hold' && stage !== 'Confirmed') setFields.wasShortOfStock = false;
     // `note` only ever gets written by the Hold/Cancel reason menus, as an annotation for that
     // specific hold/cancel — it's not a general-purpose order note. If this transition didn't
     // supply a fresh one (e.g. a plain "Confirm order" / "Mark shipped" click), clear whatever was
@@ -1361,7 +1451,13 @@ async function applyOutOfStockPolicy(tenantId: string, current: any, patch: Upda
 
   const shortfalls = await checkStockForConfirm(tenantId, current.lineItems ?? []);
   const blocking = shortfalls.find((s) => s.blocksConfirm);
-  if (!blocking) return patch;
+  if (!blocking) {
+    // Some line item was short of free stock but oversell is on for that variant, so confirm goes
+    // through anyway — this is the moment an order actually becomes a pre-order. Stamped here (not
+    // discovered later by a scan) so "back in stock" can later be told apart from "was always fine,
+    // just not packed yet" once stock catches up and both look identical (Confirmed + in stock).
+    return shortfalls.length > 0 ? { ...patch, wasShortOfStock: true } : patch;
+  }
 
   const label = blocking.productTitle ?? blocking.sku;
   return {
@@ -1417,6 +1513,9 @@ export async function updateOrder(req: AuthenticatedRequest, res: Response) {
     res.status(400).json({ success: false, message: 'Invalid update payload' });
     return;
   }
+  // wasShortOfStock is only ever set by applyOutOfStockPolicy / cleared by buildOrderUpdate below —
+  // strip anything a client sent for it so a PATCH body can't forge the "was a pre-order" badge.
+  delete parsed.data.wasShortOfStock;
 
   const db = getDb();
   const tenantId = req.user!.tenantId!;
@@ -2037,6 +2136,8 @@ export async function bulkUpdateOrders(req: AuthenticatedRequest, res: Response)
     res.status(400).json({ success: false, message: 'Invalid bulk update payload' });
     return;
   }
+  // See identical note in updateOrder above — wasShortOfStock is server-managed only.
+  delete parsed.data.patch.wasShortOfStock;
 
   const db = getDb();
   const tenantId = req.user!.tenantId!;

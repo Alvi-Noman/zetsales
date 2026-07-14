@@ -694,6 +694,12 @@ export interface OrderDTO {
   holdReason: HoldReason | null;
   cancelReason: CancelReason | null;
   flagReason: string | null;
+  // Set the moment this order confirms (Pending/Flagged -> Confirmed) while a line item was short
+  // of free stock but oversell was allowed for that variant, so confirm went through anyway. Clears
+  // the moment the order advances past Confirmed (see updateOrder). Distinguishes "this order was a
+  // pre-order and just came back in stock" from "always had stock, just hasn't been packed yet" —
+  // both look identical (Confirmed + currently in stock) without this breadcrumb.
+  wasShortOfStock: boolean;
   // Set only on an order created by splitting a mixed-stock order at confirm time — points back at
   // the order it was split from. Null for every order that was never split off.
   splitFromOrderId: string | null;
@@ -723,6 +729,10 @@ export interface OrderDTO {
   // order history (Steadfast/Pathao stages only). Only ever computed when ZetSales Order Risk
   // Checker is installed; otherwise always false.
   isFraudAlert: boolean;
+  // Cached result of a live Steadfast dashboard fraud-check (see steadfastFraudClient.ts), keyed
+  // to this order's own customerPhone — checked once in the background right after the order is
+  // created. Null until that background check completes (or if it fails/isn't configured).
+  steadfastFraudCheck: { totalDelivered: number; totalCancelled: number; checkedAt: string } | null;
   courierPartner: CourierPartner | null;
   courierTrackingId: string | null;
   courierConsignmentId: string | null;

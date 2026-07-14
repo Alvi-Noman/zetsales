@@ -378,6 +378,7 @@ export interface OrderDTO {
     holdReason: HoldReason | null;
     cancelReason: CancelReason | null;
     flagReason: string | null;
+    wasShortOfStock: boolean;
     splitFromOrderId: string | null;
     splitFromOrderNumber: string | null;
     splitIntoOrderId: string | null;
@@ -389,6 +390,11 @@ export interface OrderDTO {
     isCustomerBlocked: boolean;
     isReturningCustomer: boolean;
     isFraudAlert: boolean;
+    steadfastFraudCheck: {
+        totalDelivered: number;
+        totalCancelled: number;
+        checkedAt: string;
+    } | null;
     courierPartner: CourierPartner | null;
     courierTrackingId: string | null;
     courierConsignmentId: string | null;

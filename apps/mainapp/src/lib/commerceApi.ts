@@ -918,6 +918,11 @@ export interface ListOrdersParams {
   // 'ready' = every line item has enough free stock; 'short' = at least one doesn't. Same
   // computation as the Confirmed-tab "Ready to pack"/"N short" badge, applied as a filter.
   stockStatus?: 'ready' | 'short';
+  // Only honored alongside stockStatus: 'ready' — narrows to orders confirmed while short of
+  // stock (wasShortOfStock) that have since become packable, i.e. the "call the customer, their
+  // pre-order is back in stock" queue. Not a separate stock-status value: every restocked order is
+  // still "ready to pack", this just filters within that set.
+  restockedOnly?: boolean;
   sortKey?: 'number' | 'total' | 'date' | 'updated';
   sortDir?: 'asc' | 'desc';
   page?: number;
@@ -988,10 +993,11 @@ export async function uploadPrintTemplateLogo(file: File) {
   return res.data as { success: boolean; url: string };
 }
 
-// riskScope: 'network' (default, pools across every tenant on ZetSales) or 'store' (this
-// tenant's own history only) — the Order Detail Drawer's scope switcher.
-export async function getOrder(id: string, riskScope: 'network' | 'store' = 'network') {
-  const res = await api.get(`/commerce/orders/${id}`, { params: { riskScope } });
+// riskScope: 'courier' (default, live Steadfast dashboard data), 'network' (pools across every
+// tenant on ZetSales), or 'store' (this tenant's own history only) — the Order Detail Drawer's
+// scope switcher.
+export async function getOrder(id: string, riskScope: 'network' | 'store' | 'courier' = 'courier', forceRecheck = false) {
+  const res = await api.get(`/commerce/orders/${id}`, { params: { riskScope, ...(forceRecheck ? { forceRecheck: 'true' } : {}) } });
   return res.data as { success: boolean; order: OrderDTO; risk: OrderRiskDTO };
 }
 
