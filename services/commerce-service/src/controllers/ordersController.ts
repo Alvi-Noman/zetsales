@@ -1187,15 +1187,39 @@ export async function getOrder(req: AuthenticatedRequest, res: Response) {
       ]),
       possibleDuplicateOrders,
     };
-  } else {
-    // ?riskScope=store narrows the risk check to this tenant's own orders; anything else (missing
-    // or 'network') defaults to pooling across every tenant on ZetSales.
-    const crossTenant = req.query.riskScope !== 'store';
+  } else if (req.query.riskScope === 'store') {
+    // This tenant's own orders only — unaffected by courierFraudHistory, which is deliberately
+    // cross-tenant/cross-courier data and has no place in a strictly "just my store" view.
     const [riskBase, possibleDuplicateOrders] = await Promise.all([
-      computeOrderRisk(tenantId, doc.customerPhone, doc._id, crossTenant),
+      computeOrderRisk(tenantId, doc.customerPhone, doc._id, false),
       findPossibleDuplicates(tenantId, doc.customerPhone, doc.createdAt, doc._id),
     ]);
     risk = { ...riskBase, possibleDuplicateOrders };
+  } else {
+    // ZetSales Network (default/missing riskScope): prefer real courier ground truth already
+    // saved in courierFraudHistory over pooling ZetSales' own order records — that history is
+    // richer than anything ZetSales' own tenants could ever produce alone, since it reflects
+    // every seller this phone has ever ordered from via that courier, not just ZetSales tenants.
+    // Only falls back to the cross-tenant order-pooling computation when no courier history
+    // exists yet for this phone. Never makes a live courier request — that's what the Courier
+    // scope is for; this is an instant read of whatever's already known.
+    const history = await getCourierFraudHistory(doc.customerPhone);
+    if (history?.steadfast || history?.pathao) {
+      const possibleDuplicateOrders = await findPossibleDuplicates(tenantId, doc.customerPhone, doc.createdAt, doc._id);
+      risk = {
+        ...courierResultsToRiskDto([
+          { courierPartner: 'Steadfast', result: history.steadfast ?? null },
+          { courierPartner: 'Pathao', result: history.pathao ?? null },
+        ]),
+        possibleDuplicateOrders,
+      };
+    } else {
+      const [riskBase, possibleDuplicateOrders] = await Promise.all([
+        computeOrderRisk(tenantId, doc.customerPhone, doc._id, true),
+        findPossibleDuplicates(tenantId, doc.customerPhone, doc.createdAt, doc._id),
+      ]);
+      risk = { ...riskBase, possibleDuplicateOrders };
+    }
   }
   const dto = toOrderDto(doc);
   await attachBlockedFlags(db, tenantId, [dto]);
