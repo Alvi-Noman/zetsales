@@ -8,10 +8,6 @@ export interface UserDTO {
   businessType: BusinessType | null;
   role: TeamRole | null;
   installedPlugins: ModuleKey[];
-  // ZetSales Order Risk Checker setting: whether this tenant's risk checks pool order outcomes
-  // across every tenant on ZetSales, not just this store's own history. Off by default — an
-  // explicit opt-in, not automatic.
-  crossTenantRiskEnabled: boolean;
 }
 
 export type TeamRole = 'owner' | 'admin' | 'manager' | 'agent' | 'viewer';

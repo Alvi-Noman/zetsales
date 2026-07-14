@@ -23,7 +23,6 @@ import adPerformanceRoutes from './routes/adPerformanceRoutes.js';
 import adAccountsRoutes from './routes/adAccountsRoutes.js';
 import adCampaignsRoutes from './routes/adCampaignsRoutes.js';
 import appsRoutes from './routes/appsRoutes.js';
-import orderRiskCheckerRoutes from './routes/orderRiskCheckerRoutes.js';
 import oauthRoutes from './routes/oauthRoutes.js';
 import webhooksRoutes from './routes/webhooksRoutes.js';
 import logger from './utils/logger.js';
@@ -97,7 +96,6 @@ app.use('/api/v1/commerce', adPerformanceRoutes);
 app.use('/api/v1/commerce', adAccountsRoutes);
 app.use('/api/v1/commerce', adCampaignsRoutes);
 app.use('/api/v1/commerce', appsRoutes);
-app.use('/api/v1/commerce', orderRiskCheckerRoutes);
 app.use('/api/v1/oauth', oauthRoutes);
 
 if (!isProd) {

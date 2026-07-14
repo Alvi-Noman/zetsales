@@ -1,10 +1,9 @@
 import { useState } from 'react';
-import clsx from 'clsx';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Loader2, PhoneCall, Headset, Megaphone, ShieldAlert, Rocket, Blocks, type LucideIcon } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AppManifestDTO } from '@zetsales/shared';
-import { listApps, installApp, uninstallApp, updateOrderRiskCheckerSettings } from '../../lib/commerceApi';
+import { listApps, installApp, uninstallApp } from '../../lib/commerceApi';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../components/ui/ToastProvider';
 
@@ -124,22 +123,9 @@ export function AppDetailPage() {
   const { data: apps, isLoading } = useQuery({ queryKey: ['apps', user?.tenantId], queryFn: listApps, enabled: !!user?.tenantId });
   const [installing, setInstalling] = useState(false);
   const [installStep, setInstallStep] = useState(0);
-  const [togglingCrossTenant, setTogglingCrossTenant] = useState(false);
 
   const entry = apps?.find((a) => a.manifest.key === appKey);
   const canManage = user?.role === 'owner' || user?.role === 'admin';
-
-  const handleToggleCrossTenant = async () => {
-    setTogglingCrossTenant(true);
-    try {
-      await updateOrderRiskCheckerSettings(!user?.crossTenantRiskEnabled);
-      await refresh();
-    } catch (err) {
-      toast.push(err instanceof Error ? err.message : 'Could not update this setting.', 'info');
-    } finally {
-      setTogglingCrossTenant(false);
-    }
-  };
 
   const handleInstall = async (manifest: AppManifestDTO) => {
     setInstalling(true);
@@ -335,37 +321,6 @@ export function AppDetailPage() {
               <Row label="Works with" values={meta.worksWith} />
               <Row label="Category" values={[meta.category]} />
             </div>
-
-            {manifest.key === 'fraudChecker' && isInstalled && (
-              <div className="mt-8 rounded-xl border border-slate-200 p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-800">Use ZetSales network-wide risk data</p>
-                    <p className="mt-1 text-xs leading-relaxed text-slate-500">
-                      Pools delivery outcomes across every business on ZetSales instead of just this store's own history — the same customer could get
-                      flagged here even on their first order with you. Starts empty and builds up over time as more tenants place orders; it won't show
-                      results right away.
-                    </p>
-                  </div>
-                  <button
-                    disabled={!canManage || togglingCrossTenant}
-                    onClick={handleToggleCrossTenant}
-                    aria-pressed={user?.crossTenantRiskEnabled}
-                    className={clsx(
-                      'relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60',
-                      user?.crossTenantRiskEnabled ? 'bg-slate-900' : 'bg-slate-200'
-                    )}
-                  >
-                    <span
-                      className={clsx(
-                        'absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform',
-                        user?.crossTenantRiskEnabled ? 'translate-x-[22px]' : 'translate-x-0.5'
-                      )}
-                    />
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </div>

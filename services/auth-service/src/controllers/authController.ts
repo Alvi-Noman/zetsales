@@ -37,15 +37,13 @@ export async function toUserDto(user: {
 }): Promise<UserDTO> {
   let businessName: string | null = null;
   let businessType: UserDTO['businessType'] = null;
-  let installedPlugins: UserDTO['installedPlugins'] = [];
-  let crossTenantRiskEnabled = false;
+  let installedPlugins: UserDTO['installedPlugins'] = [];
   if (user.tenantId) {
     const db = getDb();
     const business = await db.collection('businesses').findOne({ _id: new ObjectId(user.tenantId) });
     businessName = business?.name ?? null;
     businessType = business?.businessType ?? null;
-    installedPlugins = business?.installedPlugins ?? [];
-    crossTenantRiskEnabled = business?.crossTenantRiskEnabled ?? false;
+    installedPlugins = business?.installedPlugins ?? [];
   }
   return {
     id: user._id.toString(),
@@ -56,8 +54,7 @@ export async function toUserDto(user: {
     businessName,
     businessType,
     role: user.role ?? null,
-    installedPlugins,
-    crossTenantRiskEnabled,
+    installedPlugins,
   };
 }
 
@@ -106,8 +103,7 @@ export async function signup(req: Request, res: Response) {
       businessName: null,
       businessType: null,
       role: null,
-      installedPlugins: [],
-      crossTenantRiskEnabled: false,
+      installedPlugins: [],
     };
 
     res.status(201).json({ success: true, user: userDto, token });
@@ -242,8 +238,7 @@ export async function completeOnboarding(req: AuthenticatedRequest, res: Respons
       businessName: payload.businessName,
       businessType: payload.businessType,
       role: 'owner',
-      installedPlugins: [],
-      crossTenantRiskEnabled: false,
+      installedPlugins: [],
     };
 
     res.status(200).json({ success: true, user: userDto, token });

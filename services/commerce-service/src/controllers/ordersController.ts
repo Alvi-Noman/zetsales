@@ -482,34 +482,23 @@ async function attachReturningFlags(db: ReturnType<typeof getDb>, tenantId: stri
   }
 }
 
-// Whether this tenant has opted into pooling order outcomes across every tenant on ZetSales,
-// instead of just its own history — set via PATCH /order-risk-checker/settings
-// (orderRiskCheckerController.ts). Off by default; never enabled implicitly. Only ever affects
-// which orders are counted (aggregate numbers), never which order-level details get returned —
-// findPossibleDuplicates deliberately stays tenant-scoped regardless, since it returns real order
-// numbers and duplicate detection has no reason to look outside this tenant's own operations.
-async function isCrossTenantRiskEnabled(tenantId: string): Promise<boolean> {
-  const business = await getDb().collection('businesses').findOne({ _id: new ObjectId(tenantId) }, { projection: { crossTenantRiskEnabled: 1 } });
-  return !!business?.crossTenantRiskEnabled;
-}
-
 // Same "Risky" threshold as computeOrderRisk (≥2 resolved orders, <40% delivered) — this is the
-// batched version for list rows, so it counts each phone's orders tenant-wide (or platform-wide,
-// see isCrossTenantRiskEnabled) in one aggregate query instead of one lookup per row. Unlike
-// computeOrderRisk it doesn't exclude the current order from its own phone's count; with a real
-// repeat-offender history that one extra order doesn't change the threshold outcome, so this is
-// an accepted simplification for row display. No-ops entirely unless ZetSales Order Risk Checker
-// is installed for this tenant.
+// batched version for list rows, so it counts each phone's orders in one aggregate query instead
+// of one lookup per row. Always pools across every tenant on ZetSales (matching the drawer's
+// scope switcher default) — there's no per-row UI to pick a narrower scope the way the drawer
+// offers. Unlike computeOrderRisk it doesn't exclude the current order from its own phone's
+// count; with a real repeat-offender history that one extra order doesn't change the threshold
+// outcome, so this is an accepted simplification for row display. No-ops entirely unless ZetSales
+// Order Risk Checker is installed for this tenant.
 async function attachFraudAlertFlags(db: ReturnType<typeof getDb>, tenantId: string, orders: OrderDTO[]) {
   if (!(await isFraudCheckerInstalled(tenantId))) return;
   const phones = [...new Set(orders.map((o) => o.customerPhone).filter((p): p is string => !!p))];
   if (phones.length === 0) return;
 
-  const crossTenant = await isCrossTenantRiskEnabled(tenantId);
   const rows = await db
     .collection('orders')
     .aggregate([
-      { $match: { ...(crossTenant ? {} : { tenantId }), customerPhone: { $in: phones } } },
+      { $match: { customerPhone: { $in: phones } } },
       {
         $group: {
           _id: '$customerPhone',
@@ -943,13 +932,17 @@ export async function getOrderTrends(req: AuthenticatedRequest, res: Response) {
 // Computed from real order history for this customer's phone number — not a fabricated score.
 // Thresholds are a reasonable starting heuristic for COD sellers: a customer with no delivery
 // track record yet is unproven rather than risky, and success rate below 40% is a real red flag.
-async function computeOrderRisk(tenantId: string, customerPhone: string | null, excludeOrderId: ObjectId): Promise<Omit<OrderRiskDTO, 'possibleDuplicateOrders'>> {
+async function computeOrderRisk(
+  tenantId: string,
+  customerPhone: string | null,
+  excludeOrderId: ObjectId,
+  crossTenant: boolean
+): Promise<Omit<OrderRiskDTO, 'possibleDuplicateOrders'>> {
   if (!customerPhone) {
     return { label: 'New Customer', totalOrders: 0, deliveredCount: 0, cancelledOrReturnedCount: 0, successRate: null, courierBreakdown: [] };
   }
 
   const db = getDb();
-  const crossTenant = await isCrossTenantRiskEnabled(tenantId);
   const priorOrders = await db
     .collection('orders')
     .find({ ...(crossTenant ? {} : { tenantId }), customerPhone, _id: { $ne: excludeOrderId } })
@@ -1023,8 +1016,12 @@ export async function getOrder(req: AuthenticatedRequest, res: Response) {
     return;
   }
 
+  // ?riskScope=store narrows the risk check to this tenant's own orders; anything else (missing,
+  // 'network', or an unrecognized value) defaults to pooling across every tenant on ZetSales —
+  // the default the drawer's scope switcher starts on.
+  const crossTenant = req.query.riskScope !== 'store';
   const [riskBase, possibleDuplicateOrders] = await Promise.all([
-    computeOrderRisk(tenantId, doc.customerPhone, doc._id),
+    computeOrderRisk(tenantId, doc.customerPhone, doc._id, crossTenant),
     findPossibleDuplicates(tenantId, doc.customerPhone, doc.createdAt, doc._id),
   ]);
   const risk: OrderRiskDTO = { ...riskBase, possibleDuplicateOrders };

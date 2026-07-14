@@ -139,6 +139,10 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
   const [risk, setRisk] = useState<OrderRiskDTO | null>(null);
   const [loading, setLoading] = useState(true);
   const [checkingRisk, setCheckingRisk] = useState(false);
+  // 'network' (default) pools order outcomes across every tenant on ZetSales; 'store' narrows to
+  // this tenant's own history; 'courier' (Steadfast/Pathao's own dashboard-side data) isn't wired
+  // up yet — the switch has a slot for it, but selecting it just shows a "coming soon" state.
+  const [riskScope, setRiskScope] = useState<'network' | 'store' | 'courier'>('network');
   const [copied, setCopied] = useState(false);
   const [partialModalOpen, setPartialModalOpen] = useState(false);
   const [priorityModalOpen, setPriorityModalOpen] = useState(false);
@@ -212,10 +216,10 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
     }
   };
 
-  const refresh = async (id: string, { silent }: { silent?: boolean } = {}) => {
+  const refresh = async (id: string, { silent, scope }: { silent?: boolean; scope?: 'network' | 'store' } = {}) => {
     if (!silent) setLoading(true);
     try {
-      const [res, fulfillment] = await Promise.all([getOrder(id), getOrderFulfillmentStatus(id).catch(() => null)]);
+      const [res, fulfillment] = await Promise.all([getOrder(id, scope ?? 'network'), getOrderFulfillmentStatus(id).catch(() => null)]);
       setDetail(res.order);
       setRisk(res.risk);
       setTrackingInput(res.order.courierTrackingId ?? '');
@@ -227,7 +231,18 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
     }
   };
 
+  // Switching scope re-fetches risk under the new scope; picking "Courier" doesn't fetch anything
+  // (not wired up yet) — it just shows a coming-soon state, leaving whatever risk data is already
+  // loaded untouched underneath.
+  const handleRiskScopeChange = (scope: 'network' | 'store' | 'courier') => {
+    setRiskScope(scope);
+    if (scope !== 'courier' && order) {
+      void refresh(order.id, { silent: true, scope });
+    }
+  };
+
   useEffect(() => {
+    setRiskScope('network');
     if (order) {
       void refresh(order.id);
       void loadInventorySnapshot();
@@ -372,7 +387,7 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
 
   const handleRecheckRisk = async () => {
     setCheckingRisk(true);
-    await refresh(order.id, { silent: true });
+    await refresh(order.id, { silent: true, scope: riskScope === 'store' ? 'store' : 'network' });
     setCheckingRisk(false);
   };
 
@@ -618,13 +633,9 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
               <section className="rounded-xl border border-slate-200 p-4">
                 <div className="mb-3 flex items-center justify-between">
                   <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                    {fraudCheckerInstalled
-                      ? user?.crossTenantRiskEnabled
-                        ? 'Customer & delivery risk (ZetSales network)'
-                        : 'Customer & delivery risk (this store)'
-                      : 'Customer'}
+                    {fraudCheckerInstalled ? 'Customer & delivery risk' : 'Customer'}
                   </h3>
-                  {fraudCheckerInstalled && (
+                  {fraudCheckerInstalled && riskScope !== 'courier' && (
                     <button
                       onClick={handleRecheckRisk}
                       disabled={checkingRisk}
@@ -635,6 +646,28 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                     </button>
                   )}
                 </div>
+                {fraudCheckerInstalled && (
+                  <div className="mb-3 flex gap-1 rounded-lg bg-slate-100 p-1">
+                    {(['network', 'store', 'courier'] as const).map((scope) => (
+                      <button
+                        key={scope}
+                        onClick={() => handleRiskScopeChange(scope)}
+                        disabled={scope === 'courier'}
+                        title={scope === 'courier' ? 'Direct courier data — coming soon' : undefined}
+                        className={clsx(
+                          'flex-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-colors',
+                          scope === 'courier'
+                            ? 'cursor-not-allowed text-slate-300'
+                            : riskScope === scope
+                              ? 'bg-white text-slate-900 shadow-sm'
+                              : 'text-slate-500 hover:text-slate-700'
+                        )}
+                      >
+                        {scope === 'network' ? 'ZetSales Network' : scope === 'store' ? 'This Store' : 'Courier (soon)'}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <div className="flex items-center gap-3">
                   {avatar && (
                     <div className={clsx('flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold text-white', avatar.color)}>{avatar.initials}</div>
@@ -680,12 +713,17 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                     )}
                   </div>
                 </div>
-                {fraudCheckerInstalled && risk && (
+                {fraudCheckerInstalled && riskScope === 'courier' && (
+                  <div className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-400">
+                    Direct courier data (Steadfast/Pathao) is coming soon.
+                  </div>
+                )}
+                {fraudCheckerInstalled && riskScope !== 'courier' && risk && (
                   <div className="mt-3">
                     <RiskBadge risk={risk} />
                   </div>
                 )}
-                {fraudCheckerInstalled && risk && risk.courierBreakdown.length > 0 && (
+                {fraudCheckerInstalled && riskScope !== 'courier' && risk && risk.courierBreakdown.length > 0 && (
                   <div className="mt-3 flex flex-wrap gap-2">
                     {risk.courierBreakdown.map((c) => (
                       <div key={c.courierPartner} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs">

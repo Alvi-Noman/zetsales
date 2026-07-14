@@ -8,7 +8,6 @@ export interface UserDTO {
     businessType: BusinessType | null;
     role: TeamRole | null;
     installedPlugins: ModuleKey[];
-    crossTenantRiskEnabled: boolean;
 }
 export type TeamRole = 'owner' | 'admin' | 'manager' | 'agent' | 'viewer';
 export declare const MODULE_KEYS: readonly ["home", "orders", "products", "inventory", "preOrders", "printOut", "customers", "adPerformance", "customerService", "callCenter", "fraudChecker", "zetSalesAds", "supplyChain", "accounting", "analytics", "integrations", "team", "settings"];
