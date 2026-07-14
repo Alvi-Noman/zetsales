@@ -1009,7 +1009,7 @@ export function OrdersPage() {
                                     className={clsx(
                                       'inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset',
                                       order.riskLabel === 'Trusted'
-                                        ? 'bg-emerald-50 text-emerald-600 ring-emerald-600/20'
+                                        ? 'bg-violet-50 text-violet-600 ring-violet-600/20'
                                         : order.riskLabel === 'Risky'
                                           ? 'bg-rose-50 text-rose-600 ring-rose-600/20'
                                           : 'bg-slate-100 text-slate-500 ring-slate-500/10'

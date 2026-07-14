@@ -628,7 +628,7 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                     className={clsx(
                       'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset',
                       detail.riskLabel === 'Trusted'
-                        ? 'bg-emerald-50 text-emerald-700 ring-emerald-600/20'
+                        ? 'bg-violet-50 text-violet-700 ring-violet-600/20'
                         : detail.riskLabel === 'Risky'
                           ? 'bg-rose-50 text-rose-700 ring-rose-600/20'
                           : 'bg-slate-100 text-slate-600 ring-slate-500/10'
