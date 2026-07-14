@@ -137,6 +137,9 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
   const fraudCheckerInstalled = Boolean(user?.installedPlugins?.includes('fraudChecker'));
   const [detail, setDetail] = useState<OrderDTO | null>(null);
   const [risk, setRisk] = useState<OrderRiskDTO | null>(null);
+  // True only when riskScope=courier's check genuinely failed/is on cooldown — kept distinct from
+  // `risk` showing a real "New Customer" result, since those look identical otherwise.
+  const [courierUnavailable, setCourierUnavailable] = useState(false);
   const [loading, setLoading] = useState(true);
   const [checkingRisk, setCheckingRisk] = useState(false);
   // 'courier' (default) is Steadfast's own dashboard fraud-check data for this phone number;
@@ -225,6 +228,7 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
       const [res, fulfillment] = await Promise.all([getOrder(id, scope ?? 'courier', forceRecheck), getOrderFulfillmentStatus(id).catch(() => null)]);
       setDetail(res.order);
       setRisk(res.risk);
+      setCourierUnavailable(res.courierUnavailable);
       setTrackingInput(res.order.courierTrackingId ?? '');
       setFulfillmentStatus(fulfillment ? { ready: fulfillment.ready, reason: fulfillment.reason } : null);
     } catch {
@@ -243,6 +247,7 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
 
   useEffect(() => {
     setRiskScope('courier');
+    setCourierUnavailable(false);
     if (order) {
       void refresh(order.id);
       void loadInventorySnapshot();
@@ -707,12 +712,17 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                     )}
                   </div>
                 </div>
-                {fraudCheckerInstalled && risk && (
+                {fraudCheckerInstalled && riskScope === 'courier' && courierUnavailable && (
+                  <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
+                    Courier data unavailable right now — the Steadfast check failed or is temporarily paused. This is not the same as a real "New Customer" result.
+                  </div>
+                )}
+                {fraudCheckerInstalled && !(riskScope === 'courier' && courierUnavailable) && risk && (
                   <div className="mt-3">
                     <RiskBadge risk={risk} />
                   </div>
                 )}
-                {fraudCheckerInstalled && risk && risk.courierBreakdown.length > 0 && (
+                {fraudCheckerInstalled && !(riskScope === 'courier' && courierUnavailable) && risk && risk.courierBreakdown.length > 0 && (
                   <div className="mt-3 flex flex-wrap gap-2">
                     {risk.courierBreakdown.map((c) => (
                       <div key={c.courierPartner} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs">

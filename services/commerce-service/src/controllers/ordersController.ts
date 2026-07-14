@@ -1077,6 +1077,11 @@ export async function getOrder(req: AuthenticatedRequest, res: Response) {
   }
 
   let risk: OrderRiskDTO;
+  // Only meaningful for riskScope=courier — true means the check itself failed/is on cooldown,
+  // as distinct from a real result that just happens to be zero. Without this, "integration is
+  // down" and "genuinely a new customer" render identically, which defeats the point of being
+  // able to tell them apart when something's actually wrong.
+  let courierUnavailable = false;
   if (req.query.riskScope === 'courier') {
     // Serves the cached background check if one already landed; otherwise (or when ?forceRecheck=
     // true, from the drawer's "Recheck risk" button) fetches live so the drawer either shows
@@ -1088,8 +1093,9 @@ export async function getOrder(req: AuthenticatedRequest, res: Response) {
       if (live) {
         check = { ...live, checkedAt: new Date() };
         await db.collection('orders').updateOne({ _id: doc._id }, { $set: { steadfastFraudCheck: check } });
-      } else if (req.query.forceRecheck === 'true') {
-        check = null; // a failed forced recheck should show "no data" rather than stale cached numbers
+      } else {
+        check = null; // a failed (re)check should show "unavailable" rather than stale/fabricated numbers
+        if (doc.customerPhone) courierUnavailable = true; // no phone at all isn't a failure, just nothing to check
       }
     }
     const possibleDuplicateOrders = await findPossibleDuplicates(tenantId, doc.customerPhone, doc.createdAt, doc._id);
@@ -1108,7 +1114,7 @@ export async function getOrder(req: AuthenticatedRequest, res: Response) {
   await attachBlockedFlags(db, tenantId, [dto]);
   await attachReturningFlags(db, tenantId, [dto]);
   await attachFraudAlertFlags(db, tenantId, [dto]);
-  res.json({ success: true, order: dto, risk });
+  res.json({ success: true, order: dto, risk, courierUnavailable });
 }
 
 const createOrderSchema = z.object({

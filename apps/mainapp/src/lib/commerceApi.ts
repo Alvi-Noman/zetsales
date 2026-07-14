@@ -998,7 +998,7 @@ export async function uploadPrintTemplateLogo(file: File) {
 // scope switcher.
 export async function getOrder(id: string, riskScope: 'network' | 'store' | 'courier' = 'courier', forceRecheck = false) {
   const res = await api.get(`/commerce/orders/${id}`, { params: { riskScope, ...(forceRecheck ? { forceRecheck: 'true' } : {}) } });
-  return res.data as { success: boolean; order: OrderDTO; risk: OrderRiskDTO };
+  return res.data as { success: boolean; order: OrderDTO; risk: OrderRiskDTO; courierUnavailable: boolean };
 }
 
 export interface CreateOrderPayload {
