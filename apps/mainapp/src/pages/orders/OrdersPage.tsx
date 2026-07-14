@@ -141,6 +141,7 @@ export function OrdersPage() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [newOrdersCount, setNewOrdersCount] = useState(0);
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
+  const [copiedPhoneId, setCopiedPhoneId] = useState<string | null>(null);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [createOrderOpen, setCreateOrderOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -639,6 +640,14 @@ export function OrdersPage() {
     setTimeout(() => setCopiedOrderId((id) => (id === order.id ? null : id)), 1200);
   };
 
+  const copyPhone = (order: OrderDTO, e: MouseEvent) => {
+    e.stopPropagation();
+    if (!order.customerPhone) return;
+    navigator.clipboard.writeText(order.customerPhone);
+    setCopiedPhoneId(order.id);
+    setTimeout(() => setCopiedPhoneId((id) => (id === order.id ? null : id)), 1200);
+  };
+
   const handleTabChange = (nextTab: OrderTabKey) => {
     setTab(nextTab);
     setSort(defaultSortForTab(nextTab));
@@ -905,7 +914,7 @@ export function OrdersPage() {
                         <th className="px-3 py-2.5">Product</th>
                         <th className="px-3 py-2.5">Channel</th>
                         <th className="px-3 py-2.5">Amount</th>
-                        <th className="px-3 py-2.5">Payment</th>
+                        <th className="px-3 py-2.5">Status</th>
                         <th className="px-3 py-2.5">Contact</th>
                         <th className="px-3 py-2.5">Date</th>
                         <th className="px-3 py-2.5" />
@@ -924,6 +933,7 @@ export function OrdersPage() {
                         // and gets caught by the confirm-time popup instead of cluttering the list.
                         const stockSummary = order.stage === 'Confirmed' && stockLookup ? summarizeOrderStock(order.lineItems, stockLookup) : null;
                         const isShortConfirmed = Boolean(stockSummary && stockSummary.shortCount > 0);
+                        const isClaimedByOther = Boolean(order.claimedBy && order.claimedBy.userId !== user?.id);
                         return (
                           <tr
                             key={order.id}
@@ -931,7 +941,8 @@ export function OrdersPage() {
                             className={clsx(
                               'cursor-pointer border-b border-l-4 border-slate-100 transition-colors hover:bg-slate-50',
                               isShortConfirmed ? 'border-l-rose-400 bg-rose-50/50 hover:bg-rose-50/70' : 'border-l-transparent',
-                              !isShortConfirmed && isSelected && 'bg-indigo-50/50'
+                              !isShortConfirmed && isSelected && 'bg-indigo-50/50',
+                              isClaimedByOther && 'bg-slate-50/80 opacity-60 grayscale-[30%] hover:bg-slate-50/80'
                             )}
                           >
                             <td className="px-4 py-3" onClick={(e) => toggleSelect(order.id, e)}>
@@ -968,8 +979,19 @@ export function OrdersPage() {
                             </td>
                             <td className="px-3 py-3 whitespace-nowrap">
                               <p className="font-medium text-slate-700">{order.customerName || 'No name'}</p>
-                              <div className="flex items-center gap-1.5">
-                                {order.customerPhone && <p className="text-xs text-slate-400">{order.customerPhone}</p>}
+                              {order.customerPhone && (
+                                <div className="flex items-center gap-1">
+                                  <p className="text-xs text-slate-400">{order.customerPhone}</p>
+                                  <button
+                                    onClick={(e) => copyPhone(order, e)}
+                                    title="Copy phone number"
+                                    className="text-slate-300 hover:text-slate-500"
+                                  >
+                                    {copiedPhoneId === order.id ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
+                                  </button>
+                                </div>
+                              )}
+                              <div className="mt-1 flex flex-wrap items-center gap-1.5">
                                 {order.customerPhone && (
                                   <span
                                     title={order.isReturningCustomer ? 'This customer has ordered before' : "This is the customer's first order"}
@@ -996,7 +1018,7 @@ export function OrdersPage() {
                                     {order.riskLabel} {order.riskSuccessRate}%
                                   </span>
                                 )}
-                                {order.claimedBy && order.claimedBy.userId !== user?.id && (
+                                {isClaimedByOther && order.claimedBy && (
                                   <span
                                     title={`${order.claimedBy.email} is currently calling this customer`}
                                     className={clsx('inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset', CLAIM_TONE)}
