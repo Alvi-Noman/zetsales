@@ -15,19 +15,92 @@ const ICONS: Record<string, LucideIcon> = {
   rocket: Rocket,
 };
 
-// A few honest, real facts per app — not fabricated ratings/reviews. "Works with" reflects what
-// the app actually integrates with, same as Shopify's own "Works with" field, just not padded
-// with invented social proof (star ratings, review counts) for apps nobody has actually reviewed.
-const WORKS_WITH: Record<string, string[]> = {
-  fraudChecker: ['Orders'],
-  callCenter: ['Orders', 'Team'],
-  adPerformance: ['Products', 'Orders'],
-  customerService: ['Facebook', 'Instagram'],
-  zetSalesAds: ['Facebook Ads', 'TikTok Ads', 'Google Ads'],
+interface AppMeta {
+  headline: string;
+  features: string[];
+  category: string;
+  worksWith: string[];
+  gradient: string;
+}
+
+// Real, honest facts per app — headline/features restate what the app actually does, "Works
+// with" and "Category" are plain classification, same as Shopify's own fields. Deliberately no
+// star rating or "Popular with stores like yours" section: those are Shopify's own aggregated
+// data across thousands of real merchant reviews — we have none, and fabricating a number would
+// be fake social proof on our own App Store.
+const APP_META: Record<string, AppMeta> = {
+  fraudChecker: {
+    headline: 'Catch risky orders before they ship',
+    features: [
+      'Flags orders with risk signals before they get confirmed',
+      'Adds a fraud badge directly on the orders list',
+      'One-click bulk-flag action for a batch of suspicious orders',
+    ],
+    category: 'Orders',
+    worksWith: ['Orders'],
+    gradient: 'from-rose-400 to-orange-300',
+  },
+  callCenter: {
+    headline: 'Run your confirmation team from one screen',
+    features: [
+      'Live queue of orders waiting to be called',
+      'Agent presence and call-attempt tracking',
+      'Hourly call volume and confirmation-rate KPIs',
+    ],
+    category: 'Orders',
+    worksWith: ['Orders', 'Team'],
+    gradient: 'from-sky-400 to-blue-300',
+  },
+  adPerformance: {
+    headline: 'Know what your ad spend is actually returning',
+    features: [
+      'Log ad spend manually by product and channel',
+      'ROAS and cost-per-order reporting',
+      'Break down performance by platform',
+    ],
+    category: 'Marketing',
+    worksWith: ['Products', 'Orders'],
+    gradient: 'from-amber-400 to-yellow-300',
+  },
+  customerService: {
+    headline: 'Every customer conversation, one inbox',
+    features: [
+      'Unified inbox for Facebook and Instagram messages',
+      'Reply to customers without leaving ZetSales',
+      'Conversation history stays tied to each customer',
+    ],
+    category: 'Customer support',
+    worksWith: ['Facebook', 'Instagram'],
+    gradient: 'from-violet-400 to-fuchsia-300',
+  },
+  zetSalesAds: {
+    headline: 'Connect your ad accounts, sync spend automatically',
+    features: [
+      'Connect Facebook, TikTok, and Google Ads accounts',
+      'Ad spend syncs in instead of being logged by hand',
+      'Feeds Ad Performance and campaign tools with real numbers',
+    ],
+    category: 'Marketing',
+    worksWith: ['Facebook Ads', 'TikTok Ads', 'Google Ads'],
+    gradient: 'from-indigo-500 to-violet-500',
+  },
 };
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function Row({ label, values }: { label: string; values: string[] }) {
+  return (
+    <div className="flex items-start justify-between gap-6 py-4 text-sm">
+      <div className="w-40 shrink-0 font-semibold text-slate-500">{label}</div>
+      <div className="flex flex-1 flex-wrap gap-x-2 gap-y-1 text-slate-700">
+        {values.map((v) => (
+          <span key={v}>{v}</span>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function AppDetailPage() {
@@ -96,7 +169,7 @@ export function AppDetailPage() {
   const { manifest, install } = entry;
   const Icon = ICONS[manifest.icon] ?? Blocks;
   const isInstalled = install?.status === 'installed';
-  const worksWith = WORKS_WITH[manifest.key] ?? [];
+  const meta = APP_META[manifest.key];
 
   return (
     <div className="flex h-full flex-col">
@@ -106,28 +179,28 @@ export function AppDetailPage() {
         </button>
       </div>
       <div className="flex-1 overflow-y-auto px-8 py-8">
-        <div className="mx-auto grid max-w-4xl grid-cols-1 gap-10 sm:grid-cols-[220px_1fr]">
-          {/* Left rail — matches Shopify's app-detail sidebar shape, minus fabricated ratings */}
+        <div className="mx-auto grid max-w-5xl grid-cols-1 gap-12 sm:grid-cols-[240px_1fr]">
+          {/* Left rail — matches Shopify's app-detail sidebar shape, minus fabricated rating/popularity */}
           <div>
-            <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-indigo-50">
-                <Icon size={22} className="text-indigo-500" />
+            <div className="flex items-center gap-3 border-b border-slate-200 pb-5">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-50">
+                <Icon size={20} className="text-indigo-500" />
               </div>
               <div className="text-base font-bold text-slate-900">{manifest.name}</div>
             </div>
 
-            <div className="mt-6 space-y-5 border-t border-slate-200 pt-5 text-sm">
+            <div className="mt-5 space-y-5 text-sm">
               <div>
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Pricing</div>
-                <div className="mt-1 text-slate-700">Free to install</div>
+                <div className="text-xs font-semibold text-slate-500">Pricing</div>
+                <div className="mt-1 text-slate-700">Free</div>
               </div>
               <div>
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Developer</div>
+                <div className="text-xs font-semibold text-slate-500">Developer</div>
                 <div className="mt-1 text-slate-700">ZetSales</div>
               </div>
               {manifest.authType === 'oauth' && (
                 <div>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Install type</div>
+                  <div className="text-xs font-semibold text-slate-500">Install type</div>
                   <div className="mt-1 text-slate-700">Standalone app (OAuth)</div>
                 </div>
               )}
@@ -171,23 +244,31 @@ export function AppDetailPage() {
             </div>
           </div>
 
-          {/* Right column — description + honest metadata, no fabricated reviews */}
+          {/* Right column — hero banner, headline, real feature list, honest metadata rows */}
           <div>
-            <h1 className="text-xl font-bold text-slate-900">{manifest.name}</h1>
+            <div className={`flex items-center justify-between gap-6 overflow-hidden rounded-2xl bg-gradient-to-br ${meta.gradient} px-10 py-12`}>
+              <div>
+                <div className="text-2xl font-bold text-slate-900">{manifest.name}</div>
+                <p className="mt-2 max-w-sm text-sm text-slate-800/80">{manifest.description}</p>
+              </div>
+              <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-white/70 shadow-sm">
+                <Icon size={36} className="text-slate-800" />
+              </div>
+            </div>
+
+            <h1 className="mt-8 text-lg font-bold text-slate-900">{meta.headline}</h1>
             <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-slate-600">{manifest.description}</p>
 
-            {worksWith.length > 0 && (
-              <div className="mt-8 border-t border-slate-200 pt-5">
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Works with</div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {worksWith.map((w) => (
-                    <span key={w} className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
-                      {w}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
+            <ul className="mt-4 list-disc space-y-1.5 pl-5 text-sm text-slate-600">
+              {meta.features.map((f) => (
+                <li key={f}>{f}</li>
+              ))}
+            </ul>
+
+            <div className="mt-8 divide-y divide-slate-200 border-t border-slate-200">
+              <Row label="Works with" values={meta.worksWith} />
+              <Row label="Category" values={[meta.category]} />
+            </div>
           </div>
         </div>
       </div>
