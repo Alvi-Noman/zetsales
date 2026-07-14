@@ -639,8 +639,10 @@ export interface OrderRiskDTO {
   // fresh on every view rather than waiting for the retrospective analytics grouping to catch it.
   possibleDuplicateOrders: string[];
   // Same delivered/cancelled-or-returned split as above, just broken out per courier partner —
-  // this tenant's own order history only, no external API or cross-tenant data.
-  courierBreakdown: { courierPartner: CourierPartner; delivered: number; failed: number }[];
+  // this tenant's own order history only, no external API or cross-tenant data. For riskScope=
+  // courier, `stale` means this row came from courierFraudHistory (the last known result) because
+  // a fresh live check failed, and `checkedAt` says how old it is.
+  courierBreakdown: { courierPartner: CourierPartner; delivered: number; failed: number; stale?: boolean; checkedAt?: string }[];
 }
 
 export interface OrderLineItemDTO {

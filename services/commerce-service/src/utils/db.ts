@@ -47,6 +47,9 @@ export async function connectDb() {
   // stale/abandoned one should disappear rather than linger.
   await db.collection('pendingImportDrafts').createIndex({ tenantId: 1 });
   await db.collection('pendingImportDrafts').createIndex({ createdAt: 1 }, { expireAfterSeconds: 60 * 60 });
+  // Not tenant-scoped — a phone number's Steadfast/Pathao delivery history is a fact about the
+  // phone number itself, shared across every tenant that ever checks it.
+  await db.collection('courierFraudHistory').createIndex({ phone: 1 }, { unique: true });
   logger.info('Indexes ensured on MongoDB.');
 }
 

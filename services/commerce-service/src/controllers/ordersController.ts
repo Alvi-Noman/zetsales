@@ -21,6 +21,7 @@ import { maybeAutoFlagForFraud, isFraudCheckerInstalled } from '../utils/fraudCh
 import { dispatchAppWebhook } from '../utils/appEvents.js';
 import { getSteadfastFraudCheck } from '../integrations/steadfastFraudClient.js';
 import { getPathaoFraudCheck } from '../integrations/pathaoFraudClient.js';
+import { recordCourierFraudHistory, getCourierFraudHistory } from '../utils/courierFraudHistory.js';
 import {
   mapShopifyOrderStage,
   mapShopifyPaymentStatus,
@@ -554,6 +555,7 @@ async function checkAndStoreSteadfastFraud(tenantId: string, orderFilter: Record
   await getDb()
     .collection('orders')
     .updateOne(orderFilter, { $set: { steadfastFraudCheck: { ...result, checkedAt: new Date() } } });
+  void recordCourierFraudHistory(customerPhone, 'steadfast', result);
 }
 
 // Same as checkAndStoreSteadfastFraud, for Pathao's own dashboard fraud-check (see
@@ -568,6 +570,7 @@ async function checkAndStorePathaoFraud(tenantId: string, orderFilter: Record<st
   await getDb()
     .collection('orders')
     .updateOne(orderFilter, { $set: { pathaoFraudCheck: { ...result, checkedAt: new Date() } } });
+  void recordCourierFraudHistory(customerPhone, 'pathao', result);
 }
 
 export async function listOrders(req: AuthenticatedRequest, res: Response) {
@@ -1075,10 +1078,17 @@ async function findPossibleDuplicates(tenantId: string, customerPhone: string | 
 // check failed/is unavailable is simply omitted from courierBreakdown rather than shown as a
 // zero — a zero would look like a real "no orders" result instead of "we don't know."
 function courierResultsToRiskDto(
-  results: { courierPartner: CourierPartner; result: { totalDelivered: number; totalCancelled: number } | null }[]
+  results: {
+    courierPartner: CourierPartner;
+    result: { totalDelivered: number; totalCancelled: number; checkedAt?: Date } | null;
+    stale?: boolean;
+  }[]
 ): Omit<OrderRiskDTO, 'possibleDuplicateOrders'> {
   const available = results.filter(
-    (r): r is { courierPartner: CourierPartner; result: { totalDelivered: number; totalCancelled: number } } => r.result !== null
+    (
+      r
+    ): r is { courierPartner: CourierPartner; result: { totalDelivered: number; totalCancelled: number; checkedAt?: Date }; stale?: boolean } =>
+      r.result !== null
   );
   const deliveredCount = available.reduce((sum, r) => sum + r.result.totalDelivered, 0);
   const cancelledOrReturnedCount = available.reduce((sum, r) => sum + r.result.totalCancelled, 0);
@@ -1096,7 +1106,13 @@ function courierResultsToRiskDto(
     deliveredCount,
     cancelledOrReturnedCount,
     successRate,
-    courierBreakdown: available.map((r) => ({ courierPartner: r.courierPartner, delivered: r.result.totalDelivered, failed: r.result.totalCancelled })),
+    courierBreakdown: available.map((r) => ({
+      courierPartner: r.courierPartner,
+      delivered: r.result.totalDelivered,
+      failed: r.result.totalCancelled,
+      ...(r.stale ? { stale: true } : {}),
+      ...(r.result.checkedAt ? { checkedAt: r.result.checkedAt.toISOString() } : {}),
+    })),
   };
 }
 
@@ -1143,14 +1159,31 @@ export async function getOrder(req: AuthenticatedRequest, res: Response) {
         await db.collection('orders').updateOne({ _id: doc._id }, { $set: setFields });
       }
     }
-    // Only "unavailable" if a phone existed but neither courier could return anything — one
-    // working courier is still a real, useful result, not a failure state.
+    // A live check failing doesn't have to mean "show nothing" — courierFraudHistory (see
+    // courierFraudHistory.ts) keeps the last known result for this phone number regardless of
+    // which order it came from, so a temporary outage still shows real (if aging) data instead of
+    // an empty state. Marked `stale` in the response so the drawer can say how old it is.
+    let steadfastStale = false;
+    let pathaoStale = false;
+    if (!steadfastCheck || !pathaoCheck) {
+      const history = await getCourierFraudHistory(doc.customerPhone);
+      if (!steadfastCheck && history?.steadfast) {
+        steadfastCheck = history.steadfast;
+        steadfastStale = true;
+      }
+      if (!pathaoCheck && history?.pathao) {
+        pathaoCheck = history.pathao;
+        pathaoStale = true;
+      }
+    }
+    // Only "unavailable" if a phone existed but neither courier could return anything — live or
+    // historical. One working courier is still a real, useful result, not a failure state.
     if (doc.customerPhone && !steadfastCheck && !pathaoCheck) courierUnavailable = true;
     const possibleDuplicateOrders = await findPossibleDuplicates(tenantId, doc.customerPhone, doc.createdAt, doc._id);
     risk = {
       ...courierResultsToRiskDto([
-        { courierPartner: 'Steadfast', result: steadfastCheck },
-        { courierPartner: 'Pathao', result: pathaoCheck },
+        { courierPartner: 'Steadfast', result: steadfastCheck, stale: steadfastStale },
+        { courierPartner: 'Pathao', result: pathaoCheck, stale: pathaoStale },
       ]),
       possibleDuplicateOrders,
     };

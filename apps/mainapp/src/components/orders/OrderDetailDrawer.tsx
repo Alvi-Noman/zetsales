@@ -730,6 +730,14 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                         <span className="text-emerald-600">{c.delivered} delivered</span>
                         {' · '}
                         <span className="text-rose-500">{c.failed} failed</span>
+                        {c.stale && (
+                          <span
+                            title={c.checkedAt ? `Live check failed — showing the last known result from ${new Date(c.checkedAt).toLocaleString()}` : 'Live check failed — showing the last known result'}
+                            className="ml-1.5 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
+                          >
+                            last known
+                          </span>
+                        )}
                       </div>
                     ))}
                   </div>

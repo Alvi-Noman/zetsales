@@ -332,6 +332,8 @@ export interface OrderRiskDTO {
         courierPartner: CourierPartner;
         delivered: number;
         failed: number;
+        stale?: boolean;
+        checkedAt?: string;
     }[];
 }
 export interface OrderLineItemDTO {
