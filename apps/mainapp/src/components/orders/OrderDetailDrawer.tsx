@@ -593,6 +593,16 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                     <UserX size={11} /> Blocked customer
                   </span>
                 )}
+                {detail.customerPhone && (
+                  <span
+                    className={clsx(
+                      'inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset',
+                      detail.isReturningCustomer ? 'bg-blue-50 text-blue-700 ring-blue-600/20' : 'bg-emerald-50 text-emerald-700 ring-emerald-600/20'
+                    )}
+                  >
+                    {detail.isReturningCustomer ? 'Returning customer' : 'New customer'}
+                  </span>
+                )}
                 {detail.tags.map((t) => (
                   <span key={t} className="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 ring-1 ring-inset ring-slate-500/10">
                     {t}

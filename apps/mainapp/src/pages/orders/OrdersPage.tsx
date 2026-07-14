@@ -970,6 +970,17 @@ export function OrdersPage() {
                               <p className="font-medium text-slate-700">{order.customerName || 'No name'}</p>
                               <div className="flex items-center gap-1.5">
                                 {order.customerPhone && <p className="text-xs text-slate-400">{order.customerPhone}</p>}
+                                {order.customerPhone && (
+                                  <span
+                                    title={order.isReturningCustomer ? 'This customer has ordered before' : "This is the customer's first order"}
+                                    className={clsx(
+                                      'inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset',
+                                      order.isReturningCustomer ? 'bg-blue-50 text-blue-600 ring-blue-600/20' : 'bg-emerald-50 text-emerald-600 ring-emerald-600/20'
+                                    )}
+                                  >
+                                    {order.isReturningCustomer ? 'Returning' : 'New'}
+                                  </span>
+                                )}
                                 {order.claimedBy && order.claimedBy.userId !== user?.id && (
                                   <span
                                     title={`${order.claimedBy.email} is currently calling this customer`}

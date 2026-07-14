@@ -71,6 +71,7 @@ function toOrderDto(doc: any): OrderDTO {
     isPriorityCall: doc.isPriorityCall ?? false,
     priorityNote: doc.priorityNote ?? null,
     isCustomerBlocked: false, // overwritten by attachBlockedFlags where relevant — not knowable from the doc alone
+    isReturningCustomer: false, // overwritten by attachReturningFlags where relevant — needs a count across all of the phone's orders
     courierPartner: doc.courierPartner ?? null,
     courierTrackingId: doc.courierTrackingId ?? null,
     courierConsignmentId: doc.courierConsignmentId ?? null,
@@ -463,6 +464,23 @@ async function attachBlockedFlags(db: ReturnType<typeof getDb>, tenantId: string
   }
 }
 
+// "Returning" means this phone has more than one order total (all-time, tenant-scoped) — counted
+// across every order for the phone, not just the current page, same one-query-for-the-whole-
+// response shape as attachBlockedFlags above.
+async function attachReturningFlags(db: ReturnType<typeof getDb>, tenantId: string, orders: OrderDTO[]) {
+  const phones = [...new Set(orders.map((o) => o.customerPhone).filter((p): p is string => !!p))];
+  if (phones.length === 0) return;
+
+  const counts = await db
+    .collection('orders')
+    .aggregate([{ $match: { tenantId, customerPhone: { $in: phones } } }, { $group: { _id: '$customerPhone', count: { $sum: 1 } } }])
+    .toArray();
+  const countByPhone = new Map(counts.map((c) => [c._id as string, c.count as number]));
+  for (const order of orders) {
+    if (order.customerPhone) order.isReturningCustomer = (countByPhone.get(order.customerPhone) ?? 0) > 1;
+  }
+}
+
 export async function listOrders(req: AuthenticatedRequest, res: Response) {
   const db = getDb();
   const tenantId = req.user!.tenantId!;
@@ -576,6 +594,7 @@ export async function listOrders(req: AuthenticatedRequest, res: Response) {
   await attachLineItemImages(db, tenantId, result?.data ?? []);
   const orders = (result?.data ?? []).map(toOrderDto);
   await attachBlockedFlags(db, tenantId, orders);
+  await attachReturningFlags(db, tenantId, orders);
   const total = result?.totalCount?.[0]?.count ?? 0;
 
   res.json({ success: true, orders, total, page, pageSize });
@@ -595,6 +614,7 @@ export async function getReadyToPrintOrders(req: AuthenticatedRequest, res: Resp
   await attachLineItemImages(db, tenantId, docs);
   const orders = docs.map(toOrderDto);
   await attachBlockedFlags(db, tenantId, orders);
+  await attachReturningFlags(db, tenantId, orders);
 
   res.json({ success: true, orders, total });
 }
@@ -947,6 +967,7 @@ export async function getOrder(req: AuthenticatedRequest, res: Response) {
   const risk: OrderRiskDTO = { ...riskBase, possibleDuplicateOrders };
   const dto = toOrderDto(doc);
   await attachBlockedFlags(db, tenantId, [dto]);
+  await attachReturningFlags(db, tenantId, [dto]);
   res.json({ success: true, order: dto, risk });
 }
 
@@ -1087,6 +1108,7 @@ export async function createOrder(req: AuthenticatedRequest, res: Response) {
   const result = await db.collection('orders').insertOne(doc as any);
   const dto = toOrderDto({ ...doc, _id: result.insertedId });
   await attachBlockedFlags(db, tenantId, [dto]);
+  await attachReturningFlags(db, tenantId, [dto]);
   void dispatchAppWebhook(tenantId, 'orders/create', dto);
   res.json({ success: true, order: dto });
 }
@@ -1382,6 +1404,7 @@ export async function updateOrder(req: AuthenticatedRequest, res: Response) {
 
   const dto = toOrderDto(result);
   await attachBlockedFlags(db, tenantId, [dto]);
+  await attachReturningFlags(db, tenantId, [dto]);
   void dispatchAppWebhook(tenantId, 'orders/updated', dto);
   if (result.stage === 'Confirmed' && current.stage !== 'Confirmed') void dispatchAppWebhook(tenantId, 'orders/confirmed', dto);
   if (result.stage === 'Cancelled' && current.stage !== 'Cancelled') void dispatchAppWebhook(tenantId, 'orders/cancelled', dto);
@@ -1456,6 +1479,7 @@ export async function upsellOrder(req: AuthenticatedRequest, res: Response) {
 
   const dto = toOrderDto(result);
   await attachBlockedFlags(db, tenantId, [dto]);
+  await attachReturningFlags(db, tenantId, [dto]);
   res.json({ success: true, order: dto });
 }
 
@@ -1626,6 +1650,7 @@ export async function splitOrder(req: AuthenticatedRequest, res: Response) {
   const originalDto = toOrderDto(updatedOriginal);
   const createdDto = toOrderDto(newOrderDocWithId);
   await attachBlockedFlags(db, tenantId, [originalDto, createdDto]);
+  await attachReturningFlags(db, tenantId, [originalDto, createdDto]);
   res.json({ success: true, original: originalDto, created: createdDto });
 }
 
@@ -1784,6 +1809,7 @@ export async function markPaymentCollected(req: AuthenticatedRequest, res: Respo
   const result = await db.collection('orders').findOneAndUpdate({ _id: order._id }, update, { returnDocument: 'after' });
   const dto = toOrderDto(result!);
   await attachBlockedFlags(db, tenantId, [dto]);
+  await attachReturningFlags(db, tenantId, [dto]);
   void dispatchAppWebhook(tenantId, 'payments/collected', dto);
   res.json({ success: true, order: dto });
 }
@@ -1929,6 +1955,7 @@ export async function markPartialDelivered(req: AuthenticatedRequest, res: Respo
 
   const dto = toOrderDto(result!);
   await attachBlockedFlags(db, tenantId, [dto]);
+  await attachReturningFlags(db, tenantId, [dto]);
   res.json({ success: true, order: dto });
 }
 

@@ -382,6 +382,7 @@ export interface OrderDTO {
     isPriorityCall: boolean;
     priorityNote: string | null;
     isCustomerBlocked: boolean;
+    isReturningCustomer: boolean;
     courierPartner: CourierPartner | null;
     courierTrackingId: string | null;
     courierConsignmentId: string | null;

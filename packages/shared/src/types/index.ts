@@ -713,6 +713,9 @@ export interface OrderDTO {
   // itself — blocking is a customer-level fact, not an order field, since it has to be checkable
   // before a *future* order (one that doesn't exist yet) is even allowed into the system.
   isCustomerBlocked: boolean;
+  // Derived from counting this phone's orders tenant-wide (all-time), not stored on the order —
+  // "returning" means more than one order exists for the phone, "new" means this is the only one.
+  isReturningCustomer: boolean;
   courierPartner: CourierPartner | null;
   courierTrackingId: string | null;
   courierConsignmentId: string | null;
