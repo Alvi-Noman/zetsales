@@ -955,7 +955,7 @@ export function OrdersPage() {
                                   </span>
                                 )}
                                 {user?.installedPlugins?.includes('fraudChecker') && order.stage === 'Flagged' && (
-                                  <span title={order.flagReason ?? 'Flagged by Fraud Checker'} className="text-rose-500">
+                                  <span title={order.flagReason ?? 'Flagged by ZetSales Order Risk Checker'} className="text-rose-500">
                                     <ShieldAlert size={13} />
                                   </span>
                                 )}
@@ -979,6 +979,14 @@ export function OrdersPage() {
                                     )}
                                   >
                                     {order.isReturningCustomer ? 'Returning' : 'New'}
+                                  </span>
+                                )}
+                                {user?.installedPlugins?.includes('fraudChecker') && order.isFraudAlert && (
+                                  <span
+                                    title="Low delivery-success rate for this customer with Steadfast/Pathao"
+                                    className="inline-flex items-center rounded-full bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600 ring-1 ring-inset ring-rose-600/20"
+                                  >
+                                    Fraud Alert
                                   </span>
                                 )}
                                 {order.claimedBy && order.claimedBy.userId !== user?.id && (

@@ -603,6 +603,11 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                     {detail.isReturningCustomer ? 'Returning customer' : 'New customer'}
                   </span>
                 )}
+                {fraudCheckerInstalled && detail.isFraudAlert && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700 ring-1 ring-inset ring-rose-600/20">
+                    <ShieldAlert size={11} /> Fraud Alert
+                  </span>
+                )}
                 {detail.tags.map((t) => (
                   <span key={t} className="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 ring-1 ring-inset ring-slate-500/10">
                     {t}
@@ -674,6 +679,18 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                 {fraudCheckerInstalled && risk && (
                   <div className="mt-3">
                     <RiskBadge risk={risk} />
+                  </div>
+                )}
+                {fraudCheckerInstalled && risk && risk.courierBreakdown.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {risk.courierBreakdown.map((c) => (
+                      <div key={c.courierPartner} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs">
+                        <span className="font-semibold text-slate-700">{c.courierPartner}</span>{' '}
+                        <span className="text-emerald-600">{c.delivered} delivered</span>
+                        {' · '}
+                        <span className="text-rose-500">{c.failed} failed</span>
+                      </div>
+                    ))}
                   </div>
                 )}
                 {fraudCheckerInstalled && risk && risk.possibleDuplicateOrders.length > 0 && (
@@ -1214,7 +1231,7 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
               {fraudCheckerInstalled && detail.flagReason && (
                 <section className="rounded-xl border border-slate-200 p-4">
                   <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                    <ShieldAlert size={13} className="text-rose-500" /> Fraud Checker
+                    <ShieldAlert size={13} className="text-rose-500" /> ZetSales Order Risk Checker
                   </h3>
                   <p className="text-sm text-slate-600">{detail.flagReason}</p>
                 </section>

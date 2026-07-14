@@ -32,12 +32,12 @@ const APP_META: Record<string, AppMeta> = {
   fraudChecker: {
     headline: 'Catch risky orders before they ship',
     features: [
-      'Flags orders with risk signals before they get confirmed',
-      'Adds a fraud badge directly on the orders list',
-      'One-click bulk-flag action for a batch of suspicious orders',
+      'Fraud Alert tag on orders with a low delivery-success history',
+      'Delivery success/fail breakdown per courier, right in the order',
+      'Uses only this store’s own Steadfast and Pathao order history',
     ],
     category: 'Orders',
-    worksWith: ['Orders'],
+    worksWith: ['Orders', 'Steadfast', 'Pathao'],
     gradient: 'from-rose-400 to-orange-300',
   },
   callCenter: {

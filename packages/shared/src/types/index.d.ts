@@ -328,6 +328,11 @@ export interface OrderRiskDTO {
     cancelledOrReturnedCount: number;
     successRate: number | null;
     possibleDuplicateOrders: string[];
+    courierBreakdown: {
+        courierPartner: CourierPartner;
+        delivered: number;
+        failed: number;
+    }[];
 }
 export interface OrderLineItemDTO {
     title: string;
@@ -383,6 +388,7 @@ export interface OrderDTO {
     priorityNote: string | null;
     isCustomerBlocked: boolean;
     isReturningCustomer: boolean;
+    isFraudAlert: boolean;
     courierPartner: CourierPartner | null;
     courierTrackingId: string | null;
     courierConsignmentId: string | null;

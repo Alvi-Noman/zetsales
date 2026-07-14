@@ -6,7 +6,7 @@ import { decryptSecret } from '../utils/crypto.js';
 import { resolveRange, bucketDate, bucketLabel, bucketIndexExpr, type TrendGranularity, type TrendWindow } from '../utils/dateRange.js';
 import logger from '../utils/logger.js';
 import type { AuthenticatedRequest } from '../middleware/authMiddleware.js';
-import type { OrderDTO, OrderRiskDTO, OrderStage, RiskLabel, CourierStatusBucket } from '@zetsales/shared';
+import type { OrderDTO, OrderRiskDTO, OrderStage, RiskLabel, CourierStatusBucket, CourierPartner } from '@zetsales/shared';
 import { COURIER_STATUS_BUCKETS, bucketForCourierStatus } from '@zetsales/shared';
 import { fetchShopifyOrderCount, fetchShopifyOrders } from '../integrations/shopifyClient.js';
 import { getValidShopifyAccessToken } from '../integrations/shopifyAuth.js';
@@ -17,7 +17,7 @@ import { createPathaoOrder } from '../integrations/pathaoClient.js';
 import { getConnectedCourier, markCourierUsed, decryptSteadfastCredentials, decryptPathaoCredentials, resolveCourierCharge, resolveCourierReturnCharge } from './couriersController.js';
 import { detectZoneTier } from '../integrations/zoneDetection.js';
 import { resolveActiveClaim, CLAIM_STALE_MS } from '../utils/claim.js';
-import { maybeAutoFlagForFraud } from '../utils/fraudChecks.js';
+import { maybeAutoFlagForFraud, isFraudCheckerInstalled } from '../utils/fraudChecks.js';
 import { dispatchAppWebhook } from '../utils/appEvents.js';
 import {
   mapShopifyOrderStage,
@@ -72,6 +72,7 @@ function toOrderDto(doc: any): OrderDTO {
     priorityNote: doc.priorityNote ?? null,
     isCustomerBlocked: false, // overwritten by attachBlockedFlags where relevant — not knowable from the doc alone
     isReturningCustomer: false, // overwritten by attachReturningFlags where relevant — needs a count across all of the phone's orders
+    isFraudAlert: false, // overwritten by attachFraudAlertFlags where relevant — needs a delivery-success count across the phone's orders
     courierPartner: doc.courierPartner ?? null,
     courierTrackingId: doc.courierTrackingId ?? null,
     courierConsignmentId: doc.courierConsignmentId ?? null,
@@ -481,6 +482,40 @@ async function attachReturningFlags(db: ReturnType<typeof getDb>, tenantId: stri
   }
 }
 
+// Same "Risky" threshold as computeOrderRisk (≥2 resolved orders, <40% delivered) — this is the
+// batched version for list rows, so it counts each phone's orders tenant-wide in one aggregate
+// query instead of one lookup per row. Unlike computeOrderRisk it doesn't exclude the current
+// order from its own phone's count; with a real repeat-offender history that one extra order
+// doesn't change the threshold outcome, so this is an accepted simplification for row display.
+// No-ops entirely unless ZetSales Order Risk Checker is installed for this tenant.
+async function attachFraudAlertFlags(db: ReturnType<typeof getDb>, tenantId: string, orders: OrderDTO[]) {
+  if (!(await isFraudCheckerInstalled(tenantId))) return;
+  const phones = [...new Set(orders.map((o) => o.customerPhone).filter((p): p is string => !!p))];
+  if (phones.length === 0) return;
+
+  const rows = await db
+    .collection('orders')
+    .aggregate([
+      { $match: { tenantId, customerPhone: { $in: phones } } },
+      {
+        $group: {
+          _id: '$customerPhone',
+          delivered: { $sum: { $cond: [{ $in: ['$stage', ['Delivered', 'Partial Delivered']] }, 1, 0] } },
+          failed: { $sum: { $cond: [{ $in: ['$stage', ['Cancelled', 'Returned']] }, 1, 0] } },
+        },
+      },
+    ])
+    .toArray();
+  const byPhone = new Map(rows.map((r) => [r._id as string, { delivered: r.delivered as number, failed: r.failed as number }]));
+  for (const order of orders) {
+    if (!order.customerPhone) continue;
+    const stats = byPhone.get(order.customerPhone);
+    if (!stats) continue;
+    const resolved = stats.delivered + stats.failed;
+    order.isFraudAlert = resolved >= 2 && stats.delivered / resolved < 0.4;
+  }
+}
+
 export async function listOrders(req: AuthenticatedRequest, res: Response) {
   const db = getDb();
   const tenantId = req.user!.tenantId!;
@@ -595,6 +630,7 @@ export async function listOrders(req: AuthenticatedRequest, res: Response) {
   const orders = (result?.data ?? []).map(toOrderDto);
   await attachBlockedFlags(db, tenantId, orders);
   await attachReturningFlags(db, tenantId, orders);
+  await attachFraudAlertFlags(db, tenantId, orders);
   const total = result?.totalCount?.[0]?.count ?? 0;
 
   res.json({ success: true, orders, total, page, pageSize });
@@ -615,6 +651,7 @@ export async function getReadyToPrintOrders(req: AuthenticatedRequest, res: Resp
   const orders = docs.map(toOrderDto);
   await attachBlockedFlags(db, tenantId, orders);
   await attachReturningFlags(db, tenantId, orders);
+  await attachFraudAlertFlags(db, tenantId, orders);
 
   res.json({ success: true, orders, total });
 }
@@ -895,19 +932,19 @@ export async function getOrderTrends(req: AuthenticatedRequest, res: Response) {
 // track record yet is unproven rather than risky, and success rate below 40% is a real red flag.
 async function computeOrderRisk(tenantId: string, customerPhone: string | null, excludeOrderId: ObjectId): Promise<Omit<OrderRiskDTO, 'possibleDuplicateOrders'>> {
   if (!customerPhone) {
-    return { label: 'New Customer', totalOrders: 0, deliveredCount: 0, cancelledOrReturnedCount: 0, successRate: null };
+    return { label: 'New Customer', totalOrders: 0, deliveredCount: 0, cancelledOrReturnedCount: 0, successRate: null, courierBreakdown: [] };
   }
 
   const db = getDb();
   const priorOrders = await db
     .collection('orders')
     .find({ tenantId, customerPhone, _id: { $ne: excludeOrderId } })
-    .project({ stage: 1 })
+    .project({ stage: 1, courierPartner: 1 })
     .toArray();
 
   const totalOrders = priorOrders.length;
   if (totalOrders === 0) {
-    return { label: 'New Customer', totalOrders: 0, deliveredCount: 0, cancelledOrReturnedCount: 0, successRate: null };
+    return { label: 'New Customer', totalOrders: 0, deliveredCount: 0, cancelledOrReturnedCount: 0, successRate: null, courierBreakdown: [] };
   }
 
   const deliveredCount = priorOrders.filter((o) => o.stage === 'Delivered' || o.stage === 'Partial Delivered').length;
@@ -921,7 +958,19 @@ async function computeOrderRisk(tenantId: string, customerPhone: string | null, 
     else if (successRate < 40) label = 'Risky';
   }
 
-  return { label, totalOrders, deliveredCount, cancelledOrReturnedCount, successRate };
+  // Same delivered/failed split, just grouped per courier partner — this tenant's own history
+  // only (Steadfast/Pathao are the only couriers ZetSales models today).
+  const courierTotals = new Map<CourierPartner, { delivered: number; failed: number }>();
+  for (const o of priorOrders) {
+    if (o.courierPartner !== 'Steadfast' && o.courierPartner !== 'Pathao') continue;
+    const entry = courierTotals.get(o.courierPartner) ?? { delivered: 0, failed: 0 };
+    if (o.stage === 'Delivered' || o.stage === 'Partial Delivered') entry.delivered += 1;
+    else if (o.stage === 'Cancelled' || o.stage === 'Returned') entry.failed += 1;
+    courierTotals.set(o.courierPartner, entry);
+  }
+  const courierBreakdown = [...courierTotals.entries()].map(([courierPartner, v]) => ({ courierPartner, ...v }));
+
+  return { label, totalOrders, deliveredCount, cancelledOrReturnedCount, successRate, courierBreakdown };
 }
 
 // Bangladesh doesn't observe DST, so its UTC+6 offset is safe to hardcode rather than needing a
@@ -968,6 +1017,7 @@ export async function getOrder(req: AuthenticatedRequest, res: Response) {
   const dto = toOrderDto(doc);
   await attachBlockedFlags(db, tenantId, [dto]);
   await attachReturningFlags(db, tenantId, [dto]);
+  await attachFraudAlertFlags(db, tenantId, [dto]);
   res.json({ success: true, order: dto, risk });
 }
 
@@ -1109,6 +1159,7 @@ export async function createOrder(req: AuthenticatedRequest, res: Response) {
   const dto = toOrderDto({ ...doc, _id: result.insertedId });
   await attachBlockedFlags(db, tenantId, [dto]);
   await attachReturningFlags(db, tenantId, [dto]);
+  await attachFraudAlertFlags(db, tenantId, [dto]);
   void dispatchAppWebhook(tenantId, 'orders/create', dto);
   res.json({ success: true, order: dto });
 }
@@ -1405,6 +1456,7 @@ export async function updateOrder(req: AuthenticatedRequest, res: Response) {
   const dto = toOrderDto(result);
   await attachBlockedFlags(db, tenantId, [dto]);
   await attachReturningFlags(db, tenantId, [dto]);
+  await attachFraudAlertFlags(db, tenantId, [dto]);
   void dispatchAppWebhook(tenantId, 'orders/updated', dto);
   if (result.stage === 'Confirmed' && current.stage !== 'Confirmed') void dispatchAppWebhook(tenantId, 'orders/confirmed', dto);
   if (result.stage === 'Cancelled' && current.stage !== 'Cancelled') void dispatchAppWebhook(tenantId, 'orders/cancelled', dto);
@@ -1480,6 +1532,7 @@ export async function upsellOrder(req: AuthenticatedRequest, res: Response) {
   const dto = toOrderDto(result);
   await attachBlockedFlags(db, tenantId, [dto]);
   await attachReturningFlags(db, tenantId, [dto]);
+  await attachFraudAlertFlags(db, tenantId, [dto]);
   res.json({ success: true, order: dto });
 }
 
@@ -1651,6 +1704,7 @@ export async function splitOrder(req: AuthenticatedRequest, res: Response) {
   const createdDto = toOrderDto(newOrderDocWithId);
   await attachBlockedFlags(db, tenantId, [originalDto, createdDto]);
   await attachReturningFlags(db, tenantId, [originalDto, createdDto]);
+  await attachFraudAlertFlags(db, tenantId, [originalDto, createdDto]);
   res.json({ success: true, original: originalDto, created: createdDto });
 }
 
@@ -1810,6 +1864,7 @@ export async function markPaymentCollected(req: AuthenticatedRequest, res: Respo
   const dto = toOrderDto(result!);
   await attachBlockedFlags(db, tenantId, [dto]);
   await attachReturningFlags(db, tenantId, [dto]);
+  await attachFraudAlertFlags(db, tenantId, [dto]);
   void dispatchAppWebhook(tenantId, 'payments/collected', dto);
   res.json({ success: true, order: dto });
 }
@@ -1956,6 +2011,7 @@ export async function markPartialDelivered(req: AuthenticatedRequest, res: Respo
   const dto = toOrderDto(result!);
   await attachBlockedFlags(db, tenantId, [dto]);
   await attachReturningFlags(db, tenantId, [dto]);
+  await attachFraudAlertFlags(db, tenantId, [dto]);
   res.json({ success: true, order: dto });
 }
 

@@ -1,7 +1,7 @@
 import { ObjectId } from 'mongodb';
 import { getDb } from './db.js';
 
-async function isFraudCheckerInstalled(tenantId: string): Promise<boolean> {
+export async function isFraudCheckerInstalled(tenantId: string): Promise<boolean> {
   const business = await getDb().collection('businesses').findOne({ _id: new ObjectId(tenantId) }, { projection: { installedPlugins: 1 } });
   return !!business?.installedPlugins?.includes('fraudChecker');
 }

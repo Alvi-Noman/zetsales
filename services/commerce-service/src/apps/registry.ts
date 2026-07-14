@@ -8,8 +8,8 @@ import type { AppManifestDTO } from '@zetsales/shared';
 export const APP_MANIFESTS: AppManifestDTO[] = [
   {
     key: 'fraudChecker',
-    name: 'Fraud Checker',
-    description: 'Flags suspicious orders before they are confirmed.',
+    name: 'ZetSales Order Risk Checker',
+    description: 'Flags risky orders using this customer’s own delivery history with Steadfast and Pathao — no external API, no shared data.',
     icon: 'shield-alert',
     authType: 'embedded',
     isEmbeddedApp: false,

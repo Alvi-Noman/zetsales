@@ -638,6 +638,9 @@ export interface OrderRiskDTO {
   // same Asia/Dhaka calendar day as this one — the real-time half of duplicate detection, computed
   // fresh on every view rather than waiting for the retrospective analytics grouping to catch it.
   possibleDuplicateOrders: string[];
+  // Same delivered/cancelled-or-returned split as above, just broken out per courier partner —
+  // this tenant's own order history only, no external API or cross-tenant data.
+  courierBreakdown: { courierPartner: CourierPartner; delivered: number; failed: number }[];
 }
 
 export interface OrderLineItemDTO {
@@ -716,6 +719,10 @@ export interface OrderDTO {
   // Derived from counting this phone's orders tenant-wide (all-time), not stored on the order —
   // "returning" means more than one order exists for the phone, "new" means this is the only one.
   isReturningCustomer: boolean;
+  // Derived the same way — a low delivery-success rate for this phone across this tenant's own
+  // order history (Steadfast/Pathao stages only). Only ever computed when ZetSales Order Risk
+  // Checker is installed; otherwise always false.
+  isFraudAlert: boolean;
   courierPartner: CourierPartner | null;
   courierTrackingId: string | null;
   courierConsignmentId: string | null;
