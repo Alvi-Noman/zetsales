@@ -23,18 +23,18 @@ interface AppMeta {
   gradient: string;
 }
 
-// Real, honest facts per app — headline/features restate what the app actually does, "Works
-// with" and "Category" are plain classification, same as Shopify's own fields. Deliberately no
+// Real, honest facts per plugin — headline/features restate what the plugin actually does,
+// "Works with" and "Category" are plain classification, same as Shopify's own fields. Deliberately no
 // star rating or "Popular with stores like yours" section: those are Shopify's own aggregated
 // data across thousands of real merchant reviews — we have none, and fabricating a number would
-// be fake social proof on our own App Store.
+// be fake social proof in our own plugin marketplace.
 const APP_META: Record<string, AppMeta> = {
   fraudChecker: {
     headline: 'Catch risky orders before they ship',
     features: [
       'Fraud Alert tag on orders with a low delivery-success history',
       'Delivery success/fail breakdown per courier, right in the order',
-      'Uses only this store’s own Steadfast and Pathao order history',
+      'Uses Steadfast, Pathao, and ZetSales Network delivery history',
     ],
     category: 'Orders',
     worksWith: ['Orders', 'Steadfast', 'Pathao'],
@@ -86,7 +86,7 @@ const APP_META: Record<string, AppMeta> = {
   },
 };
 
-// Pastel captions behind the 3 highlight thumbnails, same shape as Shopify's own app-listing
+// Pastel captions behind the 3 highlight thumbnails, same shape as Shopify's own plugin-listing
 // thumbnails — no image-generation tool is available here, so these are illustrated with plain
 // CSS instead of a fabricated screenshot.
 const THUMB_GRADIENTS = ['from-cyan-200 to-teal-100', 'from-lime-200 to-yellow-100', 'from-sky-200 to-indigo-100'];
@@ -96,8 +96,8 @@ function delay(ms: number) {
 }
 
 // installApp() itself is a near-instant DB flag flip — these steps just give the install a real
-// sense of weight (npm/pip-style), same reasoning a real OAuth app-review/consent redirect would
-// naturally add for an oauth-type app.
+// sense of weight (npm/pip-style), same reasoning a real OAuth review/consent redirect would
+// naturally add for an oauth-type plugin.
 const INSTALL_STEPS = ['Downloading…', 'Installing…', 'Extracting…', 'Configuring…', 'Almost done…'];
 const INSTALL_STEP_MS = 1400;
 
@@ -132,7 +132,7 @@ export function AppDetailPage() {
     setInstallStep(0);
     if (manifest.authType === 'oauth') {
       if (!manifest.clientId || !manifest.homepageUrl) {
-        toast.push('This app is missing its OAuth configuration.', 'info');
+        toast.push('This plugin is missing its OAuth configuration.', 'info');
         setInstalling(false);
         return;
       }
@@ -153,10 +153,10 @@ export function AppDetailPage() {
       await Promise.all([installApp(manifest.key), delay(INSTALL_STEPS.length * INSTALL_STEP_MS)]);
       await Promise.all([queryClient.invalidateQueries({ queryKey: ['apps'] }), refresh()]);
       toast.push(`${manifest.name} installed.`);
-      // Stay on this page — the user opens the app themselves via the Open button below,
+      // Stay on this page — the user opens the plugin themselves via the Open button below,
       // same as Shopify never auto-navigating you away from the listing after install.
     } catch (err) {
-      toast.push(err instanceof Error ? err.message : 'Could not install this app.', 'info');
+      toast.push(err instanceof Error ? err.message : 'Could not install this plugin.', 'info');
     } finally {
       clearInterval(stepTimer);
       setInstalling(false);
@@ -169,7 +169,7 @@ export function AppDetailPage() {
       await Promise.all([queryClient.invalidateQueries({ queryKey: ['apps'] }), refresh()]);
       toast.push(`${manifest.name} uninstalled.`);
     } catch (err) {
-      toast.push(err instanceof Error ? err.message : 'Could not uninstall this app.', 'info');
+      toast.push(err instanceof Error ? err.message : 'Could not uninstall this plugin.', 'info');
     }
   };
 
@@ -177,7 +177,7 @@ export function AppDetailPage() {
     return <div className="flex h-full items-center justify-center text-sm text-slate-400">Loading…</div>;
   }
   if (!entry) {
-    return <div className="flex h-full items-center justify-center text-sm text-slate-400">App not found.</div>;
+    return <div className="flex h-full items-center justify-center text-sm text-slate-400">Plugin not found.</div>;
   }
 
   const { manifest, install } = entry;
@@ -189,12 +189,12 @@ export function AppDetailPage() {
     <div className="flex h-full flex-col">
       <div className="border-b border-slate-200 bg-white px-8 py-4">
         <button onClick={() => navigate('/settings/apps')} className="flex items-center gap-1.5 text-xs font-medium text-slate-400 hover:text-slate-700">
-          <ArrowLeft size={13} /> All apps
+          <ArrowLeft size={13} /> All plugins
         </button>
       </div>
       <div className="flex-1 overflow-y-auto px-8 py-8">
         <div className="mx-auto grid max-w-5xl grid-cols-1 gap-12 sm:grid-cols-[240px_1fr]">
-          {/* Left rail — matches Shopify's app-detail sidebar shape, minus fabricated rating/popularity */}
+          {/* Left rail — matches Shopify's detail sidebar shape, minus fabricated rating/popularity */}
           <div>
             <div className="flex items-center gap-3 border-b border-slate-200 pb-5">
               <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-50">
@@ -215,7 +215,7 @@ export function AppDetailPage() {
               {manifest.authType === 'oauth' && (
                 <div>
                   <div className="text-xs font-semibold text-slate-500">Install type</div>
-                  <div className="mt-1 text-slate-700">Standalone app (OAuth)</div>
+                  <div className="mt-1 text-slate-700">Standalone plugin (OAuth)</div>
                 </div>
               )}
             </div>
@@ -264,14 +264,14 @@ export function AppDetailPage() {
                   )}
                 </div>
               )}
-              {!canManage && <p className="mt-2 text-[11px] text-slate-400">Only an owner or admin can install apps.</p>}
+              {!canManage && <p className="mt-2 text-[11px] text-slate-400">Only an owner or admin can install plugins.</p>}
             </div>
           </div>
 
           {/* Right column — illustrated UI preview + real feature list, honest metadata rows */}
           <div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_150px]">
-              {/* Main preview — a stylized mockup of the app's own screen (a "browser card"
+              {/* Main preview — a stylized mockup of the plugin's own screen (a "browser card"
                   listing what it actually connects to), not a real screenshot. */}
               <div className={`overflow-hidden rounded-2xl bg-gradient-to-br ${meta.gradient} p-6`}>
                 <div className="overflow-hidden rounded-xl bg-white shadow-lg">

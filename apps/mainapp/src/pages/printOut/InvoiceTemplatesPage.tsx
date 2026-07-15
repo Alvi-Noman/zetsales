@@ -17,7 +17,7 @@ import { CombinedDocumentPage } from '../../components/orders/PrintOrderModal';
 // Fabricated, never sent anywhere — purely so the editor has something realistic to render live as
 // fields/toggles change, without needing a real order or a network round-trip per keystroke.
 const SAMPLE_ORDER: OrderDTO = {
-  id: 'sample', storeId: 'sample', platform: 'shopify', externalId: 'sample', number: '#SAMPLE-1001',
+  id: 'sample', storeId: 'sample', platform: 'shopify', externalId: 'sample', number: '#SAMPLE-1001', invoiceNo: 'BRB-000001', invoiceIssuedAt: null,
   stage: 'Confirmed', heldFromStage: null, paymentStatus: 'COD Pending', paymentMethod: 'Cash on Delivery',
   subtotal: 1290, shippingFee: 80, discount: 0, advanceAmount: 0, total: 1370, currency: 'BDT',
   tags: [], customerName: 'Farzana Akter', customerPhone: '+8801711000101', customerAltPhone: null,

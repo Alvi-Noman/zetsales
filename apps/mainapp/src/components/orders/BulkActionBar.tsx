@@ -14,10 +14,9 @@ interface BulkActionBarProps {
   // never shows up in the first place rather than silently no-op'ing (or worse) against orders it
   // doesn't apply to.
   onConfirm?: () => void;
-  // Undefined unless at least one selected order is actually in Processing — opens the handover
-  // details popup rather than firing directly, since marking shipped in bulk means physically
-  // handing a batch to a courier and there's real information worth logging about that moment.
+  // Undefined unless at least one selected order is actually in Processing.
   onMarkShipped?: () => void;
+  onHandOverToCourier?: () => void;
   // Undefined unless at least one selected order is actually Confirmed. Independent of printing —
   // this advances Confirmed -> Processing on its own, running the same stock-check popup as the
   // print flow does, for sellers who don't want packing gated behind printing a slip.
@@ -25,8 +24,11 @@ interface BulkActionBarProps {
   onHold?: (reason: string, note: string, rescheduledFor: string | null) => void;
   onCancel?: (reason: string, note: string) => void;
   onPrintInvoices: () => void;
-  onPrintPackingSlips: () => void;
-  onPrintCombined: () => void;
+  // Undefined unless at least one selected order has actually reached packing (see
+  // canPrintPackingSlip) — packing slips/the combined sheet aren't offered for a selection that's
+  // still Pending/Flagged/Confirmed.
+  onPrintPackingSlips?: () => void;
+  onPrintCombined?: () => void;
   onPrintLabels: () => void;
   // Undefined when nothing in the current selection is an eligible (COD, not-yet-collected) order —
   // the button only renders when the caller gives us a handler, so there's nothing to click that
@@ -43,7 +45,7 @@ interface BulkActionBarProps {
 }
 
 export function BulkActionBar({
-  count, onClear, onConfirm, onMarkShipped, onSendToPacking, onHold, onCancel, onPrintInvoices, onPrintPackingSlips, onPrintCombined, onPrintLabels, onMarkCollected, onRecheckFraud, holdReasons, busy,
+  count, onClear, onConfirm, onMarkShipped, onHandOverToCourier, onSendToPacking, onHold, onCancel, onPrintInvoices, onPrintPackingSlips, onPrintCombined, onPrintLabels, onMarkCollected, onRecheckFraud, holdReasons, busy,
 }: BulkActionBarProps) {
   if (count === 0) return null;
 
@@ -81,6 +83,15 @@ export function BulkActionBar({
             disabled={busy}
             className="flex items-center gap-1.5 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20 disabled:opacity-60"
           >
+            <Truck size={13} /> Ready for pickup
+          </button>
+        )}
+        {onHandOverToCourier && (
+          <button
+            onClick={onHandOverToCourier}
+            disabled={busy}
+            className="flex items-center gap-1.5 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20 disabled:opacity-60"
+          >
             <Truck size={13} /> Hand over to courier
           </button>
         )}
@@ -95,15 +106,17 @@ export function BulkActionBar({
         >
           {(close) => (
             <div className="py-1.5">
-              <button
-                onClick={() => {
-                  close();
-                  onPrintPackingSlips();
-                }}
-                className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
-              >
-                <ClipboardList size={13} className="text-slate-400" /> Print packing slips
-              </button>
+              {onPrintPackingSlips && (
+                <button
+                  onClick={() => {
+                    close();
+                    onPrintPackingSlips();
+                  }}
+                  className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                >
+                  <ClipboardList size={13} className="text-slate-400" /> Print packing slips
+                </button>
+              )}
               <button
                 onClick={() => {
                   close();
@@ -113,15 +126,17 @@ export function BulkActionBar({
               >
                 <FileText size={13} className="text-slate-400" /> Invoices
               </button>
-              <button
-                onClick={() => {
-                  close();
-                  onPrintCombined();
-                }}
-                className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
-              >
-                <Scissors size={13} className="text-slate-400" /> Invoice + Slips
-              </button>
+              {onPrintCombined && (
+                <button
+                  onClick={() => {
+                    close();
+                    onPrintCombined();
+                  }}
+                  className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                >
+                  <Scissors size={13} className="text-slate-400" /> Invoice + Slips
+                </button>
+              )}
               <button
                 onClick={() => {
                   close();

@@ -7,20 +7,19 @@ import clsx from 'clsx';
 import type { CallOutcome, CourierAccountDTO, CourierProvider, OrderDTO, OrderRiskDTO, OrderStage, StoreDTO } from '@zetsales/shared';
 import {
   blockCustomer, claimOrder, createDeliveryZone, getOrder, getOrderFulfillmentStatus, getProduct, heartbeatOrderClaim, listAllInventoryLevels, listDeliveryZones,
-  markPaymentCollected, releaseOrderClaim, splitOrder, unblockCustomer, updateOrder, upsellOrder, type DeliveryZoneDTO,
+  markPaymentCollected, releaseOrderClaim, removeOrderLineItem, splitOrder, unblockCustomer, updateOrder, upsellOrder, type DeliveryZoneDTO,
 } from '../../lib/commerceApi';
 import { STAGE_TONE, STAGE_ICON, STAGE_LABEL, PAYMENT_TONE, CLAIM_TONE } from './orderTone';
 import { ProductPicker, type PickedProduct } from '../adPerformance/ProductPicker';
-import { STAGE_ORDER, NEXT_ACTION, SECONDARY_ACTIONS } from './stageFlow';
+import { STAGE_ORDER, NEXT_ACTION, SECONDARY_ACTIONS, canPrintPackingSlip } from './stageFlow';
 import { ALL_CANCEL_REASONS, CALL_OUTCOMES, canHold, canCancel, inferCancelReason, holdReasonsFor } from './reasons';
 import { ReasonNoteMenu } from './ReasonNoteMenu';
 import { RiskBadge } from './RiskBadge';
 import { PartialDeliverModal } from './PartialDeliverModal';
 import { PrintOrderModal, type PrintDocType } from './PrintOrderModal';
 import { CourierLabelModal } from './CourierLabelModal';
-import { PackOrderModal } from './PackOrderModal';
 import { buildBinLookup, type BinLookup } from './binLookup';
-import { buildStockLookup, isOrderMixedStock, resolveFreeStock, type StockLookup } from './stockLookup';
+import { buildStockLookup, isOrderMixedStock, resolveFreeStock, summarizeOrderStock, type StockLookup } from './stockLookup';
 import { Popover } from '../ui/Popover';
 import { Modal } from '../ui/Modal';
 import { Select } from '../ui/Select';
@@ -44,6 +43,16 @@ function formatFullDate(iso: string) {
 }
 
 const TERMINAL_STAGES = ['Delivered', 'Partial Delivered', 'Returned', 'Cancelled'];
+const CALL_LOCK_STAGES: OrderStage[] = ['Pending', 'Flagged', 'On Hold'];
+const PRIORITY_ELIGIBLE_STAGES: OrderStage[] = ['Pending', 'Flagged', 'On Hold', 'Confirmed'];
+
+function shouldUseCallLock(order: Pick<OrderDTO, 'stage' | 'isPriorityCall'>): boolean {
+  return CALL_LOCK_STAGES.includes(order.stage) || (order.isPriorityCall && !TERMINAL_STAGES.includes(order.stage));
+}
+
+function canMarkPriorityCall(stage: OrderStage): boolean {
+  return PRIORITY_ELIGIBLE_STAGES.includes(stage);
+}
 
 // Comfortably under the server's 60s claim TTL (see CLAIM_STALE_MS in claim.ts) so a couple of
 // slow/dropped beats don't bounce the claim to someone else while this tab is still active.
@@ -164,8 +173,6 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
   const [newZoneName, setNewZoneName] = useState('');
   const [printDocType, setPrintDocType] = useState<PrintDocType | null>(null);
   const [labelModalOpen, setLabelModalOpen] = useState(false);
-  const [packModalOpen, setPackModalOpen] = useState(false);
-  const [packBusy, setPackBusy] = useState(false);
   const [confirmShipNoCourier, setConfirmShipNoCourier] = useState(false);
   // Set only when *another* agent currently holds the claim — never for the viewer's own claim, so
   // this alone can gate the "someone else is on this" banner and disable the calling actions.
@@ -186,6 +193,7 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
   const [upsellQuantity, setUpsellQuantity] = useState('1');
   const [upsellLoadingVariants, setUpsellLoadingVariants] = useState(false);
   const [upsellSubmitting, setUpsellSubmitting] = useState(false);
+  const [removingItemIndex, setRemovingItemIndex] = useState<number | null>(null);
   const [binLookup, setBinLookup] = useState<BinLookup | undefined>(undefined);
   const [stockLookup, setStockLookup] = useState<StockLookup | undefined>(undefined);
   // null means "unknown" (not yet loaded, or the check failed) — treated as not-blocking, same
@@ -193,9 +201,9 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
   // is the real enforcement; this is only what lets the button explain itself before someone clicks.
   const [fulfillmentStatus, setFulfillmentStatus] = useState<{ ready: boolean; reason: string | null } | null>(null);
 
-  // Bin + free-stock lookup, from one shared fetch — bin numbers back the packing slip and the
-  // pick/pack checklist (resolved per-order against `fulfillmentWarehouseId`, see binLookup.ts for
-  // why that has to be warehouse-aware), and free stock backs the per-line-item stock display in
+  // Bin + free-stock lookup, from one shared fetch — bin numbers back the packing slip (resolved
+  // per-order against `fulfillmentWarehouseId`, see binLookup.ts for why that has to be
+  // warehouse-aware), and free stock backs the per-line-item stock display in
   // the Items section below, so staff can see at a glance whether what was just confirmed is
   // actually still in the building.
   const loadInventorySnapshot = async () => {
@@ -258,13 +266,13 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
     setAddingZone(false);
     setNewZoneName('');
 
-    // Claim this order for the duration it's open in this drawer, so no other agent's queue treats
-    // it as up-for-grabs. Heartbeats keep it alive; the cleanup below (order change or unmount)
-    // releases it — that covers both "switched to a different order" and "closed the drawer", since
-    // the parent unmounts/nulls `order` on close rather than keeping this component mounted.
+    // Claim call-related orders only. This prevents two agents from dialing the same customer
+    // while leaving packing/dispatch/after-sales review free to inspect orders without taking a
+    // call lock.
     const orderId = order?.id;
+    const shouldClaim = Boolean(order && shouldUseCallLock(order));
     setLockedByOther(null);
-    if (orderId) {
+    if (orderId && shouldClaim) {
       void claimOrder(orderId)
         .then(() => {
           heartbeatRef.current = setInterval(() => {
@@ -286,10 +294,10 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
         clearInterval(heartbeatRef.current);
         heartbeatRef.current = null;
       }
-      if (orderId) void releaseOrderClaim(orderId).catch(() => {});
+      if (orderId && shouldClaim) void releaseOrderClaim(orderId).catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [order?.id]);
+  }, [order?.id, order?.stage, order?.isPriorityCall]);
 
   const holdReasons = useMemo(() => holdReasonsFor(detail?.stage ?? 'Pending'), [detail?.stage]);
 
@@ -356,6 +364,8 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
   }, [detail?.id, detail?.courierPartner, couriers]);
 
   if (!order) return null;
+  const callLockApplies = detail ? shouldUseCallLock(detail) : false;
+  const priorityActionAvailable = Boolean(detail && (detail.isPriorityCall || canMarkPriorityCall(detail.stage)));
 
   // Deliberate hand-back (wrong number, escalating to a supervisor) — closes the drawer since
   // staying open without holding the claim would leave the buttons enabled for a call this agent
@@ -505,6 +515,21 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
     }
   };
 
+  const removeLineItem = async (index: number) => {
+    if (!order) return;
+    setRemovingItemIndex(index);
+    try {
+      await removeOrderLineItem(order.id, index);
+      await refresh(order.id, { silent: true });
+      onUpdated();
+      toast.push('Item removed.', 'success');
+    } catch (err) {
+      toast.push(err instanceof Error ? err.message : 'Could not remove this item.', 'info');
+    } finally {
+      setRemovingItemIndex(null);
+    }
+  };
+
   const avatar = detail ? avatarFromName(detail.customerName) : null;
   const feeLocked = detail ? TERMINAL_STAGES.includes(detail.stage) : false;
   // Once a real consignment exists, the courier already has the parcel — changing "Partner" at that
@@ -526,6 +551,15 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
   // action button, while the order is still pre-confirmation.
   const isMixedOrder =
     Boolean(detail) && (detail!.stage === 'Pending' || detail!.stage === 'Flagged') && isOrderMixedStock(detail!.lineItems, stockLookup);
+  // At least one line item short — whether that's every item (fully short) or just some of them
+  // left unsplit, confirming this as one order isn't "reserve stock," it's "go ahead without
+  // stock" for the whole thing at once (see applyOutOfStockPolicy server-side: any shortfall at
+  // all stamps the *entire* order wasShortOfStock, not just the short line). The button says so up
+  // front instead of only surfacing that fact afterward via the "Restocked" badge.
+  const hasShortItem =
+    Boolean(detail) &&
+    (detail!.stage === 'Pending' || detail!.stage === 'Flagged') &&
+    summarizeOrderStock(detail!.lineItems, stockLookup).shortCount > 0;
   // The only two manual actions that actually require physical stock to be on hand — "Process
   // order" (about to start picking) and "Mark shipped" (about to hand off what was picked). Every
   // other stage's forward action (confirming, marking delivered, etc.) isn't gated by this at all.
@@ -561,14 +595,14 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
           </button>
         </div>
 
-        {lockedByOther && (
+        {lockedByOther && callLockApplies && (
           <div className={clsx('mx-6 mt-3 flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium ring-1 ring-inset', CLAIM_TONE)}>
             <Lock size={13} className="shrink-0" />
             <span className="flex-1">{lockedByOther} You can view this order, but can't log a call or change its stage until it's released.</span>
           </div>
         )}
 
-        {!lockedByOther && !loading && detail && (
+        {!lockedByOther && !loading && detail && callLockApplies && (
           <div className="mx-6 mt-3 flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
             <span className="flex items-center gap-1.5">
               <Lock size={12} /> You're calling this customer.
@@ -733,22 +767,31 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                 )}
                 {fraudCheckerInstalled && !(riskScope === 'courier' && courierUnavailable) && risk && risk.courierBreakdown.length > 0 && (
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {risk.courierBreakdown.map((c) => (
-                      <div key={c.courierPartner} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs">
-                        <span className="font-semibold text-slate-700">{c.courierPartner}</span>{' '}
-                        <span className="text-emerald-600">{c.delivered} delivered</span>
-                        {' · '}
-                        <span className="text-rose-500">{c.failed} failed</span>
-                        {c.stale && (
-                          <span
-                            title={c.checkedAt ? `Live check failed — showing the last known result from ${new Date(c.checkedAt).toLocaleString()}` : 'Live check failed — showing the last known result'}
-                            className="ml-1.5 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
-                          >
-                            last known
+                    {risk.courierBreakdown.map((c) =>
+                      c.unavailable ? (
+                        <div key={c.courierPartner} className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs">
+                          <span className="font-semibold text-slate-700">{c.courierPartner}</span>{' '}
+                          <span title="Could not verify this courier's delivery history right now — not confirmed as a real result." className="font-medium text-slate-400">
+                            Check Failed
                           </span>
-                        )}
-                      </div>
-                    ))}
+                        </div>
+                      ) : (
+                        <div key={c.courierPartner} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs">
+                          <span className="font-semibold text-slate-700">{c.courierPartner}</span>{' '}
+                          <span className="text-emerald-600">{c.delivered} delivered</span>
+                          {' · '}
+                          <span className="text-rose-500">{c.failed} failed</span>
+                          {c.stale && (
+                            <span
+                              title={c.checkedAt ? `Live check failed — showing the last known result from ${new Date(c.checkedAt).toLocaleString()}` : 'Live check failed — showing the last known result'}
+                              className="ml-1.5 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
+                            >
+                              last known
+                            </span>
+                          )}
+                        </div>
+                      )
+                    )}
                   </div>
                 )}
                 {fraudCheckerInstalled && risk && risk.possibleDuplicateOrders.length > 0 && (
@@ -926,7 +969,7 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                 <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Courier</h3>
                 {needsTrackingCode && (
                   <div className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
-                    Handed to courier, but no tracking code yet — {detail.courierPartner} isn't connected via API for this order. Enter the code from your booking below.
+                    Ready for pickup, but no tracking code yet — {detail.courierPartner} isn't connected via API for this order. Enter the code from your courier receipt below.
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-3">
@@ -1081,7 +1124,14 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                           </p>
                           {(() => {
                             const free = resolveFreeStock(stockLookup, li.sku);
-                            if (free === null) return null;
+                            if (free === null) {
+                              // Distinct from "loading" (stockLookup is still undefined right after the
+                              // drawer opens) — once it's actually loaded, a still-null result means this
+                              // SKU has no inventory record at all, which staff need to see, not a blank
+                              // space that reads the same as "definitely fine."
+                              if (!stockLookup) return null;
+                              return <p className="mt-0.5 text-xs font-medium text-slate-400">Stock not tracked</p>;
+                            }
                             const short = free < li.quantity;
                             return (
                               <p className={clsx('mt-0.5 text-xs font-semibold', short ? 'text-rose-600' : 'text-emerald-600')}>
@@ -1091,9 +1141,21 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                           })()}
                         </div>
                       </div>
-                      <span className="tabular-nums text-slate-700">
-                        {detail.currency} {(li.price * li.quantity).toLocaleString()}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="tabular-nums text-slate-700">
+                          {detail.currency} {(li.price * li.quantity).toLocaleString()}
+                        </span>
+                        {(detail.stage === 'Pending' || detail.stage === 'Flagged') && detail.lineItems.length > 1 && (
+                          <button
+                            onClick={() => void removeLineItem(i)}
+                            disabled={!!lockedByOther || removingItemIndex === i}
+                            title={lockedByOther ?? 'Remove this item'}
+                            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-slate-300 hover:bg-rose-50 hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            {removingItemIndex === i ? <Loader2 size={12} className="animate-spin" /> : <X size={12} />}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1289,7 +1351,7 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
               {fraudCheckerInstalled && detail.flagReason && (
                 <section className="rounded-xl border border-slate-200 p-4">
                   <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                    <ShieldAlert size={13} className="text-rose-500" /> ZetSales Order Risk Checker
+                    <ShieldAlert size={13} className="text-rose-500" /> ZetSales Fraud Checker
                   </h3>
                   <p className="text-sm text-slate-600">{detail.flagReason}</p>
                 </section>
@@ -1322,12 +1384,12 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                         void handleSplit();
                         return;
                       }
-                      // Processing -> Shipped is the "hand it off" moment — gate it behind the
-                      // pick/pack checklist instead of advancing the stage on a single click, so
-                      // staff actually look at what's in the box before it leaves the building.
                       if (detail.stage === 'Processing') {
-                        void loadInventorySnapshot();
-                        setPackModalOpen(true);
+                        if (!detail.courierPartner) {
+                          setConfirmShipNoCourier(true);
+                          return;
+                        }
+                        apply({ stage: primaryAction.nextStage });
                       } else {
                         apply({ stage: primaryAction.nextStage });
                       }
@@ -1340,7 +1402,11 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                     )}
                   >
                     {isMixedOrder && splitChecked ? <Split size={14} /> : <primaryAction.icon size={14} />}
-                    {isMixedOrder && splitChecked ? 'Split & confirm' : primaryAction.label}
+                    {isMixedOrder && splitChecked
+                      ? 'Split & List Remains as Pre-Order'
+                      : hasShortItem
+                        ? 'Confirm & List as Pre-Order'
+                        : primaryAction.label}
                   </button>
               )}
               {detail.stage === 'Out for Delivery' && (
@@ -1367,7 +1433,7 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                   disabled={!!lockedByOther}
                   className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-slate-900"
                 >
-                  <PlayCircle size={14} /> Resume
+                  <PlayCircle size={14} /> Reattempt
                 </button>
               )}
               {canHold(detail.stage) && (
@@ -1384,7 +1450,7 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                   )}
                 />
               )}
-              {(detail.isPriorityCall || !feeLocked || detail.customerPhone) && (
+              {(priorityActionAvailable || detail.customerPhone) && (
                 <Popover
                   align="left"
                   widthClass="w-48"
@@ -1407,7 +1473,7 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                           <PhoneOff size={13} className="text-slate-400" /> Unmark priority
                         </button>
                       ) : (
-                        !feeLocked && (
+                        canMarkPriorityCall(detail.stage) && (
                           <button
                             onClick={() => {
                               close();
@@ -1481,26 +1547,30 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
                     >
                       <FileText size={13} className="text-slate-400" /> Invoice
                     </button>
-                    <button
-                      onClick={() => {
-                        close();
-                        void loadInventorySnapshot();
-                        setPrintDocType('packingSlip');
-                      }}
-                      className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
-                    >
-                      <ClipboardList size={13} className="text-slate-400" /> Packing slip
-                    </button>
-                    <button
-                      onClick={() => {
-                        close();
-                        void loadInventorySnapshot();
-                        setPrintDocType('combined');
-                      }}
-                      className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
-                    >
-                      <Scissors size={13} className="text-slate-400" /> Invoice + Slip
-                    </button>
+                    {detail && canPrintPackingSlip(detail.stage) && (
+                      <>
+                        <button
+                          onClick={() => {
+                            close();
+                            void loadInventorySnapshot();
+                            setPrintDocType('packingSlip');
+                          }}
+                          className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                        >
+                          <ClipboardList size={13} className="text-slate-400" /> Packing slip
+                        </button>
+                        <button
+                          onClick={() => {
+                            close();
+                            void loadInventorySnapshot();
+                            setPrintDocType('combined');
+                          }}
+                          className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                        >
+                          <Scissors size={13} className="text-slate-400" /> Invoice + Slip
+                        </button>
+                      </>
+                    )}
                     {detail.courierPartner && (
                       <button
                         onClick={() => {
@@ -1558,11 +1628,6 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
         orders={detail ? [detail] : []}
         docType={printDocType ?? 'invoice'}
         binLookup={binLookup}
-        stockLookup={stockLookup}
-        onOrdersProcessed={() => {
-          void refresh(order.id, { silent: true });
-          onUpdated();
-        }}
       />
       <CourierLabelModal open={labelModalOpen} onClose={() => setLabelModalOpen(false)} orders={detail ? [detail] : []} />
       <Modal open={addProductOpen} onClose={() => setAddProductOpen(false)} title="Add product" subtitle="Upsell an extra item onto this order before it's confirmed.">
@@ -1604,27 +1669,6 @@ export function OrderDetailDrawer({ order, store, couriers, onClose, onUpdated }
           </div>
         </div>
       </Modal>
-      <PackOrderModal
-        open={packModalOpen}
-        order={detail}
-        binLookup={binLookup}
-        busy={packBusy}
-        onClose={() => setPackModalOpen(false)}
-        onConfirm={async () => {
-          // A courier partner is now required before an order can ship — without one there's no
-          // consignment to dispatch and, per the invoice/tracking-code gap, no way to ever surface
-          // a tracking code to the customer. Block instead of just warning.
-          if (!detail?.courierPartner) {
-            setPackModalOpen(false);
-            setConfirmShipNoCourier(true);
-            return;
-          }
-          setPackBusy(true);
-          await apply({ stage: 'Shipped' });
-          setPackBusy(false);
-          setPackModalOpen(false);
-        }}
-      />
       <Modal
         open={confirmShipNoCourier}
         onClose={() => setConfirmShipNoCourier(false)}

@@ -10,6 +10,7 @@ export const ORDER_TABS: { key: OrderTabKey; label: string }[] = [
   { key: 'hold', label: 'On hold' },
   { key: 'confirmed', label: 'Confirmed' },
   { key: 'processing', label: 'Packing' },
+  { key: 'courierBooked', label: 'Ready for pickup' },
   { key: 'shipped', label: 'In transit' },
   { key: 'returning', label: 'Returning' },
   { key: 'delivered', label: 'Delivered' },

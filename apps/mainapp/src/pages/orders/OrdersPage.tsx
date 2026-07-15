@@ -42,13 +42,13 @@ import { OrderDetailDrawer } from '../../components/orders/OrderDetailDrawer';
 import { CreateOrderModal } from '../../components/orders/CreateOrderModal';
 import { PrintOrderModal, type PrintDocType } from '../../components/orders/PrintOrderModal';
 import { CourierLabelModal } from '../../components/orders/CourierLabelModal';
-import { BulkShipModal, type HandoverDetails } from '../../components/orders/BulkShipModal';
 import { BulkStockPopup, type BulkStockResolution } from '../../components/orders/BulkStockPopup';
 import { buildBinLookup, type BinLookup } from '../../components/orders/binLookup';
 import { buildStockLookup, classifyOrdersByStock, summarizeOrderStock } from '../../components/orders/stockLookup';
 import { ShopifyLogo, WooCommerceLogo } from '../../components/orders/platformLogos';
 import { STAGE_TONE, STAGE_LABEL, PAYMENT_METHOD_SHORT, CLAIM_TONE } from '../../components/orders/orderTone';
 import { ALL_HOLD_REASONS, CANCEL_REASONS_FOR_FILTER, canCancel, canHold, holdReasonsForMany } from '../../components/orders/reasons';
+import { canPrintPackingSlip } from '../../components/orders/stageFlow';
 import { ImportOrdersModal } from '../../components/integrations/ImportOrdersModal';
 import { ORDER_TABS } from '../../components/orders/tabs';
 import { DateRangeMenu } from '../../components/orders/DateRangeMenu';
@@ -58,6 +58,7 @@ import { ExportOrdersModal, type ExportScope, type ExportFormat } from '../../co
 import { BulkActionBar } from '../../components/orders/BulkActionBar';
 import { FastTrackBanner } from '../../components/orders/FastTrackBanner';
 import { PriorityCallsBanner } from '../../components/orders/PriorityCallsBanner';
+import { RestockedOrdersBanner } from '../../components/orders/RestockedOrdersBanner';
 import { CommandPalette } from '../../components/orders/CommandPalette';
 import { RowActionsMenu } from '../../components/orders/RowActionsMenu';
 import { OrderProductsCell } from '../../components/orders/OrderProductsCell';
@@ -132,6 +133,7 @@ export function OrdersPage() {
   const [holdReasonFilter, setHoldReasonFilter] = useState<string>('all');
   const [cancelReasonFilter, setCancelReasonFilter] = useState<string>('all');
   const [stockStatusFilter, setStockStatusFilter] = useState<string>('all');
+  const [restockedOnly, setRestockedOnly] = useState(false);
   const [dateRange, setDateRange] = useState<DateRangeKey>('all');
   const [statsDateRange, setStatsDateRange] = useState<DateRangeKey>('today');
   const [statsCustomRange, setStatsCustomRange] = useState<CustomDateRange | null>(null);
@@ -154,7 +156,6 @@ export function OrdersPage() {
   const [exporting, setExporting] = useState(false);
   const [printDocType, setPrintDocType] = useState<PrintDocType | null>(null);
   const [labelModalOpen, setLabelModalOpen] = useState(false);
-  const [shipModalOpen, setShipModalOpen] = useState(false);
   const [binLookup, setBinLookup] = useState<BinLookup | undefined>(undefined);
   // Backs the Confirmed-tab "Ready to pack"/"N short" badge and the Pending/Flagged "Mixed stock"
   // heads-up badge — loaded once up front (like stores/couriers) rather than per-tab, since both
@@ -210,6 +211,7 @@ export function OrdersPage() {
         holdReason: tab === 'hold' && holdReasonFilter !== 'all' ? (holdReasonFilter as HoldReason) : undefined,
         cancelReason: tab === 'cancelled' && cancelReasonFilter !== 'all' ? (cancelReasonFilter as CancelReason) : undefined,
         stockStatus: tab === 'confirmed' && stockStatusFilter !== 'all' ? (stockStatusFilter as 'ready' | 'short') : undefined,
+        restockedOnly: tab === 'confirmed' && stockStatusFilter === 'ready' && restockedOnly ? true : undefined,
         search,
         dateFrom: from ?? undefined,
         dateTo: to ?? undefined,
@@ -253,7 +255,7 @@ export function OrdersPage() {
     setSelected(new Set());
     void loadOrders(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storeFilter, tab, paymentFilter, holdReasonFilter, cancelReasonFilter, stockStatusFilter, dateRange, advancedFilters, search, sort, pageSize]);
+  }, [storeFilter, tab, paymentFilter, holdReasonFilter, cancelReasonFilter, stockStatusFilter, restockedOnly, dateRange, advancedFilters, search, sort, pageSize]);
 
   useEffect(() => {
     void loadStats();
@@ -358,8 +360,8 @@ export function OrdersPage() {
     }
   };
 
-  // Same stock-check checkpoint as "Print & send to packing" (see PrintOrderModal), applied to
-  // every place a Confirm click can happen — the bulk action bar, the command palette, the
+  // Same stock-check checkpoint as "Send to packing" below, applied to every place a Confirm
+  // click can happen — the bulk action bar, the command palette, the
   // fast-track banner, and even a single row's quick "Confirm order" — so a mixed or fully-short
   // order is never silently confirmed no matter which of those a staff member happens to use.
   // A clean selection (nothing mixed or fully out of stock) skips the popup entirely.
@@ -398,10 +400,9 @@ export function OrdersPage() {
     }
   };
 
-  // Standalone "Send to packing" — same stock-check popup as "Print & send to packing"
-  // (PrintOrderModal), but independent of printing entirely: sellers who don't print, or who print
-  // separately from when packing actually starts, aren't forced through a print dialog to advance
-  // Confirmed -> Processing.
+  // "Send to packing" is the only way Confirmed orders advance to Processing — printing a packing
+  // slip no longer triggers this (packing slips are only printable once an order is already in
+  // Processing+). Same stock-check popup as handleBulkConfirm above.
   const handleBulkSendToPacking = (ids: string[]) => {
     if (ids.length === 0) return;
     const selectedForPacking = orders.filter((o) => ids.includes(o.id));
@@ -433,24 +434,6 @@ export function OrdersPage() {
     } finally {
       setPackPopupBusy(false);
     }
-  };
-
-  // Folded into the order's own `note` field rather than a new dedicated field — no schema change,
-  // and it shows up wherever an order's note already does (drawer, history). Only the parts staff
-  // actually filled in appear; a rider pickup with no paperwork just logs the date.
-  function composeHandoverNote(details: HandoverDetails): string {
-    const parts = [`Handed to courier ${new Date(details.handoverAt).toLocaleString()}`];
-    if (details.pickupPersonName) parts.push(`by ${details.pickupPersonName}`);
-    if (details.pickupPersonPhone) parts.push(`(${details.pickupPersonPhone})`);
-    let note = parts.join(' ');
-    if (details.hvCode) note += ` — HV Code: ${details.hvCode}`;
-    if (details.remark) note += ` — ${details.remark}`;
-    return note;
-  }
-
-  const handleBulkMarkShipped = (details: HandoverDetails) => {
-    setShipModalOpen(false);
-    void runBulk(shippableSelectedIds, { stage: 'Shipped', note: composeHandoverNote(details) });
   };
 
   // Not part of the order patch schema either — a courier COD settlement is a batch payout that
@@ -625,6 +608,10 @@ export function OrdersPage() {
   // Independent of printing — see BulkActionBar's onSendToPacking. Only Confirmed orders are
   // eligible; the stock-check popup (same one the print flow uses) decides what actually proceeds.
   const packableSelectedIds = selectedOrders.filter((o) => o.stage === 'Confirmed').map((o) => o.id);
+  // Packing slip / combined print options are only offered once at least one selected order has
+  // actually reached packing (see canPrintPackingSlip) — PrintOrderModal filters ineligible orders
+  // out of the printed document itself, this just decides whether to show the button at all.
+  const packSlipEligibleSelected = selectedOrders.some((o) => canPrintPackingSlip(o.stage));
   const holdableSelectedOrders = selectedOrders.filter((o) => canHold(o.stage));
   const holdableSelectedIds = holdableSelectedOrders.map((o) => o.id);
   const cancellableSelectedIds = selectedOrders.filter((o) => canCancel(o.stage)).map((o) => o.id);
@@ -633,12 +620,7 @@ export function OrdersPage() {
   // offering itself at all when nothing selected is even at the right stage for it.
   const shippableSelectedOrders = selectedOrders.filter((o) => o.stage === 'Processing');
   const shippableSelectedIds = shippableSelectedOrders.map((o) => o.id);
-  const shippableCourierSummary = (() => {
-    const couriers = new Set(shippableSelectedOrders.map((o) => o.courierPartner ?? '').filter((c) => c !== ''));
-    if (couriers.size === 0) return 'No courier set';
-    if (couriers.size === 1) return [...couriers][0];
-    return 'Multiple couriers';
-  })();
+  const handoverReadySelectedIds = selectedOrders.filter((o) => o.stage === 'Shipped').map((o) => o.id);
 
   const copyOrderId = (order: OrderDTO, e: MouseEvent) => {
     e.stopPropagation();
@@ -661,6 +643,7 @@ export function OrdersPage() {
     if (nextTab !== 'hold') setHoldReasonFilter('all');
     if (nextTab !== 'cancelled') setCancelReasonFilter('all');
     if (nextTab !== 'confirmed') setStockStatusFilter('all');
+    if (nextTab !== 'confirmed') setRestockedOnly(false);
   };
 
   const fastTrackIds = useMemo(() => (tab === 'pending' ? fastTrackEligibleIds(orders) : []), [tab, orders]);
@@ -820,8 +803,22 @@ export function OrdersPage() {
                           { value: 'ready', label: 'Ready to pack' },
                           { value: 'short', label: 'Short on stock' },
                         ]}
-                        onChange={setStockStatusFilter}
+                        onChange={(v) => {
+                          setStockStatusFilter(v);
+                          if (v !== 'ready') setRestockedOnly(false);
+                        }}
                       />
+                    )}
+                    {tab === 'confirmed' && stockStatusFilter === 'ready' && (
+                      <label className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-xs font-medium text-slate-600 hover:bg-slate-50">
+                        <input
+                          type="checkbox"
+                          checked={restockedOnly}
+                          onChange={(e) => setRestockedOnly(e.target.checked)}
+                          className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        Restocked only
+                      </label>
                     )}
                     <FilterMenu
                       icon={CreditCard}
@@ -888,6 +885,17 @@ export function OrdersPage() {
 
               {tab !== 'priority' && (
                 <PriorityCallsBanner count={stats?.tabCounts.priority ?? 0} onView={() => handleTabChange('priority')} />
+              )}
+
+              {!(tab === 'confirmed' && stockStatusFilter === 'ready' && restockedOnly) && (
+                <RestockedOrdersBanner
+                  count={stats?.restockedReadyCount ?? 0}
+                  onView={() => {
+                    handleTabChange('confirmed');
+                    setStockStatusFilter('ready');
+                    setRestockedOnly(true);
+                  }}
+                />
               )}
 
               {newOrdersCount > 0 && (
@@ -973,7 +981,7 @@ export function OrdersPage() {
                                   </span>
                                 )}
                                 {user?.installedPlugins?.includes('fraudChecker') && order.stage === 'Flagged' && (
-                                  <span title={order.flagReason ?? 'Flagged by ZetSales Order Risk Checker'} className="text-rose-500">
+                                  <span title={order.flagReason ?? 'Flagged by ZetSales Fraud Checker'} className="text-rose-500">
                                     <ShieldAlert size={13} />
                                   </span>
                                 )}
@@ -982,6 +990,14 @@ export function OrdersPage() {
                                 <button onClick={(e) => copyOrderId(order, e)} title="Copy order ID" className="text-slate-300 hover:text-slate-500">
                                   {copiedOrderId === order.id ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
                                 </button>
+                                {order.stage === 'Confirmed' && order.wasShortOfStock && (
+                                  <span
+                                    title="Confirmed while short of stock — now fully covered. Worth a customer call before sending to packing."
+                                    className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-600 ring-1 ring-inset ring-indigo-600/20"
+                                  >
+                                    <Package size={10} /> Restocked
+                                  </span>
+                                )}
                               </div>
                             </td>
                             <td className="px-3 py-3 whitespace-nowrap">
@@ -1053,7 +1069,15 @@ export function OrdersPage() {
                             <td className="px-3 py-3 whitespace-nowrap">
                               <span className="inline-flex items-center gap-1.5">
                                 {isShortConfirmed && stockSummary ? (
-                                  <Tooltip label="Product out of stock">
+                                  <Tooltip
+                                    label={
+                                      <>
+                                        Product Out of Stock.
+                                        <br />
+                                        Currently in Pre-order List.
+                                      </>
+                                    }
+                                  >
                                     <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20">
                                       <Package size={11} />
                                       {STAGE_LABEL[order.stage]}
@@ -1146,7 +1170,12 @@ export function OrdersPage() {
         busy={bulkBusy}
         onClear={() => setSelected(new Set())}
         onConfirm={confirmableSelectedIds.length > 0 ? () => handleBulkConfirm(confirmableSelectedIds) : undefined}
-        onMarkShipped={shippableSelectedIds.length > 0 ? () => setShipModalOpen(true) : undefined}
+        onMarkShipped={shippableSelectedIds.length > 0 ? () => void runBulk(shippableSelectedIds, { stage: 'Shipped' }) : undefined}
+        onHandOverToCourier={
+          handoverReadySelectedIds.length > 0
+            ? () => void runBulk(handoverReadySelectedIds, { stage: 'Out for Delivery', note: 'Handed over to courier' })
+            : undefined
+        }
         onSendToPacking={packableSelectedIds.length > 0 ? () => handleBulkSendToPacking(packableSelectedIds) : undefined}
         onHold={
           holdableSelectedIds.length > 0
@@ -1166,14 +1195,22 @@ export function OrdersPage() {
         }
         holdReasons={holdReasonsForMany(holdableSelectedOrders.map((o) => o.stage))}
         onPrintInvoices={() => setPrintDocType('invoice')}
-        onPrintPackingSlips={() => {
-          void loadBinLookup();
-          setPrintDocType('packingSlip');
-        }}
-        onPrintCombined={() => {
-          void loadBinLookup();
-          setPrintDocType('combined');
-        }}
+        onPrintPackingSlips={
+          packSlipEligibleSelected
+            ? () => {
+                void loadBinLookup();
+                setPrintDocType('packingSlip');
+              }
+            : undefined
+        }
+        onPrintCombined={
+          packSlipEligibleSelected
+            ? () => {
+                void loadBinLookup();
+                setPrintDocType('combined');
+              }
+            : undefined
+        }
         onPrintLabels={() => setLabelModalOpen(true)}
       />
 
@@ -1201,18 +1238,8 @@ export function OrdersPage() {
         orders={selectedOrders}
         docType={printDocType ?? 'invoice'}
         binLookup={binLookup}
-        stockLookup={stockLookup}
-        onOrdersProcessed={refreshAll}
       />
       <CourierLabelModal open={labelModalOpen} onClose={() => setLabelModalOpen(false)} orders={selectedOrders} />
-      <BulkShipModal
-        open={shipModalOpen}
-        count={shippableSelectedIds.length}
-        courierSummary={shippableCourierSummary}
-        busy={bulkBusy}
-        onClose={() => setShipModalOpen(false)}
-        onSubmit={handleBulkMarkShipped}
-      />
       <ImportOrdersModal store={importTarget} onClose={() => setImportTarget(null)} onImported={handleImported} />
       <ExportOrdersModal
         open={exportModalOpen}

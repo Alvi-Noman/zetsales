@@ -1,8 +1,9 @@
 import { createPortal } from 'react-dom';
+import { useEffect, useRef, useState } from 'react';
 import { Printer, X } from 'lucide-react';
 import type { OrderDTO } from '@zetsales/shared';
 import { useAuth } from '../../context/AuthContext';
-import { markOrdersPrinted } from '../../lib/commerceApi';
+import { ensureOrderInvoices } from '../../lib/commerceApi';
 import { Barcode } from './Barcode';
 
 interface CourierLabelModalProps {
@@ -17,7 +18,7 @@ interface CourierLabelModalProps {
 // when there's no real courier tracking code yet (courier partner set manually, or the auto-dispatch
 // hasn't run) — a label with nothing to scan wouldn't be usable at all.
 function LabelPage({ order, businessName }: { order: OrderDTO; businessName: string }) {
-  const trackingValue = order.courierTrackingId || order.courierConsignmentId || order.number;
+  const trackingValue = order.courierTrackingId || order.courierConsignmentId || order.invoiceNo || order.number;
   return (
     <div className="print-page-break flex justify-center bg-slate-100 p-4">
       <div className="w-full max-w-sm space-y-3 rounded-lg border-2 border-dashed border-slate-300 bg-white p-4 text-slate-900">
@@ -48,7 +49,9 @@ function LabelPage({ order, businessName }: { order: OrderDTO; businessName: str
           <p className="mt-1 text-center text-xs font-medium tracking-wider text-slate-600">{trackingValue}</p>
         </div>
 
-        <p className="text-center text-xs text-slate-400">Order {order.number}</p>
+        <p className="text-center text-xs text-slate-400">
+          {order.invoiceNo ? `Bill ${order.invoiceNo} · Order ${order.number}` : `Order ${order.number}`}
+        </p>
       </div>
     </div>
   );
@@ -56,7 +59,27 @@ function LabelPage({ order, businessName }: { order: OrderDTO; businessName: str
 
 export function CourierLabelModal({ open, onClose, orders }: CourierLabelModalProps) {
   const { user } = useAuth();
+  const [labelOrders, setLabelOrders] = useState<OrderDTO[]>(orders);
+  const [printing, setPrinting] = useState(false);
+  const wasOpenRef = useRef(false);
+
+  useEffect(() => {
+    if (open && !wasOpenRef.current) setLabelOrders(orders);
+    wasOpenRef.current = open;
+  }, [open, orders]);
+
   if (!open) return null;
+
+  const handlePrint = async () => {
+    setPrinting(true);
+    try {
+      const { orders: printedOrders } = await ensureOrderInvoices(labelOrders.map((order) => order.id));
+      setLabelOrders(printedOrders);
+      setTimeout(() => window.print(), 0);
+    } finally {
+      setPrinting(false);
+    }
+  };
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4 print:static print:block print:h-auto print:p-0">
@@ -69,13 +92,11 @@ export function CourierLabelModal({ open, onClose, orders }: CourierLabelModalPr
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => {
-                window.print();
-                void markOrdersPrinted(orders.map((o) => o.id)).catch(() => {});
-              }}
-              className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+              onClick={handlePrint}
+              disabled={printing}
+              className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <Printer size={14} /> Print
+              <Printer size={14} /> {printing ? 'Preparing...' : 'Print'}
             </button>
             <button onClick={onClose} className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
               <X size={16} />
@@ -83,7 +104,7 @@ export function CourierLabelModal({ open, onClose, orders }: CourierLabelModalPr
           </div>
         </div>
         <div className="print-area overflow-y-auto print:overflow-visible">
-          {orders.map((order) => (
+          {labelOrders.map((order) => (
             <LabelPage key={order.id} order={order} businessName={user?.businessName || 'Your Business'} />
           ))}
         </div>

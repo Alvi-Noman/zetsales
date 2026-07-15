@@ -5,7 +5,7 @@ import type { OrderDTO } from '@zetsales/shared';
 import { Popover } from '../ui/Popover';
 import { canCancel, inferCancelReason } from './reasons';
 
-const TERMINAL_STAGES = ['Delivered', 'Partial Delivered', 'Returned', 'Cancelled'];
+const PRIORITY_ELIGIBLE_STAGES = ['Pending', 'Flagged', 'On Hold', 'Confirmed'];
 
 interface RowActionsMenuProps {
   order: OrderDTO;
@@ -21,7 +21,7 @@ interface RowActionsMenuProps {
 export function RowActionsMenu({ order, onView, onConfirm, onCancel, onTogglePriority, onToggleBlock }: RowActionsMenuProps) {
   const [copied, setCopied] = useState(false);
   const canConfirm = order.stage === 'Pending' || order.stage === 'Flagged';
-  const canMarkPriority = !TERMINAL_STAGES.includes(order.stage);
+  const canMarkPriority = PRIORITY_ELIGIBLE_STAGES.includes(order.stage);
 
   return (
     <Popover

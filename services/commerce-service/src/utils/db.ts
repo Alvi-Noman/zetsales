@@ -16,6 +16,13 @@ export async function connectDb() {
   await db.collection('products').createIndex({ tenantId: 1, storeId: 1, externalId: 1 }, { unique: true, sparse: true });
   await db.collection('orders').createIndex({ tenantId: 1, storeId: 1 });
   await db.collection('orders').createIndex({ tenantId: 1, storeId: 1, externalId: 1 }, { unique: true, sparse: true });
+  await db.collection('orders').dropIndex('tenantId_1_invoiceNo_1').catch(() => {});
+  await db
+    .collection('orders')
+    .createIndex(
+      { tenantId: 1, invoiceNo: 1 },
+      { unique: true, partialFilterExpression: { invoiceNo: { $type: 'string' } } }
+    );
   // Inventory is keyed by productId+variantId, not sku — confirmed against live data that most
   // multi-variant products (664 of 666) have two or more variants sharing an identical SKU, so raw
   // SKU can't be trusted as a unique key. sku is still stored and searched, just not unique.
@@ -43,6 +50,7 @@ export async function connectDb() {
   await db.collection('analyticsLayouts').createIndex({ tenantId: 1, userId: 1 }, { unique: true });
   await db.collection('courierSettlements').createIndex({ tenantId: 1, courierId: 1, settledAt: -1 });
   await db.collection('courierHandovers').createIndex({ tenantId: 1, courierId: 1, handoverDate: -1 });
+  await db.collection('courierHandovers').createIndex({ tenantId: 1, manifestNo: 1 }, { unique: true, sparse: true });
   // Short-lived handoff from the browser extension to the web import modal — single-use, so a
   // stale/abandoned one should disappear rather than linger.
   await db.collection('pendingImportDrafts').createIndex({ tenantId: 1 });

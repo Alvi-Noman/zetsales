@@ -129,6 +129,36 @@ export async function listSupplierPurchaseOrders(req: AuthenticatedRequest, res:
   res.json({ success: true, purchaseOrders: rows.map(poDto), total, page, pageSize });
 }
 
+export async function listPurchaseOrders(req: AuthenticatedRequest, res: Response) {
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+
+  const match: Record<string, unknown> = { tenantId };
+  if (typeof req.query.status === 'string' && req.query.status.trim() && req.query.status !== 'all') {
+    match.status = req.query.status;
+  }
+
+  const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+  if (search) {
+    const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    match.$or = [
+      { poNumber: { $regex: escaped, $options: 'i' } },
+      { supplierName: { $regex: escaped, $options: 'i' } },
+      { warehouseName: { $regex: escaped, $options: 'i' } },
+    ];
+  }
+
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize) || 25));
+
+  const [rows, total] = await Promise.all([
+    db.collection('purchaseOrders').find(match).sort({ createdAt: -1 }).skip((page - 1) * pageSize).limit(pageSize).toArray(),
+    db.collection('purchaseOrders').countDocuments(match),
+  ]);
+
+  res.json({ success: true, purchaseOrders: rows.map(poDto), total, page, pageSize });
+}
+
 export async function getPurchaseOrder(req: AuthenticatedRequest, res: Response) {
   if (!ObjectId.isValid(req.params.id)) {
     res.status(400).json({ success: false, message: 'Invalid purchase order.' });

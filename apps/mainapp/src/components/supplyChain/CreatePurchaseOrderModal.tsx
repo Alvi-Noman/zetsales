@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Package, Plus, Trash2 } from 'lucide-react';
 import type { InventorySkuOptionDTO, SupplierDTO, WarehouseDTO } from '../../lib/commerceApi';
-import { createSupplier, listBins, listSuppliers, listWarehouses, createPurchaseOrder, updatePurchaseOrder, type PurchaseOrderDTO, type PurchaseOrderLinePayload } from '../../lib/commerceApi';
+import { createSupplier, listBins, listSuppliers, listWarehouses, createPurchaseOrder, updatePurchaseOrder, sendPurchaseOrder, type PurchaseOrderDTO, type PurchaseOrderLinePayload } from '../../lib/commerceApi';
 import { SkuPicker, SupplierPicker, WarehousePicker, BinPicker } from '../../pages/inventory/InventoryPage';
 import { Modal } from '../ui/Modal';
 import { useToast } from '../ui/ToastProvider';
+import { ConfirmPrintPromptModal } from './ConfirmPrintPromptModal';
+import { PrintPurchaseOrderModal } from './PrintPurchaseOrderModal';
 
 interface DraftLine {
   key: string;
@@ -55,6 +57,20 @@ export function CreatePurchaseOrderModal({ open, mode, supplierId: fixedSupplier
   const [suppliers, setSuppliers] = useState<SupplierDTO[]>([]);
   const [pickedSupplierId, setPickedSupplierId] = useState('');
   const [newSupplierName, setNewSupplierName] = useState('');
+  // Set only once a confirm actually succeeds — holds the flow open on a "print it?" prompt instead
+  // of closing/navigating away immediately, regardless of whether this modal was opened from the
+  // Suppliers list (which navigates on finish) or a specific supplier's page.
+  const [confirmedPo, setConfirmedPo] = useState<PurchaseOrderDTO | null>(null);
+  const [confirmedSupplierId, setConfirmedSupplierId] = useState('');
+  const [showPrintModal, setShowPrintModal] = useState(false);
+
+  const finish = () => {
+    const sid = confirmedSupplierId;
+    setConfirmedPo(null);
+    setShowPrintModal(false);
+    onSaved(sid);
+    onClose();
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -64,6 +80,9 @@ export function CreatePurchaseOrderModal({ open, mode, supplierId: fixedSupplier
 
   useEffect(() => {
     if (!open) return;
+    setConfirmedPo(null);
+    setConfirmedSupplierId('');
+    setShowPrintModal(false);
     if (!fixedSupplierId) {
       setPickedSupplierId(mode === 'edit' && initial ? initial.supplierId : '');
       setNewSupplierName('');
@@ -125,8 +144,12 @@ export function CreatePurchaseOrderModal({ open, mode, supplierId: fixedSupplier
     lines.length > 0 &&
     lines.every((l) => l.sku && Number(l.quantity) > 0 && l.unitPrice.trim() !== '' && Number(l.unitPrice) >= 0);
 
-  const save = async () => {
-    if (!canSave) return;
+  // Confirming requires every line to have a bin too (same rule sendPurchaseOrder enforces
+  // server-side) — checked here so the button disables itself instead of round-tripping to find out.
+  const canConfirm = canSave && lines.every((l) => l.bin.trim().length > 0);
+
+  const save = async (andConfirm: boolean) => {
+    if (!canSave || (andConfirm && !canConfirm)) return;
     setSaving(true);
     try {
       let supplierId = fixedSupplierId ?? '';
@@ -166,16 +189,31 @@ export function CreatePurchaseOrderModal({ open, mode, supplierId: fixedSupplier
         expectedAt: expectedAt || undefined,
       };
 
+      let poId: string;
       if (mode === 'edit' && initial) {
         const res = await updatePurchaseOrder(initial.id, payload);
-        if (!res.success) {
+        if (!res.success || !res.purchaseOrder) {
           toast.push(res.message || 'Could not save this purchase order.', 'info');
           return;
         }
+        poId = res.purchaseOrder.id;
       } else {
-        await createPurchaseOrder(payload);
+        const res = await createPurchaseOrder(payload);
+        poId = res.purchaseOrder.id;
       }
-      toast.push(mode === 'edit' ? 'Purchase order updated.' : 'Purchase order created.', 'success');
+
+      if (andConfirm) {
+        const sendRes = await sendPurchaseOrder(poId);
+        if (sendRes.success && sendRes.purchaseOrder) {
+          toast.push('Added to Incoming Stock.', 'success');
+          setConfirmedSupplierId(supplierId);
+          setConfirmedPo(sendRes.purchaseOrder);
+          return; // hold the flow open on the print prompt instead of closing immediately
+        }
+        toast.push(sendRes.message || 'Saved as draft, but could not confirm it — check the Purchase Orders section.', 'info');
+      } else {
+        toast.push(mode === 'edit' ? 'Purchase order updated.' : 'Purchase order created.', 'success');
+      }
       onSaved(supplierId);
       onClose();
     } catch (err) {
@@ -321,14 +359,32 @@ export function CreatePurchaseOrderModal({ open, mode, supplierId: fixedSupplier
           <span className="text-base font-bold text-slate-900">{money(total)}</span>
         </div>
 
-        <button
-          onClick={() => void save()}
-          disabled={!canSave}
-          className="flex h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-slate-900 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {saving ? 'Saving...' : mode === 'edit' ? 'Save changes' : 'Save as draft'}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => void save(false)}
+            disabled={!canSave}
+            className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {saving ? 'Saving...' : mode === 'edit' ? 'Save changes' : 'Save as draft'}
+          </button>
+          <button
+            onClick={() => void save(true)}
+            disabled={!canConfirm}
+            title={!canConfirm && canSave ? 'Every line needs a storage bin before this can be confirmed.' : undefined}
+            className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-lg bg-indigo-600 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {saving ? 'Saving...' : 'Confirm & add to Incoming Stock'}
+          </button>
+        </div>
       </div>
+
+      <ConfirmPrintPromptModal
+        open={confirmedPo !== null && !showPrintModal}
+        poNumber={confirmedPo?.poNumber ?? ''}
+        onSkip={finish}
+        onPrint={() => setShowPrintModal(true)}
+      />
+      <PrintPurchaseOrderModal open={showPrintModal} purchaseOrder={confirmedPo} onClose={finish} />
     </Modal>
   );
 }

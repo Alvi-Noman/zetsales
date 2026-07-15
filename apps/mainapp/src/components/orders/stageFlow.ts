@@ -22,8 +22,8 @@ export const NEXT_ACTION: Partial<Record<OrderStage, StageAction>> = {
   Pending: { label: 'Confirm order', icon: PhoneCall, nextStage: 'Confirmed' },
   Flagged: { label: 'Clear flag & confirm', icon: PhoneCall, nextStage: 'Confirmed' },
   Confirmed: { label: 'Send to packing', icon: Package, nextStage: 'Processing' },
-  Processing: { label: 'Hand over to courier', icon: Truck, nextStage: 'Shipped' },
-  Shipped: { label: 'Mark out for delivery', icon: Truck, nextStage: 'Out for Delivery' },
+  Processing: { label: 'Mark ready for pickup', icon: Truck, nextStage: 'Shipped' },
+  Shipped: { label: 'Hand over to courier', icon: Truck, nextStage: 'Out for Delivery' },
   'Out for Delivery': { label: 'Mark delivered', icon: PackageCheck, nextStage: 'Delivered' },
 };
 
@@ -33,3 +33,11 @@ export const NEXT_ACTION: Partial<Record<OrderStage, StageAction>> = {
 export const SECONDARY_ACTIONS: Partial<Record<OrderStage, StageAction[]>> = {
   'Out for Delivery': [{ label: 'Delivery failed', icon: RotateCcw, nextStage: 'RTO Initiated' }],
 };
+
+// A packing slip only makes sense once an order has actually reached packing — printing one for a
+// still-Confirmed order shows bins nobody has picked yet, and used to double as an accidental way
+// to *start* packing (see PrintOrderModal's old "Print & send to packing" button). Packing slips
+// are now purely a re-print of work already underway, so they're gated on having left Confirmed.
+export function canPrintPackingSlip(stage: OrderStage): boolean {
+  return stage !== 'Pending' && stage !== 'Flagged' && stage !== 'Confirmed';
+}

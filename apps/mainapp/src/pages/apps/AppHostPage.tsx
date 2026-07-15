@@ -3,9 +3,9 @@ import { useParams } from 'react-router-dom';
 import { getAppSessionToken } from '../../lib/commerceApi';
 import { useInstalledApps } from '../../hooks/useInstalledApps';
 
-// The generic full-page host for an oauth-type Embedded App — described in
+// The generic full-page host for an oauth-type embedded plugin — described in
 // docs/plugin-platform.md but not actually built until ZetSales Ads became the first real
-// oauth-type app. Mints a session token (App Bridge's own term) and renders the app's own
+// oauth-type plugin. Mints a session token (App Bridge's own term) and renders the plugin's own
 // `/embed/overview` page in an iframe, same session-token contract AppBlock.tsx uses for
 // block extensions, just for a whole page instead of one slot.
 export function AppHostPage() {
@@ -34,7 +34,7 @@ export function AppHostPage() {
     return <div className="flex h-full items-center justify-center text-sm text-slate-400">Loading…</div>;
   }
   if (!entry || entry.install?.status !== 'installed' || entry.manifest.authType !== 'oauth' || !entry.manifest.homepageUrl) {
-    return <div className="flex h-full items-center justify-center text-sm text-slate-400">This app isn't installed.</div>;
+    return <div className="flex h-full items-center justify-center text-sm text-slate-400">This plugin isn't installed.</div>;
   }
   if (!sessionToken) {
     return <div className="flex h-full items-center justify-center text-sm text-slate-400">Connecting…</div>;

@@ -60,8 +60,8 @@ export function BulkShipModal({ open, count, courierSummary, busy, onClose, onSu
     <Modal
       open={open}
       onClose={onClose}
-      title={`Hand over ${count} order${count === 1 ? '' : 's'} to courier`}
-      subtitle="Log who physically took these — useful later if a parcel ever goes missing before the courier scans it in."
+      title={`Mark ${count} order${count === 1 ? '' : 's'} ready for pickup`}
+      subtitle="Moves packed parcels into the pickup queue. Scan the bill barcode when the rider takes each parcel."
       widthClass="max-w-lg"
     >
       <div className="space-y-4">
@@ -70,7 +70,7 @@ export function BulkShipModal({ open, count, courierSummary, busy, onClose, onSu
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="mb-1.5 block text-xs font-semibold text-slate-600">Handover date &amp; time</label>
+            <label className="mb-1.5 block text-xs font-semibold text-slate-600">Ready date &amp; time</label>
             <input
               type="datetime-local"
               value={handoverAt}
@@ -88,11 +88,11 @@ export function BulkShipModal({ open, count, courierSummary, busy, onClose, onSu
             />
           </div>
           <div>
-            <label className="mb-1.5 block text-xs font-semibold text-slate-600">Pickup person's name (optional)</label>
+            <label className="mb-1.5 block text-xs font-semibold text-slate-600">Prepared by (optional)</label>
             <input
               value={pickupPersonName}
               onChange={(e) => setPickupPersonName(e.target.value)}
-              placeholder="Who took the parcels"
+              placeholder="Who prepared the parcels"
               className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15"
             />
           </div>
@@ -124,7 +124,7 @@ export function BulkShipModal({ open, count, courierSummary, busy, onClose, onSu
             disabled={busy}
             className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {busy ? 'Handing over...' : `Hand over ${count}`}
+            {busy ? 'Saving...' : 'Mark ready'}
           </button>
         </div>
       </div>

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAuth, requireTenant, requireModule } from '../middleware/authMiddleware.js';
 import {
   listSupplierPurchaseOrders,
+  listPurchaseOrders,
   getPurchaseOrder,
   createPurchaseOrder,
   updatePurchaseOrder,
@@ -15,6 +16,7 @@ const requireSupplyChain = requireModule('supplyChain');
 
 router.get('/supply-chain/suppliers/:id/purchase-orders', requireAuth, requireTenant, requireSupplyChain, listSupplierPurchaseOrders);
 router.post('/supply-chain/purchase-orders', requireAuth, requireTenant, requireSupplyChain, createPurchaseOrder);
+router.get('/supply-chain/purchase-orders', requireAuth, requireTenant, requireSupplyChain, listPurchaseOrders);
 router.get('/supply-chain/purchase-orders/:id', requireAuth, requireTenant, requireSupplyChain, getPurchaseOrder);
 router.patch('/supply-chain/purchase-orders/:id', requireAuth, requireTenant, requireSupplyChain, updatePurchaseOrder);
 router.delete('/supply-chain/purchase-orders/:id', requireAuth, requireTenant, requireSupplyChain, deletePurchaseOrder);

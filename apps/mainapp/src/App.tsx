@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AppShell } from './layouts/AppShell';
 import { OrdersPage } from './pages/orders/OrdersPage';
+import { DispatchPage } from './pages/dispatch/DispatchPage';
 import { PlaceholderPage } from './pages/PlaceholderPage';
 import { ToastProvider } from './components/ui/ToastProvider';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -44,6 +45,7 @@ const routeEntries = new Map<string, string>();
 });
 routeEntries.delete('/home');
 routeEntries.delete('/orders');
+routeEntries.delete('/dispatch');
 routeEntries.delete('/integrations');
 routeEntries.delete('/products');
 routeEntries.delete('/inventory');
@@ -100,6 +102,7 @@ function AppRoutes() {
         <Route path="/" element={<Navigate to="/home" replace />} />
         <Route path="/home" element={<HomePage />} />
         <Route path="/orders" element={<OrdersPage />} />
+        <Route path="/dispatch" element={<DispatchPage />} />
         <Route path="/integrations" element={<IntegrationsPage />} />
         <Route path="/messages" element={<CustomerServicePage />} />
         <Route path="/customer-service" element={<Navigate to="/messages" replace />} />

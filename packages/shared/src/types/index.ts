@@ -332,6 +332,7 @@ export type CourierHandoverStatus = 'Pending' | 'Confirmed';
 export interface EligibleHandoverOrderDTO {
   orderId: string;
   orderNumber: string;
+  invoiceNo: string | null;
   customerName: string | null;
   consignmentId: string | null;
   itemCount: number;
@@ -342,6 +343,7 @@ export interface EligibleHandoverOrderDTO {
 export interface CourierHandoverOrderRowDTO {
   orderId: string;
   orderNumber: string;
+  invoiceNo: string | null;
   customerName: string | null;
   consignmentId: string | null;
   itemCount: number;
@@ -357,6 +359,7 @@ export interface CourierHandoverItemRowDTO {
 
 export interface CourierHandoverDTO {
   id: string;
+  manifestNo: string;
   courierId: string;
   provider: CourierProvider;
   handoverDate: string;
@@ -641,8 +644,13 @@ export interface OrderRiskDTO {
   // Same delivered/cancelled-or-returned split as above, just broken out per courier partner —
   // this tenant's own order history only, no external API or cross-tenant data. For riskScope=
   // courier, `stale` means this row came from courierFraudHistory (the last known result) because
-  // a fresh live check failed, and `checkedAt` says how old it is.
-  courierBreakdown: { courierPartner: CourierPartner; delivered: number; failed: number; stale?: boolean; checkedAt?: string }[];
+  // a fresh live check failed, and `checkedAt` says how old it is. `unavailable` (riskScope=courier
+  // only) means this specific courier's live check failed with no cached fallback either — distinct
+  // from a real 0/0 result, so the UI can say "check failed" instead of silently omitting it.
+  courierBreakdown: (
+    | { courierPartner: CourierPartner; delivered: number; failed: number; stale?: boolean; checkedAt?: string; unavailable?: false }
+    | { courierPartner: CourierPartner; unavailable: true }
+  )[];
 }
 
 export interface OrderLineItemDTO {
@@ -672,6 +680,8 @@ export interface OrderDTO {
   platform: StorePlatform;
   externalId: string;
   number: string;
+  invoiceNo: string | null;
+  invoiceIssuedAt: string | null;
   stage: OrderStage;
   heldFromStage: OrderStage | null;
   paymentStatus: OrderPaymentStatus;
@@ -732,7 +742,7 @@ export interface OrderDTO {
   // phone, falling back to ZetSales' own network-wide order-stage history otherwise — same
   // preference order as the drawer's ZetSales Network scope. Null until at least 2 resolved
   // orders exist (matches computeOrderRisk's own threshold for a label to be meaningful), or if
-  // ZetSales Order Risk Checker isn't installed.
+  // ZetSales Fraud Checker isn't installed.
   riskLabel: RiskLabel | null;
   riskSuccessRate: number | null;
   // Cached result of a live Steadfast dashboard fraud-check (see steadfastFraudClient.ts), keyed
@@ -783,7 +793,7 @@ export interface OrderDTO {
   printedAt: string | null;
 }
 
-export type OrderTabKey = 'all' | 'priority' | 'pending' | 'confirmed' | 'processing' | 'shipped' | 'returning' | 'delivered' | 'codDue' | 'hold' | 'cancelled';
+export type OrderTabKey = 'all' | 'priority' | 'pending' | 'confirmed' | 'processing' | 'courierBooked' | 'shipped' | 'returning' | 'delivered' | 'codDue' | 'hold' | 'cancelled';
 
 export interface OrderDailyStatDTO {
   date: string;

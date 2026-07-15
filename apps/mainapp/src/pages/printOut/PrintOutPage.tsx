@@ -1,300 +1,544 @@
 import { useEffect, useMemo, useState } from 'react';
 import clsx from 'clsx';
-import { CalendarClock, ClipboardList, Package, Printer, Search, Wallet, X } from 'lucide-react';
-import type { InvoiceTemplateDTO, OrderDTO, OrderStage } from '@zetsales/shared';
-import { listReadyToPrintOrders, listPrintTemplates, listAllInventoryLevels, listWarehouses, type WarehouseDTO } from '../../lib/commerceApi';
-import { STAGE_LABEL, STAGE_TONE } from '../../components/orders/orderTone';
+import { FileText, Package, Printer, RotateCcw, Search, ShoppingCart, Tags, Truck, X } from 'lucide-react';
+import type { InvoiceTemplateDTO, OrderDTO } from '@zetsales/shared';
+import {
+  listAllInventoryLevels,
+  listOrders,
+  listPrintTemplates,
+  listPurchaseOrders,
+  listReadyToPrintOrders,
+  listWarehouses,
+  type PurchaseOrderDTO,
+  type PurchaseOrderStatus,
+  type WarehouseDTO,
+} from '../../lib/commerceApi';
+import { CourierLabelModal } from '../../components/orders/CourierLabelModal';
 import { PrintOrderModal, type PrintDocType } from '../../components/orders/PrintOrderModal';
-import { MetricCard, ageLabel } from '../inventory/InventoryPage';
+import { STAGE_LABEL, STAGE_TONE } from '../../components/orders/orderTone';
+import { formatAbsoluteDateTime } from '../../components/orders/time';
 import { buildBinLookup, type BinLookup } from '../../components/orders/binLookup';
+import { PrintPurchaseOrderModal } from '../../components/supplyChain/PrintPurchaseOrderModal';
 import { Select } from '../../components/ui/Select';
+import { useToast } from '../../components/ui/ToastProvider';
+import { ageLabel } from '../inventory/InventoryPage';
 
-const DOC_TYPE_OPTIONS: { value: PrintDocType; label: string }[] = [
-  { value: 'combined', label: 'Invoice + Slips' },
-  { value: 'invoice', label: 'Invoices only' },
-  { value: 'packingSlip', label: 'Packing slips only' },
+type PrintTask = 'invoice' | 'packingSlip' | 'combined' | 'courierLabel' | 'purchaseOrder';
+
+const PRINT_TASKS: {
+  key: PrintTask;
+  title: string;
+  detail: string;
+  icon: typeof FileText;
+}[] = [
+  { key: 'invoice', title: 'Only Print Invoice', detail: 'Confirmed and packing orders that need invoices.', icon: FileText },
+  { key: 'packingSlip', title: 'Print Packing Slip', detail: 'Packing orders only, for warehouse picking.', icon: Package },
+  { key: 'combined', title: 'Print Invoice + Slip', detail: 'Packing orders with both customer and warehouse pages.', icon: Printer },
+  { key: 'courierLabel', title: 'Print Courier Label', detail: 'Ready-for-pickup parcels that need shipping labels.', icon: Tags },
+  { key: 'purchaseOrder', title: 'Print Purchase Orders', detail: 'Supplier purchase order documents.', icon: ShoppingCart },
 ];
 
-type StageFilter = 'all' | Extract<OrderStage, 'Confirmed' | 'Processing'>;
+const ORDER_DOC_TYPE: Partial<Record<PrintTask, PrintDocType>> = {
+  invoice: 'invoice',
+  packingSlip: 'packingSlip',
+  combined: 'combined',
+};
+
+const PO_STATUS_OPTIONS: { value: PurchaseOrderStatus | 'all'; label: string }[] = [
+  { value: 'all', label: 'All statuses' },
+  { value: 'draft', label: 'Draft' },
+  { value: 'sent', label: 'Sent' },
+  { value: 'partially_received', label: 'Partially received' },
+  { value: 'received', label: 'Received' },
+  { value: 'cancelled', label: 'Cancelled' },
+];
+
+const PO_STATUS_LABEL: Record<PurchaseOrderStatus, string> = {
+  draft: 'Draft',
+  sent: 'Sent',
+  partially_received: 'Partially received',
+  received: 'Received',
+  cancelled: 'Cancelled',
+};
+
+const PO_STATUS_TONE: Record<PurchaseOrderStatus, string> = {
+  draft: 'bg-slate-100 text-slate-600 ring-slate-200',
+  sent: 'bg-indigo-50 text-indigo-700 ring-indigo-100',
+  partially_received: 'bg-amber-50 text-amber-700 ring-amber-100',
+  received: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
+  cancelled: 'bg-rose-50 text-rose-700 ring-rose-100',
+};
+
+function orderMoney(order: OrderDTO) {
+  return `${order.currency} ${order.total.toLocaleString()}`;
+}
+
+function poMoney(value: number) {
+  return `BDT ${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+}
+
+function itemCount(order: OrderDTO) {
+  return order.lineItems.reduce((sum, item) => sum + item.quantity, 0);
+}
+
+function printCode(order: OrderDTO) {
+  return order.invoiceNo ?? order.number;
+}
 
 export function PrintOutPage() {
+  const toast = useToast();
+  const [task, setTask] = useState<PrintTask>('invoice');
   const [orders, setOrders] = useState<OrderDTO[]>([]);
-  const [total, setTotal] = useState(0);
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrderDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [templates, setTemplates] = useState<InvoiceTemplateDTO[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
-  const [docType, setDocType] = useState<PrintDocType>('combined');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [binLookup, setBinLookup] = useState<BinLookup | undefined>(undefined);
-  const [modalOpen, setModalOpen] = useState(false);
+  const [orderModalOpen, setOrderModalOpen] = useState(false);
+  const [labelModalOpen, setLabelModalOpen] = useState(false);
+  const [printingPo, setPrintingPo] = useState<PurchaseOrderDTO | null>(null);
   const [search, setSearch] = useState('');
-  const [stageFilter, setStageFilter] = useState<StageFilter>('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [warehouseFilter, setWarehouseFilter] = useState('all');
+  const [poStatus, setPoStatus] = useState<PurchaseOrderStatus | 'all'>('all');
   const [warehouses, setWarehouses] = useState<WarehouseDTO[]>([]);
 
-  const load = async () => {
+  const loadSupportData = async () => {
+    try {
+      const [templatesRes, levels, warehouseRes] = await Promise.all([listPrintTemplates(), listAllInventoryLevels(), listWarehouses()]);
+      setTemplates(templatesRes.templates);
+      const defaultTemplate = templatesRes.templates.find((template) => template.isDefault);
+      if (defaultTemplate) setSelectedTemplateId(defaultTemplate.id);
+      setBinLookup(buildBinLookup(levels));
+      setWarehouses(warehouseRes.warehouses);
+    } catch {
+      toast.push('Could not load print settings.', 'info');
+    }
+  };
+
+  const loadTaskRows = async (nextTask = task) => {
     setLoading(true);
     try {
-      const [ordersRes, templatesRes] = await Promise.all([listReadyToPrintOrders(), listPrintTemplates()]);
-      setOrders(ordersRes.orders);
-      setTotal(ordersRes.total);
-      setSelectedIds(new Set(ordersRes.orders.map((o) => o.id)));
-      setTemplates(templatesRes.templates);
-      const defaultTemplate = templatesRes.templates.find((t) => t.isDefault);
-      if (defaultTemplate) setSelectedTemplateId(defaultTemplate.id);
+      if (nextTask === 'purchaseOrder') {
+        const res = await listPurchaseOrders({ status: poStatus, pageSize: 100 });
+        setPurchaseOrders(res.purchaseOrders);
+        setOrders([]);
+        setSelectedIds(new Set());
+        return;
+      }
+
+      const res =
+        nextTask === 'invoice'
+          ? await listReadyToPrintOrders()
+          : await listOrders({
+              tab: nextTask === 'courierLabel' ? 'courierBooked' : 'processing',
+              sortKey: 'date',
+              sortDir: 'asc',
+              pageSize: 100,
+            });
+
+      setOrders(res.orders);
+      setPurchaseOrders([]);
+      setSelectedIds(new Set(res.orders.map((order) => order.id)));
+    } catch {
+      toast.push('Could not load printable rows.', 'info');
+      setOrders([]);
+      setPurchaseOrders([]);
+      setSelectedIds(new Set());
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    void load();
-    void listAllInventoryLevels().then((levels) => setBinLookup(buildBinLookup(levels)));
-    void listWarehouses().then((res) => setWarehouses(res.warehouses));
+    void loadSupportData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const oldestWaiting = useMemo(() => {
-    if (orders.length === 0) return null;
-    const oldest = orders.reduce((a, b) => (new Date(a.createdAt) < new Date(b.createdAt) ? a : b));
-    return ageLabel(oldest.createdAt);
-  }, [orders]);
+  useEffect(() => {
+    void loadTaskRows(task);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task, poStatus]);
 
-  const totalUnits = useMemo(() => orders.reduce((sum, o) => sum + o.lineItems.reduce((s, li) => s + li.quantity, 0), 0), [orders]);
-  const totalValue = useMemo(() => orders.reduce((sum, o) => sum + o.total, 0), [orders]);
+  const activeTask = PRINT_TASKS.find((item) => item.key === task)!;
+  const selectedTemplate = templates.find((template) => template.id === selectedTemplateId) ?? null;
+  const isPurchaseTask = task === 'purchaseOrder';
+  const isCourierLabelTask = task === 'courierLabel';
 
   const toggleSelected = (id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
+    setSelectedIds((current) => {
+      const next = new Set(current);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
   };
 
-  const hasActiveFilters = search.trim() !== '' || stageFilter !== 'all' || dateFrom !== '' || dateTo !== '' || warehouseFilter !== 'all';
+  const hasActiveFilters = search.trim() !== '' || dateFrom !== '' || dateTo !== '' || warehouseFilter !== 'all' || (isPurchaseTask && poStatus !== 'all');
   const clearFilters = () => {
     setSearch('');
-    setStageFilter('all');
     setDateFrom('');
     setDateTo('');
     setWarehouseFilter('all');
+    setPoStatus('all');
+  };
+
+  const dateInRange = (iso: string) => {
+    const createdAt = new Date(iso);
+    const from = dateFrom ? new Date(dateFrom) : null;
+    const to = dateTo ? new Date(`${dateTo}T23:59:59.999`) : null;
+    if (from && createdAt < from) return false;
+    if (to && createdAt > to) return false;
+    return true;
   };
 
   const filteredOrders = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const from = dateFrom ? new Date(dateFrom) : null;
-    const to = dateTo ? new Date(`${dateTo}T23:59:59.999`) : null;
-    return orders.filter((o) => {
-      if (stageFilter !== 'all' && o.stage !== stageFilter) return false;
-      if (warehouseFilter === 'unassigned' && o.fulfillmentWarehouseId !== null) return false;
-      if (warehouseFilter !== 'all' && warehouseFilter !== 'unassigned' && o.fulfillmentWarehouseId !== warehouseFilter) return false;
-      const createdAt = new Date(o.createdAt);
-      if (from && createdAt < from) return false;
-      if (to && createdAt > to) return false;
-      if (q) {
-        const haystack = `${o.number} ${o.customerName ?? ''} ${o.customerPhone ?? ''}`.toLowerCase();
-        if (!haystack.includes(q)) return false;
+    const query = search.trim().toLowerCase();
+    return orders.filter((order) => {
+      if (warehouseFilter === 'unassigned' && order.fulfillmentWarehouseId !== null) return false;
+      if (warehouseFilter !== 'all' && warehouseFilter !== 'unassigned' && order.fulfillmentWarehouseId !== warehouseFilter) return false;
+      if (!dateInRange(order.createdAt)) return false;
+      if (query) {
+        const haystack = [
+          order.invoiceNo,
+          order.number,
+          order.customerName,
+          order.customerPhone,
+          order.customerAltPhone,
+          order.courierPartner,
+          order.courierTrackingId,
+          order.courierConsignmentId,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        if (!haystack.includes(query)) return false;
       }
       return true;
     });
-  }, [orders, search, stageFilter, dateFrom, dateTo, warehouseFilter]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders, search, dateFrom, dateTo, warehouseFilter]);
 
-  const filteredSelectedCount = filteredOrders.filter((o) => selectedIds.has(o.id)).length;
-  const allFilteredSelected = filteredOrders.length > 0 && filteredSelectedCount === filteredOrders.length;
+  const filteredPurchaseOrders = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return purchaseOrders.filter((po) => {
+      if (warehouseFilter !== 'all' && po.warehouseId !== warehouseFilter) return false;
+      if (!dateInRange(po.createdAt)) return false;
+      if (query) {
+        const haystack = `${po.poNumber} ${po.supplierName} ${po.warehouseName}`.toLowerCase();
+        if (!haystack.includes(query)) return false;
+      }
+      return true;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [purchaseOrders, search, dateFrom, dateTo, warehouseFilter]);
 
-  const toggleSelectAllFiltered = () => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      filteredOrders.forEach((o) => {
-        if (allFilteredSelected) next.delete(o.id);
-        else next.add(o.id);
+  const visibleIds = isPurchaseTask ? filteredPurchaseOrders.map((po) => po.id) : filteredOrders.map((order) => order.id);
+  const selectedVisibleCount = visibleIds.filter((id) => selectedIds.has(id)).length;
+  const allVisibleSelected = visibleIds.length > 0 && selectedVisibleCount === visibleIds.length;
+  const selectedOrders = orders.filter((order) => selectedIds.has(order.id));
+
+  const toggleSelectAllVisible = () => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      visibleIds.forEach((id) => {
+        if (allVisibleSelected) next.delete(id);
+        else next.add(id);
       });
       return next;
     });
   };
 
-  const selectedOrders = orders.filter((o) => selectedIds.has(o.id));
-  const selectedTemplate = templates.find((t) => t.id === selectedTemplateId) ?? null;
+  const handlePrimaryPrint = () => {
+    if (isPurchaseTask) {
+      const selectedPo = purchaseOrders.find((po) => selectedIds.has(po.id));
+      if (selectedPo) setPrintingPo(selectedPo);
+      return;
+    }
+    if (isCourierLabelTask) {
+      setLabelModalOpen(true);
+      return;
+    }
+    setOrderModalOpen(true);
+  };
+
+  const selectedPoCount = purchaseOrders.filter((po) => selectedIds.has(po.id)).length;
+  const primaryPrintDisabled = isPurchaseTask ? selectedPoCount !== 1 : selectedOrders.length === 0;
+  const docType = ORDER_DOC_TYPE[task] ?? 'invoice';
 
   return (
-    <div className="px-4 py-4 lg:px-8 lg:py-6">
-      <div className="mb-4">
-        <h1 className="text-lg font-bold text-slate-900">Print Out</h1>
-        <p className="mt-0.5 text-sm text-slate-500">Everything confirmed and ready to pack — pick a template, select orders, and print.</p>
+    <div className="flex min-h-full flex-col bg-white">
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 px-4 py-4 lg:px-8">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900">Print Out</h1>
+          <p className="mt-1 text-sm text-slate-500">Choose what you need to print first; the list below will only show matching records.</p>
+        </div>
+        <button
+          onClick={() => void loadTaskRows(task)}
+          className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+        >
+          <RotateCcw size={14} /> Refresh
+        </button>
       </div>
 
-      <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-          <MetricCard icon={ClipboardList} label="Ready to print" value={total.toLocaleString()} detail="confirmed / processing orders" tone={total > 0 ? 'amber' : 'emerald'} />
-          <MetricCard icon={Package} label="Units" value={totalUnits.toLocaleString()} detail="across those orders" tone="indigo" />
-          <MetricCard icon={Wallet} label="Order value" value={`৳${totalValue.toLocaleString()}`} detail="not yet printed" tone="emerald" />
-          <MetricCard icon={CalendarClock} label="Oldest waiting" value={oldestWaiting ?? '—'} detail="since confirmation" />
+      <div className="border-b border-slate-200 px-4 py-4 lg:px-8">
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5">
+          {PRINT_TASKS.map((item) => {
+            const Icon = item.icon;
+            const active = task === item.key;
+            return (
+              <button
+                key={item.key}
+                onClick={() => setTask(item.key)}
+                className={clsx(
+                  'min-h-[104px] rounded-lg border p-3 text-left transition',
+                  active ? 'border-indigo-300 bg-indigo-50 ring-2 ring-indigo-500/10' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+                )}
+              >
+                <span className={clsx('flex h-9 w-9 items-center justify-center rounded-lg', active ? 'bg-white text-indigo-700' : 'bg-slate-100 text-slate-500')}>
+                  <Icon size={17} />
+                </span>
+                <span className="mt-3 block text-sm font-bold text-slate-900">{item.title}</span>
+                <span className="mt-1 block text-xs leading-5 text-slate-500">{item.detail}</span>
+              </button>
+            );
+          })}
         </div>
+      </div>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-bold text-slate-900">Ready to print</h2>
-              <p className="mt-1 text-xs text-slate-400">Select which orders to include, choose a template and document type, then print.</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
+      <div className="border-b border-slate-200 px-4 py-3 lg:px-8">
+        <div className="flex flex-wrap items-center gap-2">
+          <div>
+            <p className="text-sm font-bold text-slate-900">{activeTask.title}</p>
+            <p className="text-xs text-slate-500">{activeTask.detail}</p>
+          </div>
+
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            {!isCourierLabelTask && !isPurchaseTask && (
               <Select
                 value={selectedTemplateId}
                 onChange={setSelectedTemplateId}
                 options={
                   templates.length === 0
                     ? [{ value: '', label: 'Default layout' }]
-                    : templates.map((t) => ({ value: t.id, label: `${t.name}${t.isDefault ? ' (default)' : ''}` }))
+                    : templates.map((template) => ({ value: template.id, label: `${template.name}${template.isDefault ? ' (default)' : ''}` }))
                 }
               />
-              <Select value={docType} onChange={(v) => setDocType(v as PrintDocType)} options={DOC_TYPE_OPTIONS} />
-              <button
-                onClick={() => setModalOpen(true)}
-                disabled={selectedIds.size === 0}
-                className="flex h-9 items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <Printer size={14} /> Print ({selectedIds.size})
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
-            <div className="relative">
-              <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Order #, customer, phone"
-                className="h-9 w-56 rounded-lg border border-slate-200 bg-white pl-8 pr-2.5 text-sm text-slate-700 outline-none focus:border-indigo-400"
-              />
-            </div>
-            <Select
-              value={stageFilter}
-              onChange={(v) => setStageFilter(v as StageFilter)}
-              options={[
-                { value: 'all', label: 'All stages' },
-                { value: 'Confirmed', label: STAGE_LABEL.Confirmed },
-                { value: 'Processing', label: STAGE_LABEL.Processing },
-              ]}
-            />
-            <Select
-              value={warehouseFilter}
-              onChange={setWarehouseFilter}
-              options={[
-                { value: 'all', label: 'All warehouses' },
-                ...warehouses.map((w) => ({ value: w.id, label: w.name })),
-                { value: 'unassigned', label: 'Unassigned' },
-              ]}
-            />
-            <div className="flex items-center gap-1.5 text-sm text-slate-400">
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="h-9 rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-700 outline-none focus:border-indigo-400"
-              />
-              <span>to</span>
-              <input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="h-9 rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-700 outline-none focus:border-indigo-400"
-              />
-            </div>
-            {hasActiveFilters && (
-              <button
-                onClick={clearFilters}
-                className="flex h-9 items-center gap-1 rounded-lg px-2.5 text-sm font-medium text-slate-500 hover:bg-slate-100"
-              >
-                <X size={14} /> Clear filters
-              </button>
             )}
+            {isPurchaseTask && <Select value={poStatus} onChange={(value) => setPoStatus(value as PurchaseOrderStatus | 'all')} options={PO_STATUS_OPTIONS} />}
+            <button
+              onClick={handlePrimaryPrint}
+              disabled={primaryPrintDisabled}
+              className="flex h-9 items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Printer size={14} />
+              {isPurchaseTask ? 'Print selected PO' : `Print (${selectedOrders.length})`}
+            </button>
           </div>
-        </section>
+        </div>
 
-        <section className="rounded-xl border border-slate-200 bg-white">
-          {loading ? (
-            <div className="flex h-64 items-center justify-center text-sm text-slate-400">Loading orders ready to print...</div>
-          ) : orders.length === 0 ? (
-            <div className="flex h-64 flex-col items-center justify-center gap-2 px-8 text-center">
-              <Printer size={28} className="text-slate-300" />
-              <p className="text-sm font-semibold text-slate-700">Nothing to print right now</p>
-              <p className="max-w-md text-sm text-slate-400">Every confirmed order has already been printed, or nothing's been confirmed yet.</p>
-            </div>
-          ) : filteredOrders.length === 0 ? (
-            <div className="flex h-64 flex-col items-center justify-center gap-2 px-8 text-center">
-              <Search size={28} className="text-slate-300" />
-              <p className="text-sm font-semibold text-slate-700">No orders match your filters</p>
-              <button onClick={clearFilters} className="text-sm font-semibold text-indigo-600 hover:text-indigo-700">Clear filters</button>
-            </div>
-          ) : (
-            <>
-              <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-2 text-xs font-semibold text-slate-500">
-                <input
-                  type="checkbox"
-                  checked={allFilteredSelected}
-                  onChange={toggleSelectAllFiltered}
-                  className="h-4 w-4 rounded border-slate-300"
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[260px] flex-1 sm:max-w-lg">
+            <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder={isPurchaseTask ? 'Search PO, supplier, warehouse' : 'Search bill, order, customer, phone, tracking'}
+              className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 pl-8 pr-3 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15"
+            />
+          </div>
+          <Select
+            value={warehouseFilter}
+            onChange={setWarehouseFilter}
+            options={[
+              { value: 'all', label: 'All warehouses' },
+              ...warehouses.map((warehouse) => ({ value: warehouse.id, label: warehouse.name })),
+              ...(isPurchaseTask ? [] : [{ value: 'unassigned', label: 'Unassigned' }]),
+            ]}
+          />
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(event) => setDateFrom(event.target.value)}
+            className="h-9 rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-700 outline-none focus:border-indigo-400"
+          />
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(event) => setDateTo(event.target.value)}
+            className="h-9 rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-700 outline-none focus:border-indigo-400"
+          />
+          {hasActiveFilters && (
+            <button onClick={clearFilters} className="flex h-9 items-center gap-1 rounded-lg px-2.5 text-sm font-medium text-slate-500 hover:bg-slate-100">
+              <X size={14} /> Clear
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-auto">
+        {loading ? (
+          <div className="flex h-72 items-center justify-center text-sm text-slate-400">Loading printable records...</div>
+        ) : isPurchaseTask ? (
+          <section className="min-w-[880px]">
+            {filteredPurchaseOrders.length === 0 ? (
+              <EmptyState title="No purchase orders found" detail="Change the filters or create a purchase order from Supply Chain." />
+            ) : (
+              <>
+                <SelectionBar
+                  selected={selectedVisibleCount}
+                  total={filteredPurchaseOrders.length}
+                  checked={allVisibleSelected}
+                  onToggle={toggleSelectAllVisible}
+                  helper="Select exactly one PO to print from the top button, or use the row print action."
                 />
-                {filteredSelectedCount} of {filteredOrders.length} selected
-                {hasActiveFilters && orders.length !== filteredOrders.length && (
-                  <span className="font-normal text-slate-400">(filtered from {orders.length})</span>
-                )}
-              </div>
-              <div className="divide-y divide-slate-100">
-                {filteredOrders.map((order) => {
-                  const itemCount = order.lineItems.reduce((s, li) => s + li.quantity, 0);
-                  const firstItem = order.lineItems[0];
-                  return (
-                    <div key={order.id} className="flex items-center gap-3 px-4 py-3">
+                <div className="grid grid-cols-[44px_1.1fr_1.1fr_1fr_0.8fr_0.8fr_120px] border-b border-slate-100 px-4 py-2 text-xs font-bold uppercase tracking-wide text-slate-400">
+                  <span />
+                  <span>PO</span>
+                  <span>Supplier</span>
+                  <span>Warehouse</span>
+                  <span>Status</span>
+                  <span className="text-right">Total</span>
+                  <span className="text-right">Action</span>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {filteredPurchaseOrders.map((po) => (
+                    <div key={po.id} className="grid grid-cols-[44px_1.1fr_1.1fr_1fr_0.8fr_0.8fr_120px] items-center px-4 py-3 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(po.id)}
+                        onChange={() => toggleSelected(po.id)}
+                        className="h-4 w-4 rounded border-slate-300"
+                      />
+                      <div>
+                        <p className="font-bold text-slate-900">{po.poNumber}</p>
+                        <p className="text-xs text-slate-400">{formatAbsoluteDateTime(po.createdAt)}</p>
+                      </div>
+                      <p className="truncate font-medium text-slate-700">{po.supplierName}</p>
+                      <p className="truncate text-slate-600">{po.warehouseName}</p>
+                      <span className={clsx('w-fit rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset', PO_STATUS_TONE[po.status])}>
+                        {PO_STATUS_LABEL[po.status]}
+                      </span>
+                      <p className="text-right font-bold tabular-nums text-slate-900">{poMoney(po.total)}</p>
+                      <button
+                        onClick={() => setPrintingPo(po)}
+                        className="ml-auto flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                      >
+                        <Printer size={13} /> Print
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </section>
+        ) : (
+          <section className="min-w-[900px]">
+            {filteredOrders.length === 0 ? (
+              <EmptyState title="No matching orders found" detail="This print task only shows orders in its matching stage." />
+            ) : (
+              <>
+                <SelectionBar
+                  selected={selectedVisibleCount}
+                  total={filteredOrders.length}
+                  checked={allVisibleSelected}
+                  onToggle={toggleSelectAllVisible}
+                  helper={isCourierLabelTask ? 'Ready-for-pickup parcels only.' : 'Selected rows will print together.'}
+                />
+                <div className="grid grid-cols-[44px_1fr_1.3fr_0.9fr_0.7fr_0.8fr_0.8fr] border-b border-slate-100 px-4 py-2 text-xs font-bold uppercase tracking-wide text-slate-400">
+                  <span />
+                  <span>Bill / Order</span>
+                  <span>Customer</span>
+                  <span>{isCourierLabelTask ? 'Courier' : 'Stage'}</span>
+                  <span className="text-right">Items</span>
+                  <span className="text-right">Total</span>
+                  <span className="text-right">Waiting</span>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {filteredOrders.map((order) => (
+                    <div key={order.id} className="grid grid-cols-[44px_1fr_1.3fr_0.9fr_0.7fr_0.8fr_0.8fr] items-center px-4 py-3 text-sm">
                       <input
                         type="checkbox"
                         checked={selectedIds.has(order.id)}
                         onChange={() => toggleSelected(order.id)}
-                        className="h-4 w-4 shrink-0 rounded border-slate-300"
+                        className="h-4 w-4 rounded border-slate-300"
                       />
-                      {firstItem?.image ? (
-                        <img src={firstItem.image} alt="" className="h-9 w-9 shrink-0 rounded-md object-cover" />
-                      ) : (
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-100">
-                          <Package size={14} className="text-slate-400" />
+                      <div className="min-w-0">
+                        <p className="truncate font-bold text-slate-900">{printCode(order)}</p>
+                        {order.invoiceNo ? <p className="truncate text-xs text-slate-400">Order {order.number}</p> : <p className="text-xs text-slate-400">Bill no issued on print</p>}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-slate-800">{order.customerName ?? 'Unknown customer'}</p>
+                        <p className="truncate text-xs text-slate-400">{order.customerPhone ?? 'No phone'}</p>
+                      </div>
+                      {isCourierLabelTask ? (
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-slate-700">{order.courierPartner ?? 'Courier'}</p>
+                          <p className="truncate text-xs text-slate-400">{order.courierTrackingId ?? order.courierConsignmentId ?? 'No tracking yet'}</p>
                         </div>
+                      ) : (
+                        <span className={clsx('w-fit rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset', STAGE_TONE[order.stage])}>
+                          {STAGE_LABEL[order.stage]}
+                        </span>
                       )}
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-semibold text-slate-800">{order.number}</p>
-                        <p className="truncate text-xs text-slate-400">{order.customerName ?? 'Unknown customer'} · {itemCount} item{itemCount === 1 ? '' : 's'}</p>
-                      </div>
-                      <span className={clsx('shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset', STAGE_TONE[order.stage])}>
-                        {STAGE_LABEL[order.stage]}
-                      </span>
-                      <div className="w-24 shrink-0 text-right">
-                        <p className="text-sm font-bold tabular-nums text-slate-900">{order.currency} {order.total.toLocaleString()}</p>
-                        <p className="text-[10px] text-slate-400">{ageLabel(order.createdAt)} ago</p>
-                      </div>
+                      <p className="text-right tabular-nums text-slate-600">{itemCount(order)}</p>
+                      <p className="text-right font-bold tabular-nums text-slate-900">{orderMoney(order)}</p>
+                      <p className="text-right text-xs text-slate-400">{ageLabel(order.createdAt)}</p>
                     </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
-        </section>
+                  ))}
+                </div>
+              </>
+            )}
+          </section>
+        )}
       </div>
 
       <PrintOrderModal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
+        open={orderModalOpen}
+        onClose={() => setOrderModalOpen(false)}
         orders={selectedOrders}
         docType={docType}
         binLookup={binLookup}
         template={selectedTemplate}
-        onOrdersProcessed={() => {
-          setModalOpen(false);
-          void load();
-        }}
       />
+      <CourierLabelModal open={labelModalOpen} onClose={() => setLabelModalOpen(false)} orders={selectedOrders} />
+      <PrintPurchaseOrderModal open={printingPo !== null} onClose={() => setPrintingPo(null)} purchaseOrder={printingPo} />
+    </div>
+  );
+}
+
+function SelectionBar({
+  selected,
+  total,
+  checked,
+  onToggle,
+  helper,
+}: {
+  selected: number;
+  total: number;
+  checked: boolean;
+  onToggle: () => void;
+  helper: string;
+}) {
+  return (
+    <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-2 text-xs font-semibold text-slate-500">
+      <input type="checkbox" checked={checked} onChange={onToggle} className="h-4 w-4 rounded border-slate-300" />
+      <span>
+        {selected} of {total} selected
+      </span>
+      <span className="font-normal text-slate-400">{helper}</span>
+    </div>
+  );
+}
+
+function EmptyState({ title, detail }: { title: string; detail: string }) {
+  return (
+    <div className="flex h-72 flex-col items-center justify-center gap-2 px-8 text-center">
+      <Truck size={28} className="text-slate-300" />
+      <p className="text-sm font-semibold text-slate-700">{title}</p>
+      <p className="max-w-md text-sm text-slate-400">{detail}</p>
     </div>
   );
 }

@@ -16,13 +16,14 @@ import { createSteadfastConsignment } from '../integrations/steadfastClient.js';
 import { createPathaoOrder } from '../integrations/pathaoClient.js';
 import { getConnectedCourier, markCourierUsed, decryptSteadfastCredentials, decryptPathaoCredentials, resolveCourierCharge, resolveCourierReturnCharge } from './couriersController.js';
 import { detectZoneTier } from '../integrations/zoneDetection.js';
-import { resolveActiveClaim, CLAIM_STALE_MS } from '../utils/claim.js';
+import { resolveActiveClaim, shouldUseCallClaim, CLAIM_STALE_MS } from '../utils/claim.js';
 import { maybeAutoFlagForFraud, isFraudCheckerInstalled } from '../utils/fraudChecks.js';
 import { dispatchAppWebhook } from '../utils/appEvents.js';
 import { getSteadfastFraudCheck } from '../integrations/steadfastFraudClient.js';
 import { getPathaoFraudCheck } from '../integrations/pathaoFraudClient.js';
 import { recordCourierFraudHistory, getCourierFraudHistory } from '../utils/courierFraudHistory.js';
 import { normalizeBdPhone } from '../utils/phoneNormalize.js';
+import { nextInvoiceNumberForStore } from '../utils/invoiceNumbers.js';
 import {
   mapShopifyOrderStage,
   mapShopifyPaymentStatus,
@@ -46,6 +47,8 @@ function toOrderDto(doc: any): OrderDTO {
     platform: doc.platform,
     externalId: doc.externalId,
     number: doc.number,
+    invoiceNo: doc.invoiceNo ?? null,
+    invoiceIssuedAt: doc.invoiceIssuedAt ? new Date(doc.invoiceIssuedAt).toISOString() : null,
     stage: doc.stage,
     heldFromStage: doc.heldFromStage ?? null,
     paymentStatus: doc.paymentStatus,
@@ -112,8 +115,12 @@ function toOrderDto(doc: any): OrderDTO {
     createdAt: new Date(doc.createdAt).toISOString(),
     updatedAt: new Date(doc.updatedAt).toISOString(),
     printedAt: doc.printedAt ? new Date(doc.printedAt).toISOString() : null,
-    ...resolveActiveClaim(doc),
+    ...(shouldUseCallClaim(doc) ? resolveActiveClaim(doc) : { claimedBy: null, claimedAt: null }),
   };
+}
+
+function isDuplicateKeyError(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && (error as any).code === 11000);
 }
 
 // Blocking is a customer fact (by phone), not an order field — it has to be checkable *before* a
@@ -392,7 +399,7 @@ const SORT_FIELD_MAP: Record<string, string> = {
 // Tabs are compound filters a plain stage/paymentStatus dropdown can't express on its own (e.g.
 // "COD due" spans several active stages but excludes cancelled/returned ones). Shared between
 // listOrders and getOrderStats so the tab counts always match what clicking the tab actually shows.
-export const TAB_KEYS = ['all', 'priority', 'pending', 'confirmed', 'processing', 'shipped', 'returning', 'delivered', 'codDue', 'hold', 'cancelled'] as const;
+export const TAB_KEYS = ['all', 'priority', 'pending', 'confirmed', 'processing', 'courierBooked', 'shipped', 'returning', 'delivered', 'codDue', 'hold', 'cancelled'] as const;
 export type TabKey = (typeof TAB_KEYS)[number];
 
 function tabMatch(tab: string | undefined): Record<string, unknown> {
@@ -423,8 +430,10 @@ function tabMatch(tab: string | undefined): Record<string, unknown> {
       return { stage: 'Confirmed' };
     case 'processing':
       return { stage: 'Processing' };
+    case 'courierBooked':
+      return { stage: 'Shipped', handoverId: null };
     case 'shipped':
-      return { stage: { $in: ['Shipped', 'Out for Delivery'] } };
+      return { stage: 'Out for Delivery' };
     case 'returning':
       return { stage: { $in: ['RTO Initiated', 'QC Pending'] } };
     case 'delivered':
@@ -513,7 +522,7 @@ async function attachReturningFlags(db: ReturnType<typeof getDb>, tenantId: stri
 // computeOrderRisk) only for phones with no courier history yet. Unlike computeOrderRisk the
 // order-fallback path doesn't exclude the current order from its own phone's count; with a real
 // history that one extra order doesn't change the threshold outcome, an accepted simplification
-// for row display. No-ops entirely unless ZetSales Order Risk Checker is installed for this
+// for row display. No-ops entirely unless ZetSales Fraud Checker is installed for this
 // tenant.
 async function attachRiskLabels(db: ReturnType<typeof getDb>, tenantId: string, orders: OrderDTO[]) {
   if (!(await isFraudCheckerInstalled(tenantId))) return;
@@ -618,6 +627,29 @@ async function checkAndStorePathaoFraud(tenantId: string, orderFilter: Record<st
   void recordCourierFraudHistory(customerPhone, 'pathao', result);
 }
 
+// Shared by listOrders' stockStatus filter and getOrderStats' restockedReadyCount — same
+// best-stocked-location-per-SKU computation both need to agree with what the row badge/tag shows,
+// factored out once rather than drifting between two copies.
+async function computeFreeBySku(db: ReturnType<typeof getDb>, tenantId: string): Promise<Map<string, number>> {
+  const levels = await db.collection('inventoryLevels').find({ tenantId }, { projection: { sku: 1, onHand: 1, reserved: 1 } }).toArray();
+  const freeBySku = new Map<string, number>();
+  for (const level of levels) {
+    if (!level.sku) continue;
+    const free = Math.max(0, (level.onHand ?? 0) - (level.reserved ?? 0));
+    const prev = freeBySku.get(level.sku);
+    if (prev === undefined || free > prev) freeBySku.set(level.sku, free);
+  }
+  return freeBySku;
+}
+
+function orderHasShortfall(lineItems: { sku: string | null; quantity: number }[], freeBySku: Map<string, number>): boolean {
+  return lineItems.some((item) => {
+    if (!item.sku) return false;
+    const free = freeBySku.get(item.sku);
+    return free !== undefined && free < item.quantity;
+  });
+}
+
 export async function listOrders(req: AuthenticatedRequest, res: Response) {
   const db = getDb();
   const tenantId = req.user!.tenantId!;
@@ -657,7 +689,7 @@ export async function listOrders(req: AuthenticatedRequest, res: Response) {
   if (search) {
     const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const re = new RegExp(escaped, 'i');
-    match.$or = [{ number: re }, { customerName: re }, { customerPhone: re }];
+    match.$or = [{ number: re }, { invoiceNo: re }, { courierConsignmentId: re }, { courierTrackingId: re }, { customerName: re }, { customerPhone: re }];
   }
 
   // "Ready to pack" / "short on stock" — same free-stock-by-SKU computation the frontend badge
@@ -668,22 +700,11 @@ export async function listOrders(req: AuthenticatedRequest, res: Response) {
   // this narrows `match._id` up front rather than filtering after the fact.
   const stockStatus = typeof req.query.stockStatus === 'string' ? req.query.stockStatus : 'all';
   if (stockStatus === 'ready' || stockStatus === 'short') {
-    const levels = await db.collection('inventoryLevels').find({ tenantId }, { projection: { sku: 1, onHand: 1, reserved: 1 } }).toArray();
-    const freeBySku = new Map<string, number>();
-    for (const level of levels) {
-      if (!level.sku) continue;
-      const free = Math.max(0, (level.onHand ?? 0) - (level.reserved ?? 0));
-      const prev = freeBySku.get(level.sku);
-      if (prev === undefined || free > prev) freeBySku.set(level.sku, free);
-    }
+    const freeBySku = await computeFreeBySku(db, tenantId);
     const candidates = await db.collection('orders').find(match, { projection: { lineItems: 1 } }).toArray();
     const matchedIds = candidates
       .filter((o) => {
-        const hasShortfall = (o.lineItems ?? []).some((item: { sku: string | null; quantity: number }) => {
-          if (!item.sku) return false;
-          const free = freeBySku.get(item.sku);
-          return free !== undefined && free < item.quantity;
-        });
+        const hasShortfall = orderHasShortfall(o.lineItems ?? [], freeBySku);
         return stockStatus === 'short' ? hasShortfall : !hasShortfall;
       })
       .map((o) => o._id);
@@ -782,8 +803,32 @@ export async function markOrdersPrinted(req: AuthenticatedRequest, res: Response
   const db = getDb();
   const tenantId = req.user!.tenantId!;
   const ids = parsed.data.orderIds.filter((id) => ObjectId.isValid(id)).map((id) => new ObjectId(id));
+  await ensureInvoiceNumbers(tenantId, ids, req.user!.email, 'printed');
   await db.collection('orders').updateMany({ _id: { $in: ids }, tenantId }, { $set: { printedAt: new Date() } });
-  res.json({ success: true });
+  const docs = await db.collection('orders').find({ _id: { $in: ids }, tenantId }).toArray();
+  const orders = docs.map(toOrderDto);
+  await attachBlockedFlags(db, tenantId, orders);
+  await attachReturningFlags(db, tenantId, orders);
+  await attachRiskLabels(db, tenantId, orders);
+  res.json({ success: true, orders });
+}
+
+export async function ensureOrderInvoices(req: AuthenticatedRequest, res: Response) {
+  const parsed = markPrintedSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, message: 'orderIds is required.' });
+    return;
+  }
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const ids = parsed.data.orderIds.filter((id) => ObjectId.isValid(id)).map((id) => new ObjectId(id));
+  await ensureInvoiceNumbers(tenantId, ids, req.user!.email, 'printed');
+  const docs = await db.collection('orders').find({ _id: { $in: ids }, tenantId }).toArray();
+  const orders = docs.map(toOrderDto);
+  await attachBlockedFlags(db, tenantId, orders);
+  await attachReturningFlags(db, tenantId, orders);
+  await attachRiskLabels(db, tenantId, orders);
+  res.json({ success: true, orders });
 }
 
 // "Is this KPI trending up or down" — measured as orders *placed* in the last 7 days that match
@@ -852,6 +897,20 @@ export async function getOrderStats(req: AuthenticatedRequest, res: Response) {
     .aggregate([{ $match: { ...scopedMatch, ...tabMatch('pending') } }, { $sort: { createdAt: 1 } }, { $limit: 1 }, { $project: { createdAt: 1 } }])
     .toArray();
   const oldestPendingMinutes = oldestPending ? Math.round((Date.now() - new Date(oldestPending.createdAt).getTime()) / 60_000) : null;
+
+  // Backs RestockedOrdersBanner — Confirmed orders that were short at confirm time and have since
+  // become fully coverable. Only counts wasShortOfStock candidates (cheap query) then checks each
+  // against current stock, same as the "Ready to pack" filter above, so the banner count never
+  // disagrees with what "Restocked only" actually lists.
+  const restockedCandidates = await db
+    .collection('orders')
+    .find({ ...scopedMatch, stage: 'Confirmed', wasShortOfStock: true }, { projection: { lineItems: 1 } })
+    .toArray();
+  let restockedReadyCount = 0;
+  if (restockedCandidates.length > 0) {
+    const freeBySku = await computeFreeBySku(db, tenantId);
+    restockedReadyCount = restockedCandidates.filter((o) => !orderHasShortfall(o.lineItems ?? [], freeBySku)).length;
+  }
 
   const now = new Date();
   const d7 = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -942,6 +1001,7 @@ export async function getOrderStats(req: AuthenticatedRequest, res: Response) {
     cancelledAmountTrend,
     tabCounts,
     dailySeries,
+    restockedReadyCount,
   });
 }
 
@@ -1119,15 +1179,20 @@ async function findPossibleDuplicates(tenantId: string, customerPhone: string | 
 
 // Maps combined Steadfast + Pathao dashboard fraud-check results onto the same OrderRiskDTO shape
 // computeOrderRisk produces, reusing the same label thresholds — so the drawer's RiskBadge/
-// courierBreakdown UI works identically regardless of which scope is selected. A courier whose
-// check failed/is unavailable is simply omitted from courierBreakdown rather than shown as a
-// zero — a zero would look like a real "no orders" result instead of "we don't know."
+// courierBreakdown UI works identically regardless of which scope is selected. The label/
+// successRate math only ever uses couriers that actually returned something (`available`) — a
+// failed check never counts as a real zero. Whether a failed courier still gets its own
+// "unavailable" entry in courierBreakdown (so the UI can say "check failed" for that specific
+// block) is opt-in via `showUnavailable`: Courier scope wants this (a null result there means a
+// live check just failed), but Network scope's null just means "no history for that courier yet"
+// — a different, more benign state that shouldn't look like an error.
 function courierResultsToRiskDto(
   results: {
     courierPartner: CourierPartner;
     result: { totalDelivered: number; totalCancelled: number; checkedAt?: Date } | null;
     stale?: boolean;
-  }[]
+  }[],
+  options?: { showUnavailable?: boolean }
 ): Omit<OrderRiskDTO, 'possibleDuplicateOrders'> {
   const available = results.filter(
     (
@@ -1145,19 +1210,22 @@ function courierResultsToRiskDto(
   let label: RiskLabel = 'Normal';
   if (successRate >= 70) label = 'Trusted';
   else if (successRate < 40) label = 'Risky';
+  const toRow = (r: (typeof available)[number]) => ({
+    courierPartner: r.courierPartner,
+    delivered: r.result.totalDelivered,
+    failed: r.result.totalCancelled,
+    ...(r.stale ? { stale: true } : {}),
+    ...(r.result.checkedAt ? { checkedAt: r.result.checkedAt.toISOString() } : {}),
+  });
   return {
     label,
     totalOrders,
     deliveredCount,
     cancelledOrReturnedCount,
     successRate,
-    courierBreakdown: available.map((r) => ({
-      courierPartner: r.courierPartner,
-      delivered: r.result.totalDelivered,
-      failed: r.result.totalCancelled,
-      ...(r.stale ? { stale: true } : {}),
-      ...(r.result.checkedAt ? { checkedAt: r.result.checkedAt.toISOString() } : {}),
-    })),
+    courierBreakdown: options?.showUnavailable
+      ? results.map((r) => (r.result === null ? { courierPartner: r.courierPartner, unavailable: true as const } : toRow(r as (typeof available)[number])))
+      : available.map(toRow),
   };
 }
 
@@ -1226,10 +1294,13 @@ export async function getOrder(req: AuthenticatedRequest, res: Response) {
     if (doc.customerPhone && !steadfastCheck && !pathaoCheck) courierUnavailable = true;
     const possibleDuplicateOrders = await findPossibleDuplicates(tenantId, doc.customerPhone, doc.createdAt, doc._id);
     risk = {
-      ...courierResultsToRiskDto([
-        { courierPartner: 'Steadfast', result: steadfastCheck, stale: steadfastStale },
-        { courierPartner: 'Pathao', result: pathaoCheck, stale: pathaoStale },
-      ]),
+      ...courierResultsToRiskDto(
+        [
+          { courierPartner: 'Steadfast', result: steadfastCheck, stale: steadfastStale },
+          { courierPartner: 'Pathao', result: pathaoCheck, stale: pathaoStale },
+        ],
+        { showUnavailable: true }
+      ),
       possibleDuplicateOrders,
     };
   } else if (req.query.riskScope === 'store') {
@@ -1300,6 +1371,60 @@ async function nextManualOrderNumber(tenantId: string): Promise<string> {
     .findOneAndUpdate({ _id: `${tenantId}:manualOrder` } as any, { $inc: { seq: 1 } }, { upsert: true, returnDocument: 'after' });
   const seq = (result as any)?.seq ?? 1;
   return `MO-${String(seq).padStart(4, '0')}`;
+}
+
+async function ensureInvoiceNumbers(
+  tenantId: string,
+  orderIds: ObjectId[],
+  actor: string | null,
+  reason: 'printed' | 'readyForPickup'
+): Promise<Map<string, string>> {
+  const db = getDb();
+  const issued = new Map<string, string>();
+  if (orderIds.length === 0) return issued;
+
+  const existing = await db
+    .collection('orders')
+    .find({ _id: { $in: orderIds }, tenantId, invoiceNo: { $type: 'string' } }, { projection: { _id: 1, invoiceNo: 1 } })
+    .toArray();
+  for (const order of existing) issued.set(order._id.toString(), order.invoiceNo);
+
+  const missing = await db
+    .collection('orders')
+    .find({ _id: { $in: orderIds }, tenantId, $or: [{ invoiceNo: null }, { invoiceNo: { $exists: false } }] }, { projection: { _id: 1, storeId: 1 } })
+    .toArray();
+  for (const order of missing) {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const invoiceNo = await nextInvoiceNumberForStore(tenantId, order.storeId);
+      const now = new Date();
+      try {
+        const result = await db.collection('orders').updateOne(
+          { _id: order._id, tenantId, $or: [{ invoiceNo: null }, { invoiceNo: { $exists: false } }] },
+          {
+            $set: { invoiceNo, invoiceIssuedAt: now, updatedAt: now },
+            $push: {
+              history: {
+                label: 'Bill issued',
+                detail: reason === 'readyForPickup' ? `${invoiceNo} issued when marked ready for pickup` : `${invoiceNo} issued for printing`,
+                at: now,
+                by: actor,
+              },
+            },
+          } as any
+        );
+        if (result.modifiedCount > 0) issued.set(order._id.toString(), invoiceNo);
+        else {
+          const current = await db.collection('orders').findOne({ _id: order._id, tenantId }, { projection: { invoiceNo: 1 } });
+          if (current?.invoiceNo) issued.set(order._id.toString(), current.invoiceNo);
+        }
+        break;
+      } catch (error) {
+        if (isDuplicateKeyError(error)) continue;
+        throw error;
+      }
+    }
+  }
+  return issued;
 }
 
 // Phone/walk-in orders that never came through a connected store — reuses the exact same
@@ -1436,6 +1561,11 @@ const CANCEL_REASONS = [
 // What actually happened on a confirmation call — a plain attempt counter can't tell "rang out"
 // from "customer picked up and confirmed", which is the difference call-outcome analytics need.
 const CALL_OUTCOMES = ['Confirmed', 'Rescheduled', 'Customer Cancelled', 'No Answer', 'Wrong Number', 'Switched Off', 'Busy'] as const;
+const PRIORITY_ELIGIBLE_STAGES: OrderStage[] = ['Pending', 'Flagged', 'On Hold', 'Confirmed'];
+
+function canMarkPriorityCall(stage: OrderStage): boolean {
+  return PRIORITY_ELIGIBLE_STAGES.includes(stage);
+}
 
 const updateOrderSchema = z.object({
   stage: z.enum(ORDER_STAGES).optional(),
@@ -1551,7 +1681,7 @@ function buildOrderUpdate(current: any, patch: UpdateOrderPatch, actor: string |
     setFields.rescheduledFor = null;
     if (rest.isPriorityCall === undefined) { setFields.isPriorityCall = false; setFields.priorityNote = null; }
     if (current.wasShortOfStock && restored !== 'Confirmed') setFields.wasShortOfStock = false;
-    historyEntry = { label: restored, detail: 'Resumed from hold', at: now, by: actor };
+    historyEntry = { label: restored, detail: 'Reattempted from hold', at: now, by: actor };
   } else if (stage) {
     setFields.stage = stage;
     setFields.stageSource = 'manual';
@@ -1693,6 +1823,10 @@ export async function updateOrder(req: AuthenticatedRequest, res: Response) {
     res.status(409).json({ success: false, message: blockReason });
     return;
   }
+  if (parsed.data.isPriorityCall === true && !canMarkPriorityCall(current.stage)) {
+    res.status(409).json({ success: false, message: 'Priority calls can only be marked before fulfillment starts.' });
+    return;
+  }
 
   const patch = await applyOutOfStockPolicy(tenantId, current, parsed.data);
   const update = buildOrderUpdate(current, patch, req.user!.email);
@@ -1718,6 +1852,12 @@ export async function updateOrder(req: AuthenticatedRequest, res: Response) {
     }
   }
   if (result.stage === 'Shipped' && current.stage !== 'Shipped') {
+    const issued = await ensureInvoiceNumbers(tenantId, [result._id], req.user!.email, 'readyForPickup');
+    const invoiceNo = issued.get(result._id.toString());
+    if (invoiceNo) {
+      result.invoiceNo = invoiceNo;
+      result.invoiceIssuedAt = result.invoiceIssuedAt ?? new Date();
+    }
     const dispatched = await dispatchCourierConsignment(tenantId, result);
     if (dispatched) Object.assign(result, dispatched);
   }
@@ -1795,6 +1935,63 @@ export async function upsellOrder(req: AuthenticatedRequest, res: Response) {
   const update: Record<string, unknown> = {
     $push: { lineItems: lineItem, history: { label: 'Upsell added', detail: `${quantity} × ${product.title}`, at: now, by: req.user!.email } },
     $set: { subtotal, total, updatedAt: now },
+  };
+  const result = await db.collection('orders').findOneAndUpdate({ _id: new ObjectId(req.params.id), tenantId }, update, { returnDocument: 'after' });
+  if (!result) {
+    res.status(404).json({ success: false, message: 'Order not found' });
+    return;
+  }
+
+  const dto = toOrderDto(result);
+  await attachBlockedFlags(db, tenantId, [dto]);
+  await attachReturningFlags(db, tenantId, [dto]);
+  await attachRiskLabels(db, tenantId, [dto]);
+  res.json({ success: true, order: dto });
+}
+
+// The removal counterpart to upsellOrder — same Pending/Flagged-only gate (stock isn't reserved
+// yet, so there's nothing to release), same server-recomputed subtotal/total. Line items have no
+// stable id of their own (see OrderLineItemDTO), so the index the drawer is already keying its
+// list by is the only handle available; re-reading the order fresh here means that index is always
+// resolved against the current array, not a stale client copy. Always leaves at least one item —
+// removing the last one isn't "edit the order," it's "cancel the order," which already has its own
+// flow.
+export async function removeOrderLineItem(req: AuthenticatedRequest, res: Response) {
+  const index = Number(req.params.index);
+  if (!Number.isInteger(index) || index < 0) {
+    res.status(400).json({ success: false, message: 'Invalid line item' });
+    return;
+  }
+
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const current = await db.collection('orders').findOne({ _id: new ObjectId(req.params.id), tenantId });
+  if (!current) {
+    res.status(404).json({ success: false, message: 'Order not found' });
+    return;
+  }
+  if (!['Pending', 'Flagged'].includes(current.stage)) {
+    res.status(400).json({ success: false, message: 'Products can only be removed before the order is confirmed.' });
+    return;
+  }
+  const lineItems: any[] = current.lineItems ?? [];
+  if (index >= lineItems.length) {
+    res.status(404).json({ success: false, message: 'Line item not found' });
+    return;
+  }
+  if (lineItems.length <= 1) {
+    res.status(400).json({ success: false, message: 'An order needs at least one item — cancel the order instead.' });
+    return;
+  }
+
+  const [removed] = lineItems.splice(index, 1);
+  const subtotal = lineItems.reduce((sum, li) => sum + li.price * li.quantity, 0);
+  const total = Math.max(0, subtotal + (current.shippingFee ?? 0) - (current.discount ?? 0));
+  const now = new Date();
+
+  const update: Record<string, unknown> = {
+    $set: { lineItems, subtotal, total, updatedAt: now },
+    $push: { history: { label: 'Item removed', detail: `${removed.quantity} × ${removed.title}`, at: now, by: req.user!.email } },
   };
   const result = await db.collection('orders').findOneAndUpdate({ _id: new ObjectId(req.params.id), tenantId }, update, { returnDocument: 'after' });
   if (!result) {
@@ -1990,6 +2187,15 @@ export async function claimOrder(req: AuthenticatedRequest, res: Response) {
   const tenantId = req.user!.tenantId!;
   const staleBefore = new Date(Date.now() - CLAIM_STALE_MS);
   const now = new Date();
+  const currentOrder = await db.collection('orders').findOne({ _id: new ObjectId(req.params.id), tenantId });
+  if (!currentOrder) {
+    res.status(404).json({ success: false, message: 'Order not found' });
+    return;
+  }
+  if (!shouldUseCallClaim(currentOrder as any)) {
+    res.json({ success: true, order: toOrderDto(currentOrder) });
+    return;
+  }
 
   const result = await db.collection('orders').findOneAndUpdate(
     {
@@ -2002,7 +2208,7 @@ export async function claimOrder(req: AuthenticatedRequest, res: Response) {
   );
 
   if (!result) {
-    const current = await db.collection('orders').findOne({ _id: new ObjectId(req.params.id), tenantId }, { projection: { claimedBy: 1, claimedAt: 1 } });
+    const current = await db.collection('orders').findOne({ _id: new ObjectId(req.params.id), tenantId }, { projection: { claimedBy: 1, claimedAt: 1, stage: 1, isPriorityCall: 1 } });
     if (!current) {
       res.status(404).json({ success: false, message: 'Order not found' });
       return;
@@ -2293,6 +2499,61 @@ const bulkUpdateSchema = z.object({
   patch: updateOrderSchema,
 });
 
+const dispatchScanSchema = z.object({ code: z.string().trim().min(1).max(120) });
+
+export async function dispatchScanHandover(req: AuthenticatedRequest, res: Response) {
+  const parsed = dispatchScanSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, message: 'Scan a bill, order, tracking, or consignment code.' });
+    return;
+  }
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const raw = parsed.data.code.trim();
+  const withoutHash = raw.replace(/^#/, '');
+  const candidates = Array.from(new Set([raw, withoutHash, `#${withoutHash}`].filter(Boolean)));
+  const order = await db.collection('orders').findOne({
+    tenantId,
+    $or: [
+      { invoiceNo: { $in: candidates } },
+      { number: { $in: candidates } },
+      { courierConsignmentId: { $in: candidates } },
+      { courierTrackingId: { $in: candidates } },
+    ],
+  });
+  if (!order) {
+    res.status(404).json({ success: false, message: 'No parcel matches that barcode.' });
+    return;
+  }
+  if (order.stage !== 'Shipped') {
+    res.status(409).json({
+      success: false,
+      message:
+        order.stage === 'Out for Delivery'
+          ? 'This parcel was already handed over.'
+          : `This order is ${order.stage}, not Ready for pickup.`,
+      order: toOrderDto(order),
+    });
+    return;
+  }
+
+  const now = new Date();
+  const update = {
+    $set: { stage: 'Out for Delivery', stageSource: 'manual', updatedAt: now },
+    $push: { history: { label: 'Out for Delivery', detail: 'Handed over to courier by barcode scan', at: now, by: req.user!.email } },
+  } as any;
+  const result = await db.collection('orders').findOneAndUpdate({ _id: order._id, tenantId, stage: 'Shipped' }, update, { returnDocument: 'after' });
+  if (!result) {
+    res.status(409).json({ success: false, message: 'This parcel changed state before the scan completed.' });
+    return;
+  }
+  const dto = toOrderDto(result);
+  await attachBlockedFlags(db, tenantId, [dto]);
+  await attachReturningFlags(db, tenantId, [dto]);
+  await attachRiskLabels(db, tenantId, [dto]);
+  res.json({ success: true, order: dto });
+}
+
 export async function bulkUpdateOrders(req: AuthenticatedRequest, res: Response) {
   const parsed = bulkUpdateSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -2318,6 +2579,10 @@ export async function bulkUpdateOrders(req: AuthenticatedRequest, res: Response)
         results.push({ orderId, success: false, error: blockReason });
         continue;
       }
+      if (parsed.data.patch.isPriorityCall === true && !canMarkPriorityCall(current.stage)) {
+        results.push({ orderId, success: false, error: 'Priority calls can only be marked before fulfillment starts.' });
+        continue;
+      }
       const patch = await applyOutOfStockPolicy(tenantId, current, parsed.data.patch);
       const update = buildOrderUpdate(current, patch, req.user!.email);
       const result = await db.collection('orders').findOneAndUpdate({ _id: new ObjectId(orderId), tenantId }, update, { returnDocument: 'after' });
@@ -2329,6 +2594,12 @@ export async function bulkUpdateOrders(req: AuthenticatedRequest, res: Response)
         await recordFulfillmentWarehouse({ _id: result._id, tenantId }, fromState, warehouse);
       }
       if (result && result.stage === 'Shipped' && current.stage !== 'Shipped') {
+        const issued = await ensureInvoiceNumbers(tenantId, [result._id], req.user!.email, 'readyForPickup');
+        const invoiceNo = issued.get(result._id.toString());
+        if (invoiceNo) {
+          result.invoiceNo = invoiceNo;
+          result.invoiceIssuedAt = result.invoiceIssuedAt ?? new Date();
+        }
         const dispatched = await dispatchCourierConsignment(tenantId, result);
         if (dispatched) Object.assign(result, dispatched);
       }

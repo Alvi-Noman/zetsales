@@ -66,7 +66,7 @@ export const orderFunnelCard: AnalyticsCardDefinition = {
   key: 'orderFunnel',
   title: 'Order funnel',
   category: 'Orders',
-  description: 'How far orders get through Pending → Confirmed → Packing → Handed to Courier → Delivered before falling off.',
+  description: 'How far orders get through Pending → Confirmed → Packing → Ready for pickup → Delivered before falling off.',
   icon: Filter,
   CardComponent: Card,
   DetailComponent: Detail,

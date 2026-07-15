@@ -53,6 +53,7 @@ import { useToast } from '../../components/ui/ToastProvider';
 import { Select } from '../../components/ui/Select';
 import { CreatePurchaseOrderModal } from '../../components/supplyChain/CreatePurchaseOrderModal';
 import { PrintPurchaseOrderModal } from '../../components/supplyChain/PrintPurchaseOrderModal';
+import { ConfirmPrintPromptModal } from '../../components/supplyChain/ConfirmPrintPromptModal';
 
 function money(value: number) {
   const sign = value < 0 ? '-' : '';
@@ -359,6 +360,9 @@ export function SupplierDetailPage() {
   const [createPoOpen, setCreatePoOpen] = useState(false);
   const [editingPo, setEditingPo] = useState<PurchaseOrderDTO | null>(null);
   const [printingPo, setPrintingPo] = useState<PurchaseOrderDTO | null>(null);
+  // Only set right after the per-row Confirm button succeeds — holds the "print it?" prompt open.
+  // The create/edit modal's own Confirm action handles this itself (see CreatePurchaseOrderModal).
+  const [confirmedPo, setConfirmedPo] = useState<PurchaseOrderDTO | null>(null);
   const [poActionBusyId, setPoActionBusyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [editOpen, setEditOpen] = useState(false);
@@ -481,12 +485,13 @@ export function SupplierDetailPage() {
     setPoActionBusyId(po.id);
     try {
       const res = await sendPurchaseOrder(po.id);
-      if (!res.success) {
+      if (!res.success || !res.purchaseOrder) {
         toast.push(res.message || 'Could not confirm this purchase order.', 'info');
         return;
       }
       toast.push('Added to Incoming Stock.', 'success');
       refreshPurchaseOrders();
+      setConfirmedPo(res.purchaseOrder);
     } catch (err) {
       toast.push((err as Error).message || 'Could not confirm this purchase order.', 'info');
     } finally {
@@ -912,7 +917,16 @@ export function SupplierDetailPage() {
                               </td>
                               <td className="whitespace-nowrap px-2 py-2 text-slate-500">{po.expectedAt ? new Date(po.expectedAt).toLocaleDateString() : '—'}</td>
                               <td className="whitespace-nowrap px-2 py-2 text-right">
-                                <div className="flex items-center justify-end gap-1">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  {po.status === 'draft' && (
+                                    <button
+                                      onClick={() => void handleSendPo(po)}
+                                      disabled={busy}
+                                      className="flex items-center gap-1 rounded-md bg-indigo-600 px-2 py-1.5 text-[11px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-40"
+                                    >
+                                      <Send size={12} /> {busy ? 'Confirming...' : 'Confirm & add to Incoming Stock'}
+                                    </button>
+                                  )}
                                   <button
                                     onClick={() => setPrintingPo(po)}
                                     title="Print"
@@ -928,14 +942,6 @@ export function SupplierDetailPage() {
                                         className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                                       >
                                         <Pencil size={13} />
-                                      </button>
-                                      <button
-                                        onClick={() => void handleSendPo(po)}
-                                        disabled={busy}
-                                        title="Confirm & add to Incoming Stock"
-                                        className="rounded-md p-1.5 text-indigo-500 hover:bg-indigo-50 disabled:opacity-40"
-                                      >
-                                        <Send size={13} />
                                       </button>
                                       <button
                                         onClick={() => void handleCancelPo(po)}
@@ -1014,6 +1020,15 @@ export function SupplierDetailPage() {
         </>
       )}
       <PrintPurchaseOrderModal open={printingPo !== null} purchaseOrder={printingPo} onClose={() => setPrintingPo(null)} />
+      <ConfirmPrintPromptModal
+        open={confirmedPo !== null}
+        poNumber={confirmedPo?.poNumber ?? ''}
+        onSkip={() => setConfirmedPo(null)}
+        onPrint={() => {
+          setPrintingPo(confirmedPo);
+          setConfirmedPo(null);
+        }}
+      />
 
       <Modal open={deleteOpen} onClose={() => setDeleteOpen(false)} title="Delete supplier?" widthClass="max-w-sm">
         <div className="space-y-4">

@@ -677,7 +677,7 @@ export async function getCourierPerformance(req: AuthenticatedRequest, res: Resp
           total: { $sum: 1 },
           delivered: { $sum: { $cond: [{ $in: ['$stage', ['Delivered', 'Partial Delivered']] }, 1, 0] } },
           rto: { $sum: { $cond: [{ $in: ['$stage', ['RTO Initiated', 'QC Pending', 'Returned']] }, 1, 0] } },
-          inTransit: { $sum: { $cond: [{ $in: ['$stage', ['Shipped', 'Out for Delivery']] }, 1, 0] } },
+          inTransit: { $sum: { $cond: [{ $eq: ['$stage', 'Out for Delivery'] }, 1, 0] } },
           revenue: { $sum: '$total' },
           avgDeliveryDays: { $avg: '$deliveryDays' },
         },
@@ -2675,7 +2675,10 @@ export async function getEmployeeActivity(req: AuthenticatedRequest, res: Respon
           shipped: { $sum: { $cond: [{ $eq: ['$history.label', 'Shipped'] }, 1, 0] } },
           delivered: { $sum: { $cond: [{ $in: ['$history.label', ['Delivered', 'Partial Delivered']] }, 1, 0] } },
           cancelled: { $sum: { $cond: [{ $eq: ['$history.label', 'Cancelled'] }, 1, 0] } },
-          holdResolved: { $sum: { $cond: [{ $eq: ['$history.detail', 'Resumed from hold'] }, 1, 0] } },
+          // Matches both the current wording and the older "Resumed from hold" text still sitting
+          // in history entries written before the button was renamed to Reattempt — otherwise this
+          // count would silently drop every hold resolved before the rename.
+          holdResolved: { $sum: { $cond: [{ $in: ['$history.detail', ['Reattempted from hold', 'Resumed from hold']] }, 1, 0] } },
           callAttempts: { $sum: { $cond: [{ $eq: ['$history.label', 'Call attempt'] }, 1, 0] } },
         },
       },

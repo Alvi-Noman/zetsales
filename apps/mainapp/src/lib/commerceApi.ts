@@ -941,7 +941,25 @@ export async function listReadyToPrintOrders() {
 
 export async function markOrdersPrinted(orderIds: string[]) {
   const res = await api.post('/commerce/orders/mark-printed', { orderIds });
-  return res.data as { success: boolean };
+  return res.data as { success: boolean; orders: OrderDTO[] };
+}
+
+export async function ensureOrderInvoices(orderIds: string[]) {
+  try {
+    const res = await api.post('/commerce/orders/ensure-invoices', { orderIds });
+    return res.data as { success: boolean; orders: OrderDTO[] };
+  } catch (error) {
+    // Older/stale commerce backends do not have the preview-only route yet. Fall back to the
+    // existing print endpoint so invoice preview can still receive bill numbers instead of failing
+    // with "Route not found". Newer backends keep the cleaner preview-only behavior above.
+    if (error instanceof Error && error.message === 'Route not found') {
+      const fallback = await markOrdersPrinted(orderIds);
+      if (Array.isArray((fallback as any).orders)) return fallback;
+      const orders = await Promise.all(orderIds.map((id) => getOrder(id).then((res) => res.order)));
+      return { success: true, orders };
+    }
+    throw error;
+  }
 }
 
 export interface PrintTemplateFields {
@@ -1095,6 +1113,14 @@ export async function upsellOrder(id: string, payload: { productId: string; vari
   return res.data as { success: boolean; order: OrderDTO };
 }
 
+// Same Pending/Flagged-only restriction as upsellOrder, same reasoning in reverse — nothing here
+// needs to release stock since none was ever reserved at this stage. `index` is the line item's
+// position in the array the drawer is already rendering (line items have no id of their own).
+export async function removeOrderLineItem(id: string, index: number) {
+  const res = await api.delete(`/commerce/orders/${id}/line-items/${index}`);
+  return res.data as { success: boolean; order: OrderDTO };
+}
+
 // Optional split for a mixed-stock order: confirms the in-stock line items on this order and
 // spins the out-of-stock ones off into a new, separately Confirmed order. See splitOrder in
 // ordersController.ts — `original` is this order (now Confirmed, fewer line items), `created` is
@@ -1153,6 +1179,11 @@ export async function getOrderTrends(params: { range: string; from?: string; to?
 export async function bulkUpdateOrders(orderIds: string[], patch: UpdateOrderPayload) {
   const res = await api.patch('/commerce/orders/bulk', { orderIds, patch });
   return res.data as { success: boolean; results: BulkOrderResultDTO[] };
+}
+
+export async function dispatchScanHandover(code: string) {
+  const res = await api.post('/commerce/orders/dispatch-scan', { code });
+  return res.data as { success: boolean; order: OrderDTO };
 }
 
 // --- Accounting & Finance ---
@@ -1551,6 +1582,13 @@ export interface PurchaseOrderPayload {
 
 export async function listSupplierPurchaseOrders(id: string, params: { status?: PurchaseOrderStatus; page?: number; pageSize?: number } = {}) {
   const res = await api.get(`/commerce/supply-chain/suppliers/${id}/purchase-orders`, { params });
+  return res.data as { success: boolean; purchaseOrders: PurchaseOrderDTO[]; total: number; page: number; pageSize: number };
+}
+
+export async function listPurchaseOrders(
+  params: { status?: PurchaseOrderStatus | 'all'; search?: string; page?: number; pageSize?: number } = {}
+) {
+  const res = await api.get('/commerce/supply-chain/purchase-orders', { params });
   return res.data as { success: boolean; purchaseOrders: PurchaseOrderDTO[]; total: number; page: number; pageSize: number };
 }
 

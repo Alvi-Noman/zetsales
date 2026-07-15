@@ -18,9 +18,14 @@ import type {
 } from '@zetsales/shared';
 import { verifySteadfastCredentials, type SteadfastCredentials } from '../integrations/steadfastClient.js';
 import { verifyPathaoCredentials, type PathaoCredentials } from '../integrations/pathaoClient.js';
+import { nextInvoiceNumberForStore } from '../utils/invoiceNumbers.js';
 
 function webhookBaseUrl(): string {
   return process.env.PUBLIC_COMMERCE_URL || 'http://localhost:8081/api/v1/commerce';
+}
+
+function isDuplicateKeyError(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && (error as any).code === 11000);
 }
 
 const ZONE_TIERS: CourierZoneTier[] = ['inside', 'outside', 'suburb'];
@@ -207,6 +212,43 @@ function toSettlementDto(doc: any): CourierSettlementDTO {
   };
 }
 
+async function nextManifestNumber(tenantId: string): Promise<string> {
+  const db = getDb();
+  const result = await db
+    .collection('counters')
+    .findOneAndUpdate({ _id: `${tenantId}:pickupManifest` } as any, { $inc: { seq: 1 } }, { upsert: true, returnDocument: 'after' });
+  const seq = (result as any)?.seq ?? 1;
+  return `MAN-${String(seq).padStart(6, '0')}`;
+}
+
+async function ensureHandoverInvoiceNumbers(tenantId: string, orders: any[], actor: string | null) {
+  const db = getDb();
+  for (const order of orders) {
+    if (order.invoiceNo) continue;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const invoiceNo = await nextInvoiceNumberForStore(tenantId, order.storeId);
+      const now = new Date();
+      try {
+        const result = await db.collection('orders').updateOne(
+          { _id: order._id, tenantId, $or: [{ invoiceNo: null }, { invoiceNo: { $exists: false } }] },
+          {
+            $set: { invoiceNo, invoiceIssuedAt: now, updatedAt: now },
+            $push: { history: { label: 'Bill issued', detail: `${invoiceNo} issued for pickup manifest`, at: now, by: actor } },
+          } as any
+        );
+        if (result.modifiedCount > 0) {
+          order.invoiceNo = invoiceNo;
+          order.invoiceIssuedAt = now;
+        }
+        break;
+      } catch (error) {
+        if (isDuplicateKeyError(error)) continue;
+        throw error;
+      }
+    }
+  }
+}
+
 export async function listSettlements(req: AuthenticatedRequest, res: Response) {
   const db = getDb();
   const settlements = await db
@@ -275,6 +317,7 @@ export async function deleteSettlement(req: AuthenticatedRequest, res: Response)
 function toHandoverDto(doc: any): CourierHandoverDTO {
   return {
     id: doc._id.toString(),
+    manifestNo: doc.manifestNo ?? `MAN-${doc._id.toString().slice(-8).toUpperCase()}`,
     courierId: doc.courierId.toString(),
     provider: doc.provider,
     handoverDate: new Date(doc.handoverDate).toISOString(),
@@ -311,6 +354,7 @@ export async function listEligibleHandoverOrders(req: AuthenticatedRequest, res:
   const rows: EligibleHandoverOrderDTO[] = orders.map((o) => ({
     orderId: o._id.toString(),
     orderNumber: o.number,
+    invoiceNo: o.invoiceNo ?? null,
     customerName: o.customerName ?? null,
     consignmentId: o.courierConsignmentId ?? null,
     itemCount: (o.lineItems ?? []).reduce((s: number, li: any) => s + li.quantity, 0),
@@ -362,6 +406,7 @@ export async function createHandover(req: AuthenticatedRequest, res: Response) {
     res.status(400).json({ success: false, message: 'None of the selected orders are still eligible for handover.' });
     return;
   }
+  await ensureHandoverInvoiceNumbers(tenantId, orders, req.user!.email);
 
   const now = new Date();
   const handoverId = new ObjectId();
@@ -371,6 +416,7 @@ export async function createHandover(req: AuthenticatedRequest, res: Response) {
 
   const doc = {
     _id: handoverId,
+    manifestNo: await nextManifestNumber(tenantId),
     tenantId,
     courierId: courier._id,
     provider: courier.provider,
@@ -410,6 +456,7 @@ export async function getHandover(req: AuthenticatedRequest, res: Response) {
     return {
       orderId: id.toString(),
       orderNumber: o?.number ?? 'Unknown',
+      invoiceNo: o?.invoiceNo ?? null,
       customerName: o?.customerName ?? null,
       consignmentId: o?.courierConsignmentId ?? null,
       itemCount: (o?.lineItems ?? []).reduce((s: number, li: any) => s + li.quantity, 0),
@@ -445,15 +492,31 @@ export async function confirmHandover(req: AuthenticatedRequest, res: Response) 
   }
   const db = getDb();
   const tenantId = req.user!.tenantId!;
+  const now = new Date();
   const result = await db.collection('courierHandovers').findOneAndUpdate(
     { _id: new ObjectId(req.params.handoverId), tenantId, status: 'Pending' },
-    { $set: { status: 'Confirmed', confirmedAt: new Date(), ...(parsed.data.note ? { note: parsed.data.note } : {}) } },
+    { $set: { status: 'Confirmed', confirmedAt: now, ...(parsed.data.note ? { note: parsed.data.note } : {}) } },
     { returnDocument: 'after' }
   );
   if (!result) {
     res.status(404).json({ success: false, message: 'Handover not found or already confirmed.' });
     return;
   }
+  const acceptedUpdate = {
+    $set: { stage: 'Out for Delivery', updatedAt: now },
+    $push: {
+      history: {
+        label: 'Out for Delivery',
+        detail: 'Accepted by courier via pickup manifest',
+        at: now,
+        by: req.user!.email,
+      },
+    },
+  } as any;
+  await db.collection('orders').updateMany(
+    { _id: { $in: result.orderIds }, tenantId, stage: 'Shipped' },
+    acceptedUpdate
+  );
   res.json({ success: true, handover: toHandoverDto(result) });
 }
 

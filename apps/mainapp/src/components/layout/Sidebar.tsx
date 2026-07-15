@@ -118,15 +118,15 @@ export function Sidebar() {
     if (!ALWAYS_VISIBLE_MODULES.includes(item.module) && !allowedModules.includes(item.module)) return false;
     if (item.businessTypes && (!user?.businessType || !item.businessTypes.includes(user.businessType))) return false;
     // Plugin modules need the tenant to have installed them, on top of the role check above —
-    // Settings → Apps is where an owner/admin turns them on.
+    // Settings → Plugins is where an owner/admin turns them on.
     if (PLUGIN_MODULES.includes(item.module) && !user?.installedPlugins?.includes(item.module)) return false;
     return true;
   };
-  // Embedded Apps (own nav entry + full page — see docs/plugin-platform.md) that are oauth-type
-  // and installed get a nav row too, on top of the static NAV_ITEMS list. An oauth-type app has
+  // Embedded plugins (own nav entry + full page — see docs/plugin-platform.md) that are oauth-type
+  // and installed get a nav row too, on top of the static NAV_ITEMS list. An oauth-type plugin has
   // no first-party page of its own — it always routes through the generic /apps/:appKey iframe
   // host (AppHostPage.tsx), regardless of what sidebarPath says; sidebarPath stays meaningful
-  // only for embedded-type apps (Call Center, Ad Performance, Messages), which have their own
+  // only for embedded-type plugins (Call Center, Ad Performance, Messages), which have their own
   // real routes registered directly in App.tsx.
   const embeddedAppNavItems: NavItem[] = (apps ?? [])
     .filter((a) => a.manifest.authType === 'oauth' && a.manifest.isEmbeddedApp && a.install?.status === 'installed')

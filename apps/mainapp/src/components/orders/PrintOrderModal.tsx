@@ -1,15 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Package, Printer, Scissors, X } from 'lucide-react';
+import { Printer, Scissors, X, Package } from 'lucide-react';
 import type { InvoiceTemplateDTO, OrderDTO, OrderLineItemDTO } from '@zetsales/shared';
 import { useAuth } from '../../context/AuthContext';
-import { bulkUpdateOrders, markOrdersPrinted, splitOrder } from '../../lib/commerceApi';
+import { ensureOrderInvoices } from '../../lib/commerceApi';
 import { useToast } from '../ui/ToastProvider';
 import { formatAbsoluteDateTime } from './time';
 import { resolveBin, type BinLookup } from './binLookup';
 import { Barcode } from './Barcode';
-import { BulkStockPopup, type BulkStockResolution } from './BulkStockPopup';
-import { classifyOrdersByStock, type StockLookup } from './stockLookup';
+import { canPrintPackingSlip } from './stageFlow';
 
 export type PrintDocType = 'invoice' | 'packingSlip' | 'combined';
 
@@ -19,12 +18,6 @@ interface PrintOrderModalProps {
   orders: OrderDTO[];
   docType: PrintDocType;
   binLookup?: BinLookup;
-  stockLookup?: StockLookup;
-  // Called after a packing-slip/combined print advances one or more Confirmed orders to
-  // Processing, so the caller can refresh its own order list/detail. Omitted entirely for callers
-  // that don't need to react (there currently are none, but this stays optional rather than
-  // required so a future print-only caller isn't forced to pass a no-op).
-  onOrdersProcessed?: () => void;
   // Branding/layout overrides from a saved template (Print Out → Invoice Design). Omitted or null
   // means the original hardcoded layout — every field below reads as "on"/default when template is
   // absent, so existing callers (Orders' bulk print, the order detail drawer) keep working exactly
@@ -51,6 +44,7 @@ function DocHeader({
   template?: InvoiceTemplateDTO | null;
 }) {
   const displayName = template?.businessNameOverride || businessName;
+  const primaryNo = order.invoiceNo ?? order.number;
   return (
     <div className={compact ? 'mb-4 flex items-start justify-between' : 'mb-6 flex items-start justify-between'}>
       <div className="flex items-center gap-2.5">
@@ -59,7 +53,8 @@ function DocHeader({
         <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-indigo-700">{label}</span>
       </div>
       <div className="text-right text-sm">
-        <p className="font-semibold text-slate-900">{order.number}</p>
+        <p className="font-semibold text-slate-900">{primaryNo}</p>
+        {order.invoiceNo && <p className="text-xs text-slate-400">Order {order.number}</p>}
         <p className="text-slate-400">{compact ? (order.customerName || 'No name') : formatAbsoluteDateTime(order.createdAt)}</p>
       </div>
     </div>
@@ -223,14 +218,15 @@ function CodCallout({ order }: { order: OrderDTO }) {
 // squinting at a number), independent of whatever a courier's own tracking barcode says.
 function InvoiceBarcode({ order, template }: { order: OrderDTO; template?: InvoiceTemplateDTO | null }) {
   const showBarcode = template?.showBarcode !== false;
+  const barcodeValue = order.invoiceNo ?? order.number;
   return (
     <div className="mt-6 flex flex-col items-center border-t border-dashed border-slate-200 pt-4">
       {showBarcode && (
         <>
           <div className="w-48">
-            <Barcode value={order.number} height={36} />
+            <Barcode value={barcodeValue} height={36} />
           </div>
-          <p className="mt-1 text-center text-[11px] font-medium tracking-wider text-slate-500">{order.number}</p>
+          <p className="mt-1 text-center text-[11px] font-medium tracking-wider text-slate-500">{barcodeValue}</p>
         </>
       )}
       <p className="mt-2 text-center text-xs text-slate-400">{template?.footerNote || 'Thank you for your order.'}</p>
@@ -395,121 +391,71 @@ function CompactPackingListDocument({ orders, binLookup, businessName }: { order
   );
 }
 
-export function PrintOrderModal({ open, onClose, orders: liveOrders, docType, binLookup, stockLookup, onOrdersProcessed, template }: PrintOrderModalProps) {
+export function PrintOrderModal({ open, onClose, orders: liveOrders, docType, binLookup, template }: PrintOrderModalProps) {
   const { user } = useAuth();
   const toast = useToast();
+  const [printing, setPrinting] = useState(false);
+  const [issuingBills, setIssuingBills] = useState(false);
+  const ensureKeyRef = useRef<string | null>(null);
 
   // Freezes the order list the instant this modal opens, instead of reading the live `orders`
-  // prop on every render. "Print & send to packing" triggers a background refresh of the
-  // underlying order list as a direct side effect of its own success — without this, the modal
-  // would visibly collapse mid-session: the very orders it just sent to packing stop being
-  // "Confirmed" moments later, which used to make the two-button choice disappear and fall back
-  // to a plain "Print" button while the modal was still sitting open. A print session should look
-  // and behave the same from open to close, independent of whatever state changes elsewhere as a
-  // result of using it.
+  // prop on every render, so a print session looks the same from open to close regardless of
+  // whatever else changes the underlying order list while it's sitting open.
   const wasOpenRef = useRef(false);
   const [orders, setOrders] = useState<OrderDTO[]>(liveOrders);
   useEffect(() => {
     if (open && !wasOpenRef.current) setOrders(liveOrders);
+    if (!open) ensureKeyRef.current = null;
     wasOpenRef.current = open;
   }, [open, liveOrders]);
 
-  // Stock-check popup state for "Print & send to packing" — see BulkStockPopup. `printQueued`
-  // exists purely for timing: after resolving the popup, `orders` gets trimmed down to only what's
-  // actually proceeding (so the printed pages match what's really being sent), and window.print()
-  // has to wait for that state update to actually render before it fires, or it'd print the stale,
-  // unfiltered list. The effect below fires once the trimmed `orders` has committed.
-  const [popupData, setPopupData] = useState<{ ready: OrderDTO[]; mixed: OrderDTO[]; fullyShort: OrderDTO[] } | null>(null);
-  const [popupBusy, setPopupBusy] = useState(false);
-  const [printQueue, setPrintQueue] = useState<string[] | null>(null);
   useEffect(() => {
-    if (!printQueue) return;
-    window.print();
-    void markOrdersPrinted(printQueue).catch(() => {});
-    void sendToPacking(printQueue);
-    setPrintQueue(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orders, printQueue]);
+    if (!open || (docType !== 'invoice' && docType !== 'combined')) return;
+    const orderIds = liveOrders.map((order) => order.id);
+    if (orderIds.length === 0) return;
+    const key = `${docType}:${orderIds.join(',')}`;
+    if (ensureKeyRef.current === key) return;
+    ensureKeyRef.current = key;
+    let cancelled = false;
+    setIssuingBills(true);
+    void ensureOrderInvoices(orderIds)
+      .then(({ orders: issuedOrders }) => {
+        if (cancelled) return;
+        const byId = new Map(issuedOrders.map((order) => [order.id, order]));
+        setOrders((previous) => previous.map((order) => byId.get(order.id) ?? order));
+      })
+      .catch(() => {
+        if (!cancelled) toast.push('Could not load bill numbers for preview.', 'info');
+      })
+      .finally(() => {
+        if (!cancelled) setIssuingBills(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [docType, liveOrders, open, toast]);
 
   if (!open) return null;
 
-  // A packing slip is the document that actually sends work to a packer — printing it (or the
-  // combined sheet, which includes one) is the real-world moment picking/packing starts. No
-  // browser exposes whether the user actually went through with printing or hit Cancel in the
-  // native dialog (and for "Save as PDF" specifically, that dialog can stay open for a while after
-  // window.print() returns) — so instead of guessing from an ambiguous, badly-timed signal, the
-  // decision is made explicit up front: two buttons when it's actually relevant, "Print & send to
-  // packing" vs. "Print only". Whichever the user picks is what happens, immediately, no
-  // after-the-fact detection involved. A plain invoice print never offers this at all — it gets
-  // reprinted for all sorts of unrelated reasons (a smudged copy, an accounting request) that have
-  // nothing to do with packing starting.
-  const eligibleOrders = orders.filter((o) => o.stage === 'Confirmed');
-  const eligibleIds = eligibleOrders.map((o) => o.id);
-  const canSendToPacking = docType !== 'invoice' && eligibleIds.length > 0;
+  // Packing slips (and the combined sheet, which includes one) only make sense for orders that
+  // have actually reached packing — see canPrintPackingSlip. Confirmed orders in the selection are
+  // silently dropped from that document rather than shown with bins nobody has picked yet; callers
+  // are expected to gate the "Packing slip"/"Invoice + Slip" entry points themselves so this is
+  // rarely reached with anything to drop, but it stays a hard backstop either way.
+  const printableOrders = docType === 'invoice' ? orders : orders.filter((o) => canPrintPackingSlip(o.stage));
 
-  const sendToPacking = async (ids: string[]) => {
-    if (ids.length === 0) return;
+  const handlePrint = async () => {
+    if (printableOrders.length === 0) return;
+    setPrinting(true);
     try {
-      const res = await bulkUpdateOrders(ids, { stage: 'Processing' });
-      const succeeded = res.results.filter((r) => r.success);
-      const blocked = res.results.filter((r) => !r.success);
-      if (succeeded.length > 0) {
-        toast.push(`${succeeded.length} order${succeeded.length === 1 ? '' : 's'} sent to packing.`, 'success');
-        onOrdersProcessed?.();
-      }
-      if (blocked.length > 0) {
-        toast.push(
-          blocked.length === 1
-            ? (blocked[0].error ?? 'One order could not be sent to packing.')
-            : `${blocked.length} orders could not be sent to packing — still waiting on stock.`,
-          'info'
-        );
-      }
+      const { orders: printedOrders } = await ensureOrderInvoices(printableOrders.map((o) => o.id));
+      const byId = new Map(printedOrders.map((order) => [order.id, order]));
+      setOrders((previous) => previous.map((order) => byId.get(order.id) ?? order));
+      setTimeout(() => window.print(), 0);
     } catch {
-      toast.push('Printed, but could not send those orders to packing.', 'info');
-    }
-  };
-
-  const handlePrint = (thenSendToPacking: boolean) => {
-    if (!thenSendToPacking) {
-      window.print();
-      void markOrdersPrinted(orders.map((o) => o.id)).catch(() => {});
-      return;
-    }
-    // A packing slip only helps if what it lists is actually pickable — check stock for every
-    // Confirmed order in the selection before printing anything, not after. A clean batch (nothing
-    // mixed or fully out of stock) skips the popup and behaves exactly as it always has.
-    const { ready, mixed, fullyShort } = classifyOrdersByStock(eligibleOrders, stockLookup);
-    if (mixed.length === 0 && fullyShort.length === 0) {
-      window.print();
-      void markOrdersPrinted(eligibleIds).catch(() => {});
-      void sendToPacking(eligibleIds);
-      return;
-    }
-    setPopupData({ ready, mixed, fullyShort });
-  };
-
-  const handlePopupProceed = async (resolution: BulkStockResolution) => {
-    if (!popupData) return;
-    setPopupBusy(true);
-    try {
-      const splitResults = await Promise.all(resolution.splitIds.map((id) => splitOrder(id)));
-      const finalOrders = [...popupData.ready, ...splitResults.map((r) => r.original)];
-      const finalIds = finalOrders.map((o) => o.id);
-      setPopupData(null);
-      if (finalIds.length === 0) {
-        toast.push('No orders were ready to send to packing.', 'info');
-        return;
-      }
-      // Trim the printed set down to exactly what's proceeding, using each split order's real
-      // post-split line items (fewer items than the pre-split snapshot) rather than the stale one.
-      const finalById = new Map(finalOrders.map((o) => [o.id, o]));
-      setOrders((prev) => prev.filter((o) => finalById.has(o.id)).map((o) => finalById.get(o.id) ?? o));
-      setPrintQueue(finalIds);
-    } catch (err) {
-      toast.push(err instanceof Error ? err.message : 'Could not resolve those orders.', 'info');
+      toast.push('Could not issue bill numbers for printing.', 'info');
     } finally {
-      setPopupBusy(false);
+      setPrinting(false);
     }
   };
 
@@ -522,36 +468,18 @@ export function PrintOrderModal({ open, onClose, orders: liveOrders, docType, bi
           <div>
             <h2 className="text-base font-bold text-slate-900">
               {DOC_LABEL[docType]}
-              {orders.length > 1 ? `s (${orders.length})` : ''}
+              {printableOrders.length > 1 ? `s (${printableOrders.length})` : ''}
             </h2>
-            <p className="mt-0.5 text-sm text-slate-500">
-              {canSendToPacking ? 'Preview below, then choose how to print.' : 'Preview below, then print.'}
-            </p>
+            <p className="mt-0.5 text-sm text-slate-500">{issuingBills ? 'Issuing bill number...' : 'Preview below, then print.'}</p>
           </div>
           <div className="flex items-center gap-2">
-            {canSendToPacking ? (
-              <>
-                <button
-                  onClick={() => handlePrint(false)}
-                  className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
-                >
-                  Print only
-                </button>
-                <button
-                  onClick={() => handlePrint(true)}
-                  className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-slate-800"
-                >
-                  <Printer size={14} /> Print &amp; send to packing
-                </button>
-              </>
-            ) : (
-              <button
-                onClick={() => handlePrint(false)}
-                className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-slate-800"
-              >
-                <Printer size={14} /> Print
-              </button>
-            )}
+            <button
+              onClick={handlePrint}
+              disabled={printableOrders.length === 0 || printing || issuingBills}
+              className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Printer size={14} /> {printing || issuingBills ? 'Preparing...' : 'Print'}
+            </button>
             <button onClick={onClose} className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
               <X size={16} />
             </button>
@@ -561,33 +489,24 @@ export function PrintOrderModal({ open, onClose, orders: liveOrders, docType, bi
           <style>{`@media print { @page { size: ${template.paperSize}; } }`}</style>
         )}
         <div className="print-area overflow-y-auto bg-slate-50 print:overflow-visible print:bg-white">
-          {docType === 'combined' ? (
+          {printableOrders.length === 0 ? (
+            <p className="p-8 text-center text-sm text-slate-400">None of the selected orders have reached packing yet.</p>
+          ) : docType === 'combined' ? (
             // One sheet per order, cut in half — same layout whether it's one order from the
             // drawer or several from a bulk selection, just repeated once per order.
-            orders.map((order) => (
+            printableOrders.map((order) => (
               <CombinedDocumentPage key={order.id} order={order} binLookup={binLookup} businessName={user?.businessName || 'Your Business'} template={template} />
             ))
-          ) : docType === 'packingSlip' && orders.length > 1 ? (
-            <CompactPackingListDocument orders={orders} binLookup={binLookup} businessName={user?.businessName || 'Your Business'} />
+          ) : docType === 'packingSlip' && printableOrders.length > 1 ? (
+            <CompactPackingListDocument orders={printableOrders} binLookup={binLookup} businessName={user?.businessName || 'Your Business'} />
           ) : (
-            orders.map((order) => (
+            printableOrders.map((order) => (
               <DocumentPage key={order.id} order={order} docType={docType} binLookup={binLookup} businessName={user?.businessName || 'Your Business'} template={template} />
             ))
           )}
         </div>
       </div>
     </div>
-    <BulkStockPopup
-      open={popupData !== null}
-      mode="pack"
-      mixedOrders={popupData?.mixed ?? []}
-      fullyShortOrders={popupData?.fullyShort ?? []}
-      readyCount={popupData?.ready.length ?? 0}
-      stockLookup={stockLookup}
-      busy={popupBusy}
-      onClose={() => setPopupData(null)}
-      onProceed={(resolution) => void handlePopupProceed(resolution)}
-    />
     </>,
     document.body
   );

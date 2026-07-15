@@ -26,12 +26,15 @@ import { ChannelOverviewCard } from '../../components/home/ChannelOverviewCard';
 import { InitialStoreEmptyState } from '../../components/home/InitialStoreEmptyState';
 import { AppBlock } from '../../components/apps/AppBlock';
 import { STAGE_TONE, STAGE_LABEL } from '../../components/orders/orderTone';
+import { DateRangeMenu } from '../../components/orders/DateRangeMenu';
+import { FilterMenu } from '../../components/orders/FilterMenu';
+import { getRangeBounds, type CustomDateRange, type DateRangeKey } from '../../components/orders/dateRange';
 
 const PIPELINE_STAGES: { tab: Exclude<OrderTabKey, 'all'>; label: string; icon: typeof Clock; tone: string }[] = [
   { tab: 'pending', label: 'Pending', icon: Clock, tone: STAGE_TONE.Pending },
   { tab: 'confirmed', label: 'Confirmed', icon: CheckCircle2, tone: STAGE_TONE.Confirmed },
   { tab: 'processing', label: 'Packing', icon: Package, tone: STAGE_TONE.Processing },
-  { tab: 'shipped', label: 'Handed to Courier', icon: Truck, tone: STAGE_TONE.Shipped },
+  { tab: 'courierBooked', label: 'Ready for pickup', icon: Truck, tone: STAGE_TONE.Shipped },
   { tab: 'delivered', label: 'Delivered', icon: PackageCheck, tone: STAGE_TONE.Delivered },
   { tab: 'codDue', label: 'COD Due', icon: Wallet, tone: 'bg-amber-50 text-amber-700 ring-amber-600/20' },
   { tab: 'hold', label: 'On Hold', icon: PauseCircle, tone: STAGE_TONE['On Hold'] },
@@ -65,22 +68,20 @@ export function HomePage() {
   const [storesLoading, setStoresLoading] = useState(true);
   const [productTotal, setProductTotal] = useState<number | null>(null);
   const [attentionOrders, setAttentionOrders] = useState<OrderDTO[] | null>(null);
+  const [dateRange, setDateRange] = useState<DateRangeKey>('today');
+  const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
+  const [storeFilter, setStoreFilter] = useState<string>('all');
+  // "Pending Orders" is deliberately not scoped by the date filter above — a pending order was
+  // created on some date but stays pending indefinitely until it's resolved, so filtering it by
+  // "today"/"yesterday"/a range would just hide the ones that still need a call, which defeats the
+  // point of the card. It only tracks the channel filter, fetched on its own so switching the date
+  // range never touches it.
+  const [allTimePendingCount, setAllTimePendingCount] = useState<number | null>(null);
 
+  // Stores/catalog aren't scoped by the date/channel filters below — a store either exists or it
+  // doesn't, and the catalog count isn't an order-derived metric — so they only ever need to load
+  // once.
   useEffect(() => {
-    void (async () => {
-      try {
-        setStats(await getOrderStats({}));
-      } catch {
-        // KPI cards degrade to skeletons; the rest of the dashboard still loads.
-      }
-    })();
-    void (async () => {
-      try {
-        setTrends(await getOrderTrends({ range: 'last30' }));
-      } catch {
-        // Sparklines are a secondary visual; KPI totals still work without them.
-      }
-    })();
     void (async () => {
       try {
         setStores(await listStores());
@@ -96,15 +97,54 @@ export function HomePage() {
         // Catalog tile just stays blank on failure.
       }
     })();
+  }, []);
+
+  useEffect(() => {
+    const { from, to } = getRangeBounds(dateRange, customRange);
+    const storeId = storeFilter !== 'all' ? storeFilter : undefined;
     void (async () => {
       try {
-        const res = await listOrders({ tab: 'pending', sortKey: 'updated', sortDir: 'desc', pageSize: 5 });
+        setStats(await getOrderStats({ storeId, dateFrom: from ?? undefined, dateTo: to ?? undefined }));
+      } catch {
+        // KPI cards degrade to skeletons; the rest of the dashboard still loads.
+      }
+    })();
+    void (async () => {
+      try {
+        setTrends(await getOrderTrends({ range: 'last30', storeId }));
+      } catch {
+        // Sparklines are a secondary visual; KPI totals still work without them.
+      }
+    })();
+    void (async () => {
+      try {
+        const res = await listOrders({
+          storeId,
+          tab: 'pending',
+          sortKey: 'updated',
+          sortDir: 'desc',
+          pageSize: 5,
+          dateFrom: from ?? undefined,
+          dateTo: to ?? undefined,
+        });
         setAttentionOrders(res.orders);
       } catch {
         setAttentionOrders([]);
       }
     })();
-  }, []);
+  }, [dateRange, customRange, storeFilter]);
+
+  useEffect(() => {
+    const storeId = storeFilter !== 'all' ? storeFilter : undefined;
+    void (async () => {
+      try {
+        const res = await getOrderStats({ storeId });
+        setAllTimePendingCount(res.tabCounts.pending);
+      } catch {
+        // Card just shows a skeleton dash on failure.
+      }
+    })();
+  }, [storeFilter]);
 
   const rtoRate = useMemo(() => (stats && stats.totalOrders > 0 ? Math.round((stats.rtoOrders / stats.totalOrders) * 100) : 0), [stats]);
   const businessLabel = user?.businessName?.trim() || 'there';
@@ -163,6 +203,19 @@ export function HomePage() {
       {header}
 
       <div className="flex-1 space-y-6 px-8 py-6">
+        <div className="flex flex-wrap items-center gap-2">
+          <DateRangeMenu value={dateRange} onChange={setDateRange} customRange={customRange} onCustomRangeChange={setCustomRange} />
+          {stores.length > 1 && (
+            <FilterMenu
+              icon={StoreIcon}
+              allLabel="All Channels"
+              value={storeFilter}
+              options={stores.map((s) => ({ value: s.id, label: s.displayName }))}
+              onChange={setStoreFilter}
+            />
+          )}
+        </div>
+
         <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
           <HomeKpiCard
             icon={Wallet}
@@ -212,8 +265,8 @@ export function HomePage() {
             <HomeKpiCard
               icon={Clock}
               tone="amber"
-              label="Pending Orders"
-              value={stats ? formatCount(stats.tabCounts.pending) : '-'}
+              label="All time Pending Orders"
+              value={allTimePendingCount != null ? formatCount(allTimePendingCount) : '-'}
               metricKey="pending"
               trends={trends}
               formatValue={formatCount}

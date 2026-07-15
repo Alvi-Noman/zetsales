@@ -29,7 +29,7 @@ export const STAGE_LABEL: Record<OrderStage, string> = {
   Flagged: 'Flagged',
   Confirmed: 'Confirmed',
   Processing: 'Packing',
-  Shipped: 'Handed to Courier',
+  Shipped: 'Ready for pickup',
   'Out for Delivery': 'Out for Delivery',
   'RTO Initiated': 'RTO Initiated',
   'QC Pending': 'QC Pending',

@@ -169,6 +169,7 @@ export type CourierHandoverStatus = 'Pending' | 'Confirmed';
 export interface EligibleHandoverOrderDTO {
     orderId: string;
     orderNumber: string;
+    invoiceNo: string | null;
     customerName: string | null;
     consignmentId: string | null;
     itemCount: number;
@@ -178,6 +179,7 @@ export interface EligibleHandoverOrderDTO {
 export interface CourierHandoverOrderRowDTO {
     orderId: string;
     orderNumber: string;
+    invoiceNo: string | null;
     customerName: string | null;
     consignmentId: string | null;
     itemCount: number;
@@ -191,6 +193,7 @@ export interface CourierHandoverItemRowDTO {
 }
 export interface CourierHandoverDTO {
     id: string;
+    manifestNo: string;
     courierId: string;
     provider: CourierProvider;
     handoverDate: string;
@@ -328,13 +331,17 @@ export interface OrderRiskDTO {
     cancelledOrReturnedCount: number;
     successRate: number | null;
     possibleDuplicateOrders: string[];
-    courierBreakdown: {
+    courierBreakdown: ({
         courierPartner: CourierPartner;
         delivered: number;
         failed: number;
         stale?: boolean;
         checkedAt?: string;
-    }[];
+        unavailable?: false;
+    } | {
+        courierPartner: CourierPartner;
+        unavailable: true;
+    })[];
 }
 export interface OrderLineItemDTO {
     title: string;
@@ -360,6 +367,8 @@ export interface OrderDTO {
     platform: StorePlatform;
     externalId: string;
     number: string;
+    invoiceNo: string | null;
+    invoiceIssuedAt: string | null;
     stage: OrderStage;
     heldFromStage: OrderStage | null;
     paymentStatus: OrderPaymentStatus;
@@ -429,7 +438,7 @@ export interface OrderDTO {
     claimedAt: string | null;
     printedAt: string | null;
 }
-export type OrderTabKey = 'all' | 'priority' | 'pending' | 'confirmed' | 'processing' | 'shipped' | 'returning' | 'delivered' | 'codDue' | 'hold' | 'cancelled';
+export type OrderTabKey = 'all' | 'priority' | 'pending' | 'confirmed' | 'processing' | 'courierBooked' | 'shipped' | 'returning' | 'delivered' | 'codDue' | 'hold' | 'cancelled';
 export interface OrderDailyStatDTO {
     date: string;
     count: number;

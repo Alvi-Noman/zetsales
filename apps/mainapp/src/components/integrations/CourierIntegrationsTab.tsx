@@ -295,22 +295,22 @@ function CreateHandoverModal({
     setSubmitting(true);
     try {
       const { handover } = await createCourierHandover(courier.id, { handoverDate, orderIds: [...selected], note: note.trim() || undefined });
-      toast.push(`Handover created — ${handover.parcelCount} parcel${handover.parcelCount === 1 ? '' : 's'}.`);
+      toast.push(`Pickup manifest created — ${handover.parcelCount} parcel${handover.parcelCount === 1 ? '' : 's'}.`);
       onCreated(handover);
       onClose();
     } catch (err) {
-      toast.push(err instanceof Error ? err.message : 'Could not create this handover.', 'info');
+      toast.push(err instanceof Error ? err.message : 'Could not create this manifest.', 'info');
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="New courier handover" subtitle={`Parcels being physically handed to ${courier.displayName} today.`} widthClass="max-w-2xl">
+    <Modal open={open} onClose={onClose} title="New pickup manifest" subtitle={`Parcels being physically handed to ${courier.displayName} today.`} widthClass="max-w-2xl">
       <div className="space-y-4">
         <div className="flex flex-wrap items-end gap-3">
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-500">Handover date</label>
+            <label className="mb-1 block text-xs font-medium text-slate-500">Pickup date</label>
             <input
               type="date"
               value={handoverDate}
@@ -332,7 +332,7 @@ function CreateHandoverModal({
         {orders === null ? (
           <p className="py-8 text-center text-sm text-slate-400">Loading eligible orders...</p>
         ) : orders.length === 0 ? (
-          <p className="py-8 text-center text-sm text-slate-400">No shipped orders are waiting for handover with this courier right now.</p>
+          <p className="py-8 text-center text-sm text-slate-400">No ready-for-pickup orders are waiting for this courier right now.</p>
         ) : (
           <>
             <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
@@ -363,7 +363,7 @@ function CreateHandoverModal({
           disabled={submitting || !orders || selected.size === 0}
           className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
         >
-          Create handover ({selected.size} parcel{selected.size === 1 ? '' : 's'})
+          Create manifest ({selected.size} parcel{selected.size === 1 ? '' : 's'})
         </button>
       </div>
     </Modal>
@@ -398,9 +398,9 @@ function HandoverDetailModal({
       const { handover } = await confirmCourierHandover(handoverId, confirmNote.trim() || undefined);
       setDetail((prev) => (prev ? { ...prev, ...handover } : prev));
       onChanged(handover);
-      toast.push('Handover marked as received.');
+      toast.push('Pickup manifest marked as accepted.');
     } catch {
-      toast.push('Could not confirm this handover.', 'info');
+      toast.push('Could not confirm this manifest.', 'info');
     } finally {
       setBusy(false);
     }
@@ -410,17 +410,17 @@ function HandoverDetailModal({
     setBusy(true);
     try {
       await deleteCourierHandover(handoverId);
-      toast.push('Handover deleted — its orders are eligible for handover again.');
+      toast.push('Pickup manifest deleted — its orders are eligible again.');
       onClose();
     } catch {
-      toast.push('Could not delete this handover.', 'info');
+      toast.push('Could not delete this manifest.', 'info');
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <Modal open onClose={onClose} title="Handover manifest" subtitle={detail ? new Date(detail.handoverDate).toLocaleDateString() : undefined} widthClass="max-w-3xl">
+    <Modal open onClose={onClose} title="Pickup manifest" subtitle={detail ? new Date(detail.handoverDate).toLocaleDateString() : undefined} widthClass="max-w-3xl">
       {!detail ? (
         <p className="py-8 text-center text-sm text-slate-400">Loading...</p>
       ) : (
@@ -530,7 +530,7 @@ function HandoverDetailModal({
                   disabled={busy}
                   className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
                 >
-                  <CheckCircle2 size={13} /> Mark received
+                  <CheckCircle2 size={13} /> Mark accepted
                 </button>
                 <button
                   onClick={handleDelete}
@@ -568,7 +568,7 @@ function HandoversSection({ courier }: { courier: CourierAccountDTO }) {
     <div className="border-t border-slate-100 pt-3">
       <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center justify-between text-left">
         <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-600">
-          <ClipboardList size={13} /> Handovers {handovers && `(${handovers.length})`}
+          <ClipboardList size={13} /> Pickup manifests {handovers && `(${handovers.length})`}
         </span>
         <ChevronDown size={14} className={clsx('text-slate-400 transition-transform', open && 'rotate-180')} />
       </button>
@@ -578,13 +578,13 @@ function HandoversSection({ courier }: { courier: CourierAccountDTO }) {
             onClick={() => setCreateOpen(true)}
             className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-slate-300 py-2 text-xs font-semibold text-slate-500 hover:border-indigo-300 hover:text-indigo-600"
           >
-            <Plus size={13} /> New handover
+            <Plus size={13} /> New manifest
           </button>
           <div className="space-y-1.5">
             {handovers === null ? (
               <p className="text-xs text-slate-400">Loading...</p>
             ) : handovers.length === 0 ? (
-              <p className="text-xs text-slate-400">No handovers recorded yet.</p>
+              <p className="text-xs text-slate-400">No pickup manifests recorded yet.</p>
             ) : (
               handovers.map((h) => (
                 <button
