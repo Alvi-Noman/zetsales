@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
-import { getAppSessionToken } from '../../lib/commerceApi';
-import { useInstalledApps } from '../../hooks/useInstalledApps';
+import { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
+import { getAppSessionToken } from "../../lib/commerceApi";
+import { useInstalledApps } from "../../hooks/useInstalledApps";
 
 // The generic full-page host for an oauth-type embedded plugin — described in
 // docs/plugin-platform.md but not actually built until ZetSales Ads became the first real
@@ -16,7 +16,12 @@ export function AppHostPage() {
   const entry = apps?.find((a) => a.manifest.key === appKey);
 
   useEffect(() => {
-    if (!entry || entry.manifest.authType !== 'oauth' || !entry.manifest.homepageUrl) return;
+    if (
+      !entry ||
+      entry.manifest.authType !== "oauth" ||
+      !entry.manifest.homepageUrl
+    )
+      return;
     let cancelled = false;
     getAppSessionToken(entry.manifest.key, undefined, {})
       .then((token) => {
@@ -31,13 +36,30 @@ export function AppHostPage() {
   }, [entry]);
 
   if (isLoading) {
-    return <div className="flex h-full items-center justify-center text-sm text-slate-400">Loading…</div>;
+    return (
+      <div className="zs-page">
+        <div className="zs-loading-state">Loading...</div>
+      </div>
+    );
   }
-  if (!entry || entry.install?.status !== 'installed' || entry.manifest.authType !== 'oauth' || !entry.manifest.homepageUrl) {
-    return <div className="flex h-full items-center justify-center text-sm text-slate-400">This plugin isn't installed.</div>;
+  if (
+    !entry ||
+    entry.install?.status !== "installed" ||
+    entry.manifest.authType !== "oauth" ||
+    !entry.manifest.homepageUrl
+  ) {
+    return (
+      <div className="zs-page">
+        <div className="zs-empty-state">This plugin isn't installed.</div>
+      </div>
+    );
   }
   if (!sessionToken) {
-    return <div className="flex h-full items-center justify-center text-sm text-slate-400">Connecting…</div>;
+    return (
+      <div className="zs-page">
+        <div className="zs-loading-state">Connecting...</div>
+      </div>
+    );
   }
 
   return (

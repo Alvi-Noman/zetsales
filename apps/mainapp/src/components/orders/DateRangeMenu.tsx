@@ -1,11 +1,23 @@
-import { useEffect, useState } from 'react';
-import { Calendar, Check, ChevronDown } from 'lucide-react';
-import clsx from 'clsx';
-import { Popover } from '../ui/Popover';
-import { DATE_RANGE_LABELS, formatRangeLabel, type CustomDateRange, type DateRangeKey } from './dateRange';
+import { useEffect, useState } from "react";
+import { Calendar, Check, ChevronDown } from "lucide-react";
+import clsx from "clsx";
+import { Popover } from "../ui/Popover";
+import {
+  DATE_RANGE_LABELS,
+  formatRangeLabel,
+  type CustomDateRange,
+  type DateRangeKey,
+} from "./dateRange";
 
-const QUICK_OPTIONS: DateRangeKey[] = ['today', 'yesterday', 'last7', 'last14', 'last30', 'thisMonth'];
-const MORE_OPTIONS: DateRangeKey[] = ['last90', 'lastMonth', 'thisYear', 'all'];
+const QUICK_OPTIONS: DateRangeKey[] = [
+  "today",
+  "yesterday",
+  "last7",
+  "last14",
+  "last30",
+  "thisMonth",
+];
+const MORE_OPTIONS: DateRangeKey[] = ["last90", "lastMonth", "thisYear", "all"];
 
 interface DateRangeMenuProps {
   value: DateRangeKey;
@@ -14,20 +26,28 @@ interface DateRangeMenuProps {
   onCustomRangeChange?: (range: CustomDateRange) => void;
 }
 
-export function DateRangeMenu({ value, onChange, customRange, onCustomRangeChange }: DateRangeMenuProps) {
-  const [draftFrom, setDraftFrom] = useState(customRange?.from ?? '');
-  const [draftTo, setDraftTo] = useState(customRange?.to ?? '');
+export function DateRangeMenu({
+  value,
+  onChange,
+  customRange,
+  onCustomRangeChange,
+}: DateRangeMenuProps) {
+  const [draftFrom, setDraftFrom] = useState(customRange?.from ?? "");
+  const [draftTo, setDraftTo] = useState(customRange?.to ?? "");
 
   useEffect(() => {
-    setDraftFrom(customRange?.from ?? '');
-    setDraftTo(customRange?.to ?? '');
+    setDraftFrom(customRange?.from ?? "");
+    setDraftTo(customRange?.to ?? "");
   }, [customRange?.from, customRange?.to]);
 
   const applyCustom = (close: () => void) => {
     if (!draftFrom || !draftTo) return;
-    const next = draftFrom <= draftTo ? { from: draftFrom, to: draftTo } : { from: draftTo, to: draftFrom };
+    const next =
+      draftFrom <= draftTo
+        ? { from: draftFrom, to: draftTo }
+        : { from: draftTo, to: draftFrom };
     onCustomRangeChange?.(next);
-    onChange('custom');
+    onChange("custom");
     close();
   };
 
@@ -38,7 +58,9 @@ export function DateRangeMenu({ value, onChange, customRange, onCustomRangeChang
       trigger={() => (
         <div className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 cursor-pointer hover:bg-slate-50">
           <Calendar size={14} className="text-slate-400" />
-          <span className="whitespace-nowrap">{formatRangeLabel(value, customRange)}</span>
+          <span className="whitespace-nowrap">
+            {formatRangeLabel(value, customRange)}
+          </span>
           <ChevronDown size={12} className="text-slate-400" />
         </div>
       )}
@@ -54,8 +76,10 @@ export function DateRangeMenu({ value, onChange, customRange, onCustomRangeChang
                   close();
                 }}
                 className={clsx(
-                  'flex h-9 items-center justify-between rounded-lg px-3 text-left text-sm font-medium hover:bg-slate-50',
-                  value === key ? 'bg-indigo-50 text-indigo-700' : 'text-slate-700'
+                  "flex h-9 items-center justify-between rounded-lg px-3 text-left text-sm font-medium hover:bg-slate-50",
+                  value === key
+                    ? "bg-indigo-50 text-indigo-700"
+                    : "text-slate-700",
                 )}
               >
                 {DATE_RANGE_LABELS[key]}
@@ -73,8 +97,10 @@ export function DateRangeMenu({ value, onChange, customRange, onCustomRangeChang
                   close();
                 }}
                 className={clsx(
-                  'flex h-8 w-full items-center justify-between rounded-lg px-3 text-left text-sm font-medium hover:bg-slate-50',
-                  value === key ? 'bg-indigo-50 text-indigo-700' : 'text-slate-700'
+                  "flex h-8 w-full items-center justify-between rounded-lg px-3 text-left text-sm font-medium hover:bg-slate-50",
+                  value === key
+                    ? "bg-indigo-50 text-indigo-700"
+                    : "text-slate-700",
                 )}
               >
                 {DATE_RANGE_LABELS[key]}
@@ -83,7 +109,7 @@ export function DateRangeMenu({ value, onChange, customRange, onCustomRangeChang
             ))}
           </div>
 
-          <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
             <p className="text-xs font-semibold text-slate-500">Custom range</p>
             <div className="mt-2 grid grid-cols-2 gap-2">
               <label className="text-[11px] font-medium text-slate-500">

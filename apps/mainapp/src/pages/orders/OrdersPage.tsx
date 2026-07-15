@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Ban,
   Check,
@@ -19,11 +19,20 @@ import {
   Store as StoreIcon,
   UserX,
   X,
-} from 'lucide-react';
-import clsx from 'clsx';
-import type { CancelReason, CourierAccountDTO, HoldReason, OrderDTO, OrderPaymentStatus, OrderStatsDTO, OrderTabKey, StoreDTO } from '@zetsales/shared';
-import { useAuth } from '../../context/AuthContext';
-import { AppBlock } from '../../components/apps/AppBlock';
+} from "lucide-react";
+import clsx from "clsx";
+import type {
+  CancelReason,
+  CourierAccountDTO,
+  HoldReason,
+  OrderDTO,
+  OrderPaymentStatus,
+  OrderStatsDTO,
+  OrderTabKey,
+  StoreDTO,
+} from "@zetsales/shared";
+import { useAuth } from "../../context/AuthContext";
+import { AppBlock } from "../../components/apps/AppBlock";
 import {
   blockCustomer,
   bulkMarkPaymentCollected,
@@ -37,43 +46,88 @@ import {
   splitOrder,
   unblockCustomer,
   type InventoryLevelDTO,
-} from '../../lib/commerceApi';
-import { OrderDetailDrawer } from '../../components/orders/OrderDetailDrawer';
-import { CreateOrderModal } from '../../components/orders/CreateOrderModal';
-import { PrintOrderModal, type PrintDocType } from '../../components/orders/PrintOrderModal';
-import { CourierLabelModal } from '../../components/orders/CourierLabelModal';
-import { BulkStockPopup, type BulkStockResolution } from '../../components/orders/BulkStockPopup';
-import { buildBinLookup, type BinLookup } from '../../components/orders/binLookup';
-import { buildStockLookup, classifyOrdersByStock, summarizeOrderStock } from '../../components/orders/stockLookup';
-import { ShopifyLogo, WooCommerceLogo } from '../../components/orders/platformLogos';
-import { STAGE_TONE, STAGE_LABEL, PAYMENT_METHOD_SHORT, CLAIM_TONE } from '../../components/orders/orderTone';
-import { ALL_HOLD_REASONS, CANCEL_REASONS_FOR_FILTER, canCancel, canHold, holdReasonsForMany } from '../../components/orders/reasons';
-import { canPrintPackingSlip } from '../../components/orders/stageFlow';
-import { ImportOrdersModal } from '../../components/integrations/ImportOrdersModal';
-import { ORDER_TABS } from '../../components/orders/tabs';
-import { DateRangeMenu } from '../../components/orders/DateRangeMenu';
-import { FilterMenu } from '../../components/orders/FilterMenu';
-import { MoreFiltersMenu, EMPTY_ADVANCED_FILTERS, activeAdvancedFilterCount, type AdvancedFilters } from '../../components/orders/MoreFiltersMenu';
-import { ExportOrdersModal, type ExportScope, type ExportFormat } from '../../components/orders/ExportOrdersModal';
-import { BulkActionBar } from '../../components/orders/BulkActionBar';
-import { FastTrackBanner } from '../../components/orders/FastTrackBanner';
-import { PriorityCallsBanner } from '../../components/orders/PriorityCallsBanner';
-import { RestockedOrdersBanner } from '../../components/orders/RestockedOrdersBanner';
-import { CommandPalette } from '../../components/orders/CommandPalette';
-import { RowActionsMenu } from '../../components/orders/RowActionsMenu';
-import { OrderProductsCell } from '../../components/orders/OrderProductsCell';
-import { Pagination } from '../../components/orders/Pagination';
-import { Popover } from '../../components/ui/Popover';
-import { Tooltip } from '../../components/ui/Tooltip';
-import { getRangeBounds, type CustomDateRange, type DateRangeKey } from '../../components/orders/dateRange';
-import { fastTrackEligibleIds } from '../../components/orders/fastTrack';
-import { formatAbsoluteDateTime, relativeDayLabel, ageMinutes, pendingUrgency } from '../../components/orders/time';
-import { telLink, waLink } from '../../components/orders/contact';
-import { useToast } from '../../components/ui/ToastProvider';
+} from "../../lib/commerceApi";
+import { OrderDetailDrawer } from "../../components/orders/OrderDetailDrawer";
+import { CreateOrderModal } from "../../components/orders/CreateOrderModal";
+import {
+  PrintOrderModal,
+  type PrintDocType,
+} from "../../components/orders/PrintOrderModal";
+import { CourierLabelModal } from "../../components/orders/CourierLabelModal";
+import {
+  BulkStockPopup,
+  type BulkStockResolution,
+} from "../../components/orders/BulkStockPopup";
+import {
+  buildBinLookup,
+  type BinLookup,
+} from "../../components/orders/binLookup";
+import {
+  buildStockLookup,
+  classifyOrdersByStock,
+  summarizeOrderStock,
+} from "../../components/orders/stockLookup";
+import {
+  ShopifyLogo,
+  WooCommerceLogo,
+} from "../../components/orders/platformLogos";
+import {
+  STAGE_TONE,
+  STAGE_LABEL,
+  PAYMENT_METHOD_SHORT,
+  CLAIM_TONE,
+} from "../../components/orders/orderTone";
+import {
+  ALL_HOLD_REASONS,
+  CANCEL_REASONS_FOR_FILTER,
+  canCancel,
+  canHold,
+  holdReasonsForMany,
+} from "../../components/orders/reasons";
+import { canPrintPackingSlip } from "../../components/orders/stageFlow";
+import { ImportOrdersModal } from "../../components/integrations/ImportOrdersModal";
+import { ORDER_TABS } from "../../components/orders/tabs";
+import { DateRangeMenu } from "../../components/orders/DateRangeMenu";
+import { FilterMenu } from "../../components/orders/FilterMenu";
+import {
+  MoreFiltersMenu,
+  EMPTY_ADVANCED_FILTERS,
+  activeAdvancedFilterCount,
+  type AdvancedFilters,
+} from "../../components/orders/MoreFiltersMenu";
+import {
+  ExportOrdersModal,
+  type ExportScope,
+  type ExportFormat,
+} from "../../components/orders/ExportOrdersModal";
+import { BulkActionBar } from "../../components/orders/BulkActionBar";
+import { FastTrackBanner } from "../../components/orders/FastTrackBanner";
+import { PriorityCallsBanner } from "../../components/orders/PriorityCallsBanner";
+import { RestockedOrdersBanner } from "../../components/orders/RestockedOrdersBanner";
+import { CommandPalette } from "../../components/orders/CommandPalette";
+import { RowActionsMenu } from "../../components/orders/RowActionsMenu";
+import { OrderProductsCell } from "../../components/orders/OrderProductsCell";
+import { Pagination } from "../../components/orders/Pagination";
+import { Popover } from "../../components/ui/Popover";
+import { Tooltip } from "../../components/ui/Tooltip";
+import {
+  getRangeBounds,
+  type CustomDateRange,
+  type DateRangeKey,
+} from "../../components/orders/dateRange";
+import { fastTrackEligibleIds } from "../../components/orders/fastTrack";
+import {
+  formatAbsoluteDateTime,
+  relativeDayLabel,
+  ageMinutes,
+  pendingUrgency,
+} from "../../components/orders/time";
+import { telLink, waLink } from "../../components/orders/contact";
+import { useToast } from "../../components/ui/ToastProvider";
 
 const PLATFORM_META = {
-  shopify: { label: 'Shopify', logo: ShopifyLogo },
-  woocommerce: { label: 'WooCommerce', logo: WooCommerceLogo },
+  shopify: { label: "Shopify", logo: ShopifyLogo },
+  woocommerce: { label: "WooCommerce", logo: WooCommerceLogo },
 } as const;
 
 const NEW_ORDERS_POLL_MS = 25_000;
@@ -81,32 +135,46 @@ const NEW_ORDERS_POLL_MS = 25_000;
 // order actually takes) — Paid/Refunded/Failed are real statuses (driven by non-COD/online-paid
 // orders) but rare for a COD-heavy seller, so they trail behind rather than interrupting the ones
 // staff actually use day to day.
-const PAYMENT_STATUSES: OrderPaymentStatus[] = ['COD Pending', 'Advance Paid', 'Collected', 'Paid', 'Refunded', 'Failed'];
+const PAYMENT_STATUSES: OrderPaymentStatus[] = [
+  "COD Pending",
+  "Advance Paid",
+  "Collected",
+  "Paid",
+  "Refunded",
+  "Failed",
+];
 
-type SortKey = 'number' | 'total' | 'date';
+type SortKey = "number" | "total" | "date";
 
-const SORT_OPTIONS: { label: string; key: SortKey; dir: 'asc' | 'desc' }[] = [
-  { label: 'Newest', key: 'date', dir: 'desc' },
-  { label: 'Oldest', key: 'date', dir: 'asc' },
-  { label: 'Highest amount', key: 'total', dir: 'desc' },
-  { label: 'Lowest amount', key: 'total', dir: 'asc' },
+const SORT_OPTIONS: { label: string; key: SortKey; dir: "asc" | "desc" }[] = [
+  { label: "Newest", key: "date", dir: "desc" },
+  { label: "Oldest", key: "date", dir: "asc" },
+  { label: "Highest amount", key: "total", dir: "desc" },
+  { label: "Lowest amount", key: "total", dir: "asc" },
 ];
 
 // Oldest-first for every tab that's a queue staff work through in order (so nothing sits waiting
 // longer than it has to — a call, a pack, a courier check-in, a COD collection); newest-first only
 // for the tabs that are really just browsing/archive views (All, Delivered, Cancelled) where seeing
 // the latest activity first is more useful than working oldest-to-newest.
-const NEWEST_FIRST_TABS: OrderTabKey[] = ['all', 'delivered', 'cancelled'];
+const NEWEST_FIRST_TABS: OrderTabKey[] = ["all", "delivered", "cancelled"];
 
-function defaultSortForTab(tab: OrderTabKey): { key: SortKey; dir: 'asc' | 'desc' } {
-  return { key: 'date', dir: NEWEST_FIRST_TABS.includes(tab) ? 'desc' : 'asc' };
+function defaultSortForTab(tab: OrderTabKey): {
+  key: SortKey;
+  dir: "asc" | "desc";
+} {
+  return { key: "date", dir: NEWEST_FIRST_TABS.includes(tab) ? "desc" : "asc" };
 }
 
 function TableSkeleton() {
   return (
     <div className="space-y-2 p-4">
       {Array.from({ length: 10 }).map((_, i) => (
-        <div key={i} className="h-10 animate-pulse rounded-lg bg-slate-100" style={{ animationDelay: `${i * 40}ms` }} />
+        <div
+          key={i}
+          className="h-10 animate-pulse rounded-lg bg-slate-100"
+          style={{ animationDelay: `${i * 40}ms` }}
+        />
       ))}
     </div>
   );
@@ -125,27 +193,41 @@ export function OrdersPage() {
   const [couriers, setCouriers] = useState<CourierAccountDTO[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(true);
   const [stats, setStats] = useState<OrderStatsDTO | null>(null);
-  const [tab, setTab] = useState<OrderTabKey>('all');
-  const [searchInput, setSearchInput] = useState('');
-  const [search, setSearch] = useState('');
-  const [storeFilter, setStoreFilter] = useState<string>('all');
-  const [paymentFilter, setPaymentFilter] = useState<string>('all');
-  const [holdReasonFilter, setHoldReasonFilter] = useState<string>('all');
-  const [cancelReasonFilter, setCancelReasonFilter] = useState<string>('all');
-  const [stockStatusFilter, setStockStatusFilter] = useState<string>('all');
+  const [tab, setTab] = useState<OrderTabKey>("all");
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  const [storeFilter, setStoreFilter] = useState<string>("all");
+  const [paymentFilter, setPaymentFilter] = useState<string>("all");
+  const [holdReasonFilter, setHoldReasonFilter] = useState<string>("all");
+  const [cancelReasonFilter, setCancelReasonFilter] = useState<string>("all");
+  const [stockStatusFilter, setStockStatusFilter] = useState<string>("all");
   const [restockedOnly, setRestockedOnly] = useState(false);
-  const [dateRange, setDateRange] = useState<DateRangeKey>('all');
-  const [statsDateRange, setStatsDateRange] = useState<DateRangeKey>('today');
-  const [statsCustomRange, setStatsCustomRange] = useState<CustomDateRange | null>(null);
-  const [advancedFilters, setAdvancedFilters] = useState<AdvancedFilters>(EMPTY_ADVANCED_FILTERS);
-  const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'date', dir: 'desc' });
+  const [dateRange, setDateRange] = useState<DateRangeKey>("all");
+  const [statsDateRange, setStatsDateRange] = useState<DateRangeKey>("today");
+  const [statsCustomRange, setStatsCustomRange] =
+    useState<CustomDateRange | null>(null);
+  const [advancedFilters, setAdvancedFilters] = useState<AdvancedFilters>(
+    EMPTY_ADVANCED_FILTERS,
+  );
+  const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({
+    key: "date",
+    dir: "desc",
+  });
   const [activeOrder, setActiveOrder] = useState<OrderDTO | null>(null);
   const [importTarget, setImportTarget] = useState<StoreDTO | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
-  const [confirmPopupData, setConfirmPopupData] = useState<{ ready: OrderDTO[]; mixed: OrderDTO[]; fullyShort: OrderDTO[] } | null>(null);
+  const [confirmPopupData, setConfirmPopupData] = useState<{
+    ready: OrderDTO[];
+    mixed: OrderDTO[];
+    fullyShort: OrderDTO[];
+  } | null>(null);
   const [confirmPopupBusy, setConfirmPopupBusy] = useState(false);
-  const [packPopupData, setPackPopupData] = useState<{ ready: OrderDTO[]; mixed: OrderDTO[]; fullyShort: OrderDTO[] } | null>(null);
+  const [packPopupData, setPackPopupData] = useState<{
+    ready: OrderDTO[];
+    mixed: OrderDTO[];
+    fullyShort: OrderDTO[];
+  } | null>(null);
   const [packPopupBusy, setPackPopupBusy] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [newOrdersCount, setNewOrdersCount] = useState(0);
@@ -160,7 +242,9 @@ export function OrdersPage() {
   // Backs the Confirmed-tab "Ready to pack"/"N short" badge and the Pending/Flagged "Mixed stock"
   // heads-up badge — loaded once up front (like stores/couriers) rather than per-tab, since both
   // surfaces need it.
-  const [stockLevels, setStockLevels] = useState<InventoryLevelDTO[] | null>(null);
+  const [stockLevels, setStockLevels] = useState<InventoryLevelDTO[] | null>(
+    null,
+  );
   const searchRef = useRef<HTMLInputElement>(null);
   const knownTabCountRef = useRef<number | null>(null);
 
@@ -169,7 +253,7 @@ export function OrdersPage() {
     try {
       setStores(await listStores());
     } catch {
-      toast.push('Could not load stores.', 'info');
+      toast.push("Could not load stores.", "info");
     } finally {
       setStoresLoading(false);
     }
@@ -188,7 +272,7 @@ export function OrdersPage() {
     try {
       const { from, to } = getRangeBounds(statsDateRange, statsCustomRange);
       const data = await getOrderStats({
-        storeId: storeFilter !== 'all' ? storeFilter : undefined,
+        storeId: storeFilter !== "all" ? storeFilter : undefined,
         dateFrom: from ?? undefined,
         dateTo: to ?? undefined,
       });
@@ -208,16 +292,34 @@ export function OrdersPage() {
         storeId: storeFilter,
         tab,
         paymentStatus: paymentFilter,
-        holdReason: tab === 'hold' && holdReasonFilter !== 'all' ? (holdReasonFilter as HoldReason) : undefined,
-        cancelReason: tab === 'cancelled' && cancelReasonFilter !== 'all' ? (cancelReasonFilter as CancelReason) : undefined,
-        stockStatus: tab === 'confirmed' && stockStatusFilter !== 'all' ? (stockStatusFilter as 'ready' | 'short') : undefined,
-        restockedOnly: tab === 'confirmed' && stockStatusFilter === 'ready' && restockedOnly ? true : undefined,
+        holdReason:
+          tab === "hold" && holdReasonFilter !== "all"
+            ? (holdReasonFilter as HoldReason)
+            : undefined,
+        cancelReason:
+          tab === "cancelled" && cancelReasonFilter !== "all"
+            ? (cancelReasonFilter as CancelReason)
+            : undefined,
+        stockStatus:
+          tab === "confirmed" && stockStatusFilter !== "all"
+            ? (stockStatusFilter as "ready" | "short")
+            : undefined,
+        restockedOnly:
+          tab === "confirmed" && stockStatusFilter === "ready" && restockedOnly
+            ? true
+            : undefined,
         search,
         dateFrom: from ?? undefined,
         dateTo: to ?? undefined,
-        amountMin: advancedFilters.amountMin.trim() ? Number(advancedFilters.amountMin) : undefined,
-        amountMax: advancedFilters.amountMax.trim() ? Number(advancedFilters.amountMax) : undefined,
-        callAttemptsMin: advancedFilters.callAttemptsMin.trim() ? Number(advancedFilters.callAttemptsMin) : undefined,
+        amountMin: advancedFilters.amountMin.trim()
+          ? Number(advancedFilters.amountMin)
+          : undefined,
+        amountMax: advancedFilters.amountMax.trim()
+          ? Number(advancedFilters.amountMax)
+          : undefined,
+        callAttemptsMin: advancedFilters.callAttemptsMin.trim()
+          ? Number(advancedFilters.callAttemptsMin)
+          : undefined,
         courierPartner: advancedFilters.courierPartner.trim() || undefined,
         sortKey: sort.key,
         sortDir: sort.dir,
@@ -227,7 +329,7 @@ export function OrdersPage() {
       setOrders(res.orders);
       setTotal(res.total);
     } catch {
-      toast.push('Could not load orders.', 'info');
+      toast.push("Could not load orders.", "info");
     } finally {
       setOrdersLoading(false);
     }
@@ -255,7 +357,20 @@ export function OrdersPage() {
     setSelected(new Set());
     void loadOrders(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storeFilter, tab, paymentFilter, holdReasonFilter, cancelReasonFilter, stockStatusFilter, restockedOnly, dateRange, advancedFilters, search, sort, pageSize]);
+  }, [
+    storeFilter,
+    tab,
+    paymentFilter,
+    holdReasonFilter,
+    cancelReasonFilter,
+    stockStatusFilter,
+    restockedOnly,
+    dateRange,
+    advancedFilters,
+    search,
+    sort,
+    pageSize,
+  ]);
 
   useEffect(() => {
     void loadStats();
@@ -267,7 +382,7 @@ export function OrdersPage() {
       try {
         const { from, to } = getRangeBounds(statsDateRange, statsCustomRange);
         const data = await getOrderStats({
-          storeId: storeFilter !== 'all' ? storeFilter : undefined,
+          storeId: storeFilter !== "all" ? storeFilter : undefined,
           dateFrom: from ?? undefined,
           dateTo: to ?? undefined,
         });
@@ -284,17 +399,23 @@ export function OrdersPage() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setPaletteOpen(true);
       }
     };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  const storeById = useMemo(() => new Map(stores.map((s) => [s.id, s])), [stores]);
-  const stockLookup = useMemo(() => (stockLevels ? buildStockLookup(stockLevels) : undefined), [stockLevels]);
+  const storeById = useMemo(
+    () => new Map(stores.map((s) => [s.id, s])),
+    [stores],
+  );
+  const stockLookup = useMemo(
+    () => (stockLevels ? buildStockLookup(stockLevels) : undefined),
+    [stockLevels],
+  );
 
   const refreshAll = () => {
     void loadStats();
@@ -313,7 +434,11 @@ export function OrdersPage() {
   };
 
   const toggleSelectAll = () => {
-    setSelected((prev) => (prev.size === orders.length ? new Set() : new Set(orders.map((o) => o.id))));
+    setSelected((prev) =>
+      prev.size === orders.length
+        ? new Set()
+        : new Set(orders.map((o) => o.id)),
+    );
   };
 
   const toggleSelect = (id: string, e: MouseEvent) => {
@@ -326,35 +451,41 @@ export function OrdersPage() {
     });
   };
 
-  const runBulk = async (ids: string[], patch: Parameters<typeof bulkUpdateOrders>[1], undoPatch?: Parameters<typeof bulkUpdateOrders>[1]) => {
+  const runBulk = async (
+    ids: string[],
+    patch: Parameters<typeof bulkUpdateOrders>[1],
+    undoPatch?: Parameters<typeof bulkUpdateOrders>[1],
+  ) => {
     if (ids.length === 0) return;
     setBulkBusy(true);
     try {
       const res = await bulkUpdateOrders(ids, patch);
       const successCount = res.results.filter((r) => r.success).length;
-      const succeededIds = res.results.filter((r) => r.success).map((r) => r.orderId);
+      const succeededIds = res.results
+        .filter((r) => r.success)
+        .map((r) => r.orderId);
       setSelected(new Set());
       refreshAll();
       toast.push(
-        `Updated ${successCount} of ${ids.length} order${ids.length === 1 ? '' : 's'}.`,
-        'success',
+        `Updated ${successCount} of ${ids.length} order${ids.length === 1 ? "" : "s"}.`,
+        "success",
         undoPatch && succeededIds.length > 0
           ? {
               duration: 6000,
               action: {
-                label: 'Undo',
+                label: "Undo",
                 onClick: () => {
                   void bulkUpdateOrders(succeededIds, undoPatch).then(() => {
-                    toast.push('Reverted.');
+                    toast.push("Reverted.");
                     refreshAll();
                   });
                 },
               },
             }
-          : undefined
+          : undefined,
       );
     } catch {
-      toast.push('Bulk update failed.', 'info');
+      toast.push("Bulk update failed.", "info");
     } finally {
       setBulkBusy(false);
     }
@@ -365,12 +496,18 @@ export function OrdersPage() {
   // fast-track banner, and even a single row's quick "Confirm order" — so a mixed or fully-short
   // order is never silently confirmed no matter which of those a staff member happens to use.
   // A clean selection (nothing mixed or fully out of stock) skips the popup entirely.
-  const handleBulkConfirm = (ids: string[], undoPatch?: Parameters<typeof bulkUpdateOrders>[1]) => {
+  const handleBulkConfirm = (
+    ids: string[],
+    undoPatch?: Parameters<typeof bulkUpdateOrders>[1],
+  ) => {
     if (ids.length === 0) return;
     const selectedForConfirm = orders.filter((o) => ids.includes(o.id));
-    const { ready, mixed, fullyShort } = classifyOrdersByStock(selectedForConfirm, stockLookup);
+    const { ready, mixed, fullyShort } = classifyOrdersByStock(
+      selectedForConfirm,
+      stockLookup,
+    );
     if (mixed.length === 0 && fullyShort.length === 0) {
-      void runBulk(ids, { stage: 'Confirmed' }, undoPatch);
+      void runBulk(ids, { stage: "Confirmed" }, undoPatch);
       return;
     }
     setConfirmPopupData({ ready, mixed, fullyShort });
@@ -387,14 +524,17 @@ export function OrdersPage() {
       const finalIds = [...readyIds, ...resolution.fullyShortProceedIds];
       setConfirmPopupData(null);
       if (finalIds.length > 0) {
-        await runBulk(finalIds, { stage: 'Confirmed' });
+        await runBulk(finalIds, { stage: "Confirmed" });
       } else {
         setSelected(new Set());
         refreshAll();
-        toast.push('Split complete.', 'success');
+        toast.push("Split complete.", "success");
       }
     } catch (err) {
-      toast.push(err instanceof Error ? err.message : 'Could not resolve those orders.', 'info');
+      toast.push(
+        err instanceof Error ? err.message : "Could not resolve those orders.",
+        "info",
+      );
     } finally {
       setConfirmPopupBusy(false);
     }
@@ -406,9 +546,12 @@ export function OrdersPage() {
   const handleBulkSendToPacking = (ids: string[]) => {
     if (ids.length === 0) return;
     const selectedForPacking = orders.filter((o) => ids.includes(o.id));
-    const { ready, mixed, fullyShort } = classifyOrdersByStock(selectedForPacking, stockLookup);
+    const { ready, mixed, fullyShort } = classifyOrdersByStock(
+      selectedForPacking,
+      stockLookup,
+    );
     if (mixed.length === 0 && fullyShort.length === 0) {
-      void runBulk(ids, { stage: 'Processing' });
+      void runBulk(ids, { stage: "Processing" });
       return;
     }
     setPackPopupData({ ready, mixed, fullyShort });
@@ -418,19 +561,27 @@ export function OrdersPage() {
     if (!packPopupData) return;
     setPackPopupBusy(true);
     try {
-      const splitResults = await Promise.all(resolution.splitIds.map((id) => splitOrder(id)));
+      const splitResults = await Promise.all(
+        resolution.splitIds.map((id) => splitOrder(id)),
+      );
       const readyIds = packPopupData.ready.map((o) => o.id);
       const finalIds = [...readyIds, ...splitResults.map((r) => r.original.id)];
       setPackPopupData(null);
       if (finalIds.length > 0) {
-        await runBulk(finalIds, { stage: 'Processing' });
+        await runBulk(finalIds, { stage: "Processing" });
       } else {
         setSelected(new Set());
         refreshAll();
-        toast.push('Split complete — nothing was ready to send to packing yet.', 'success');
+        toast.push(
+          "Split complete — nothing was ready to send to packing yet.",
+          "success",
+        );
       }
     } catch (err) {
-      toast.push(err instanceof Error ? err.message : 'Could not resolve those orders.', 'info');
+      toast.push(
+        err instanceof Error ? err.message : "Could not resolve those orders.",
+        "info",
+      );
     } finally {
       setPackPopupBusy(false);
     }
@@ -451,12 +602,12 @@ export function OrdersPage() {
       // changed state between selecting it here and this request landing, so surface that when it happens.
       toast.push(
         res.modifiedCount === ids.length
-          ? `Marked ${res.modifiedCount} order${res.modifiedCount === 1 ? '' : 's'} as collected.`
+          ? `Marked ${res.modifiedCount} order${res.modifiedCount === 1 ? "" : "s"} as collected.`
           : `Marked ${res.modifiedCount} of ${ids.length} selected orders as collected.`,
-        'success'
+        "success",
       );
     } catch {
-      toast.push('Could not mark those orders collected.', 'info');
+      toast.push("Could not mark those orders collected.", "info");
     } finally {
       setBulkBusy(false);
     }
@@ -473,12 +624,12 @@ export function OrdersPage() {
       refreshAll();
       toast.push(
         res.flaggedCount > 0
-          ? `Flagged ${res.flaggedCount} of ${res.checked} checked order${res.checked === 1 ? '' : 's'} as suspicious.`
-          : `Checked ${res.checked} order${res.checked === 1 ? '' : 's'} — none flagged.`,
-        'success'
+          ? `Flagged ${res.flaggedCount} of ${res.checked} checked order${res.checked === 1 ? "" : "s"} as suspicious.`
+          : `Checked ${res.checked} order${res.checked === 1 ? "" : "s"} — none flagged.`,
+        "success",
       );
     } catch {
-      toast.push('Could not re-check those orders.', 'info');
+      toast.push("Could not re-check those orders.", "info");
     } finally {
       setBulkBusy(false);
     }
@@ -492,19 +643,37 @@ export function OrdersPage() {
       if (next) await blockCustomer(order.id, null);
       else await unblockCustomer(order.id);
       refreshAll();
-      toast.push(next ? 'Customer blocked — their future orders will be auto-cancelled.' : 'Customer unblocked.', 'success');
+      toast.push(
+        next
+          ? "Customer blocked — their future orders will be auto-cancelled."
+          : "Customer unblocked.",
+        "success",
+      );
     } catch {
-      toast.push('Could not update block status.', 'info');
+      toast.push("Could not update block status.", "info");
     }
   };
 
   const downloadCsv = (ordersToExport: OrderDTO[], format: ExportFormat) => {
-    const headers = ['Order ID', 'Customer', 'Phone', 'Product', 'Amount', 'Advance', 'Balance Due', 'Currency', 'Stage', 'Payment Method', 'Payment Status', 'Placed'];
+    const headers = [
+      "Order ID",
+      "Customer",
+      "Phone",
+      "Product",
+      "Amount",
+      "Advance",
+      "Balance Due",
+      "Currency",
+      "Stage",
+      "Payment Method",
+      "Payment Status",
+      "Placed",
+    ];
     const rows = ordersToExport.map((o) => [
       o.number,
-      o.customerName ?? '',
-      o.customerPhone ?? '',
-      o.lineItems[0]?.title ?? '',
+      o.customerName ?? "",
+      o.customerPhone ?? "",
+      o.lineItems[0]?.title ?? "",
       o.total,
       o.advanceAmount,
       Math.max(0, o.total - o.advanceAmount),
@@ -514,13 +683,15 @@ export function OrdersPage() {
       o.paymentStatus,
       o.createdAt,
     ]);
-    const csv = [headers, ...rows].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const csv = [headers, ...rows]
+      .map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
     // Excel misreads plain UTF-8 CSV as Latin-1, mangling non-ASCII customer names — a leading
     // BOM is the standard fix and is what "CSV for Excel" actually means in practice.
-    const content = format === 'excel' ? `﻿${csv}` : csv;
-    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+    const content = format === "excel" ? `﻿${csv}` : csv;
+    const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     a.href = url;
     a.download = `orders-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
@@ -535,15 +706,30 @@ export function OrdersPage() {
       storeId: storeFilter,
       tab,
       paymentStatus: paymentFilter,
-      holdReason: tab === 'hold' && holdReasonFilter !== 'all' ? (holdReasonFilter as HoldReason) : undefined,
-      cancelReason: tab === 'cancelled' && cancelReasonFilter !== 'all' ? (cancelReasonFilter as CancelReason) : undefined,
-      stockStatus: tab === 'confirmed' && stockStatusFilter !== 'all' ? (stockStatusFilter as 'ready' | 'short') : undefined,
+      holdReason:
+        tab === "hold" && holdReasonFilter !== "all"
+          ? (holdReasonFilter as HoldReason)
+          : undefined,
+      cancelReason:
+        tab === "cancelled" && cancelReasonFilter !== "all"
+          ? (cancelReasonFilter as CancelReason)
+          : undefined,
+      stockStatus:
+        tab === "confirmed" && stockStatusFilter !== "all"
+          ? (stockStatusFilter as "ready" | "short")
+          : undefined,
       search,
       dateFrom: from ?? undefined,
       dateTo: to ?? undefined,
-      amountMin: advancedFilters.amountMin.trim() ? Number(advancedFilters.amountMin) : undefined,
-      amountMax: advancedFilters.amountMax.trim() ? Number(advancedFilters.amountMax) : undefined,
-      callAttemptsMin: advancedFilters.callAttemptsMin.trim() ? Number(advancedFilters.callAttemptsMin) : undefined,
+      amountMin: advancedFilters.amountMin.trim()
+        ? Number(advancedFilters.amountMin)
+        : undefined,
+      amountMax: advancedFilters.amountMax.trim()
+        ? Number(advancedFilters.amountMax)
+        : undefined,
+      callAttemptsMin: advancedFilters.callAttemptsMin.trim()
+        ? Number(advancedFilters.callAttemptsMin)
+        : undefined,
       courierPartner: advancedFilters.courierPartner.trim() || undefined,
       sortKey: sort.key,
       sortDir: sort.dir,
@@ -554,7 +740,12 @@ export function OrdersPage() {
     while (true) {
       const res = await listOrders({ ...baseParams, page: fetchPage });
       all.push(...res.orders);
-      if (all.length >= res.total || res.orders.length === 0 || all.length >= 10_000) break;
+      if (
+        all.length >= res.total ||
+        res.orders.length === 0 ||
+        all.length >= 10_000
+      )
+        break;
       fetchPage += 1;
     }
     return all;
@@ -564,13 +755,14 @@ export function OrdersPage() {
     setExporting(true);
     try {
       let ordersToExport: OrderDTO[];
-      if (scope === 'selected') ordersToExport = orders.filter((o) => selected.has(o.id));
-      else if (scope === 'filtered') ordersToExport = await fetchAllMatching();
+      if (scope === "selected")
+        ordersToExport = orders.filter((o) => selected.has(o.id));
+      else if (scope === "filtered") ordersToExport = await fetchAllMatching();
       else ordersToExport = orders;
       downloadCsv(ordersToExport, format);
       setExportModalOpen(false);
     } catch {
-      toast.push('Export failed.', 'info');
+      toast.push("Export failed.", "info");
     } finally {
       setExporting(false);
     }
@@ -592,10 +784,17 @@ export function OrdersPage() {
   // delivered yet, so a Processing/Shipped order in the selection is silently left out here (and
   // by the backend's own matching filter, as a second guard) rather than incorrectly offered.
   const collectibleSelectedIds = selectedOrders
-    .filter((o) => o.paymentMethod === 'Cash on Delivery' && o.paymentStatus !== 'Collected' && ['Delivered', 'Partial Delivered'].includes(o.stage))
+    .filter(
+      (o) =>
+        o.paymentMethod === "Cash on Delivery" &&
+        o.paymentStatus !== "Collected" &&
+        ["Delivered", "Partial Delivered"].includes(o.stage),
+    )
     .map((o) => o.id);
   // Fraud Checker's auto-flag heuristic only ever applies to still-Pending orders.
-  const recheckableSelectedIds = selectedOrders.filter((o) => o.stage === 'Pending').map((o) => o.id);
+  const recheckableSelectedIds = selectedOrders
+    .filter((o) => o.stage === "Pending")
+    .map((o) => o.id);
 
   // Same reasoning as collectibleSelectedIds above — an action shouldn't be offered (or silently
   // applied) for orders it doesn't make sense for. Confirm only ever applies to Pending/Flagged;
@@ -603,30 +802,45 @@ export function OrdersPage() {
   // the single-order drawer already gates its own buttons with. Splitting a mixed-stock order is
   // optional (see the drawer's split checkbox), so bulk-confirm doesn't exclude them — it behaves
   // exactly like a plain single-order confirm would (oversell policy decides Confirmed vs Flagged).
-  const confirmableSelectedOrders = selectedOrders.filter((o) => o.stage === 'Pending' || o.stage === 'Flagged');
+  const confirmableSelectedOrders = selectedOrders.filter(
+    (o) => o.stage === "Pending" || o.stage === "Flagged",
+  );
   const confirmableSelectedIds = confirmableSelectedOrders.map((o) => o.id);
   // Independent of printing — see BulkActionBar's onSendToPacking. Only Confirmed orders are
   // eligible; the stock-check popup (same one the print flow uses) decides what actually proceeds.
-  const packableSelectedIds = selectedOrders.filter((o) => o.stage === 'Confirmed').map((o) => o.id);
+  const packableSelectedIds = selectedOrders
+    .filter((o) => o.stage === "Confirmed")
+    .map((o) => o.id);
   // Packing slip / combined print options are only offered once at least one selected order has
   // actually reached packing (see canPrintPackingSlip) — PrintOrderModal filters ineligible orders
   // out of the printed document itself, this just decides whether to show the button at all.
-  const packSlipEligibleSelected = selectedOrders.some((o) => canPrintPackingSlip(o.stage));
+  const packSlipEligibleSelected = selectedOrders.some((o) =>
+    canPrintPackingSlip(o.stage),
+  );
   const holdableSelectedOrders = selectedOrders.filter((o) => canHold(o.stage));
   const holdableSelectedIds = holdableSelectedOrders.map((o) => o.id);
-  const cancellableSelectedIds = selectedOrders.filter((o) => canCancel(o.stage)).map((o) => o.id);
+  const cancellableSelectedIds = selectedOrders
+    .filter((o) => canCancel(o.stage))
+    .map((o) => o.id);
   // Only orders actually in Processing can be marked Shipped — the fulfillment stock gate itself
   // is still enforced per-order by bulkUpdateOrders regardless, this just keeps the button from
   // offering itself at all when nothing selected is even at the right stage for it.
-  const shippableSelectedOrders = selectedOrders.filter((o) => o.stage === 'Processing');
+  const shippableSelectedOrders = selectedOrders.filter(
+    (o) => o.stage === "Processing",
+  );
   const shippableSelectedIds = shippableSelectedOrders.map((o) => o.id);
-  const handoverReadySelectedIds = selectedOrders.filter((o) => o.stage === 'Shipped').map((o) => o.id);
+  const handoverReadySelectedIds = selectedOrders
+    .filter((o) => o.stage === "Shipped")
+    .map((o) => o.id);
 
   const copyOrderId = (order: OrderDTO, e: MouseEvent) => {
     e.stopPropagation();
     navigator.clipboard.writeText(order.number);
     setCopiedOrderId(order.id);
-    setTimeout(() => setCopiedOrderId((id) => (id === order.id ? null : id)), 1200);
+    setTimeout(
+      () => setCopiedOrderId((id) => (id === order.id ? null : id)),
+      1200,
+    );
   };
 
   const copyPhone = (order: OrderDTO, e: MouseEvent) => {
@@ -634,55 +848,63 @@ export function OrdersPage() {
     if (!order.customerPhone) return;
     navigator.clipboard.writeText(order.customerPhone);
     setCopiedPhoneId(order.id);
-    setTimeout(() => setCopiedPhoneId((id) => (id === order.id ? null : id)), 1200);
+    setTimeout(
+      () => setCopiedPhoneId((id) => (id === order.id ? null : id)),
+      1200,
+    );
   };
 
   const handleTabChange = (nextTab: OrderTabKey) => {
     setTab(nextTab);
     setSort(defaultSortForTab(nextTab));
-    if (nextTab !== 'hold') setHoldReasonFilter('all');
-    if (nextTab !== 'cancelled') setCancelReasonFilter('all');
-    if (nextTab !== 'confirmed') setStockStatusFilter('all');
-    if (nextTab !== 'confirmed') setRestockedOnly(false);
+    if (nextTab !== "hold") setHoldReasonFilter("all");
+    if (nextTab !== "cancelled") setCancelReasonFilter("all");
+    if (nextTab !== "confirmed") setStockStatusFilter("all");
+    if (nextTab !== "confirmed") setRestockedOnly(false);
   };
 
-  const fastTrackIds = useMemo(() => (tab === 'pending' ? fastTrackEligibleIds(orders) : []), [tab, orders]);
+  const fastTrackIds = useMemo(
+    () => (tab === "pending" ? fastTrackEligibleIds(orders) : []),
+    [tab, orders],
+  );
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const rangeStart = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const rangeEnd = Math.min(total, page * pageSize);
   const noFiltersActive =
     !search &&
-    storeFilter === 'all' &&
-    tab === 'all' &&
-    paymentFilter === 'all' &&
-    holdReasonFilter === 'all' &&
-    cancelReasonFilter === 'all' &&
-    stockStatusFilter === 'all' &&
-    dateRange === 'all' &&
+    storeFilter === "all" &&
+    tab === "all" &&
+    paymentFilter === "all" &&
+    holdReasonFilter === "all" &&
+    cancelReasonFilter === "all" &&
+    stockStatusFilter === "all" &&
+    dateRange === "all" &&
     activeAdvancedFilterCount(advancedFilters) === 0;
 
   const clearFilters = () => {
-    setSearchInput('');
-    setStoreFilter('all');
-    handleTabChange('all');
-    setPaymentFilter('all');
-    setDateRange('all');
-    setStatsDateRange('today');
+    setSearchInput("");
+    setStoreFilter("all");
+    handleTabChange("all");
+    setPaymentFilter("all");
+    setDateRange("all");
+    setStatsDateRange("today");
     setStatsCustomRange(null);
     setAdvancedFilters(EMPTY_ADVANCED_FILTERS);
   };
 
   return (
-    <div className="flex min-h-full flex-col">
-      <div className="flex flex-wrap items-center justify-between gap-y-3 bg-white px-4 pt-4 lg:px-8 lg:pt-5">
+    <div className="zs-page">
+      <div className="zs-page-header flex flex-wrap items-center justify-between gap-y-3">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-xl font-bold text-slate-900">Orders</h1>
+            <h1 className="zs-page-title">Orders</h1>
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500 tabular-nums">
               {(stats?.totalOrders ?? total).toLocaleString()}
             </span>
           </div>
-          <p className="mt-1 text-sm text-slate-500">Track, manage and fulfill all your COD orders in one place.</p>
+          <p className="zs-page-description">
+            Track, manage and fulfill all your COD orders in one place.
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -701,14 +923,19 @@ export function OrdersPage() {
       </div>
 
       {storesLoading ? (
-        <div className="flex flex-1 items-center justify-center text-sm text-slate-400">Loading...</div>
+        <div className="flex flex-1 items-center justify-center text-sm text-slate-400">
+          Loading...
+        </div>
       ) : stores.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-8 text-center">
           <Package size={28} className="text-slate-300" />
           <p className="text-sm font-medium text-slate-600">No orders yet</p>
-          <p className="max-w-sm text-sm text-slate-400">Connect a Shopify or WooCommerce store and import your order history to see orders here.</p>
+          <p className="max-w-sm text-sm text-slate-400">
+            Connect a Shopify or WooCommerce store and import your order history
+            to see orders here.
+          </p>
           <button
-            onClick={() => navigate('/integrations')}
+            onClick={() => navigate("/integrations")}
             className="mt-2 flex items-center gap-1.5 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
           >
             <Plug size={14} /> Go to Integrations
@@ -719,12 +946,17 @@ export function OrdersPage() {
           {total === 0 && noFiltersActive && !ordersLoading ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-1 px-8 text-center">
               <Package size={28} className="text-slate-300" />
-              <p className="text-sm font-medium text-slate-600">Nothing imported yet</p>
-              <p className="max-w-sm text-sm text-slate-400">Click "Import orders" above on whichever store you want to pull in.</p>
+              <p className="text-sm font-medium text-slate-600">
+                Nothing imported yet
+              </p>
+              <p className="max-w-sm text-sm text-slate-400">
+                Click "Import orders" above on whichever store you want to pull
+                in.
+              </p>
             </div>
           ) : (
             <>
-              <div className="border-b border-slate-200 bg-white px-4 pb-3 pt-5 lg:px-8">
+              <div className="zs-toolbox">
                 {/* Status as flat underline tabs, not a dropdown or pill row — matches the pattern
                     Linear/GitHub/Stripe/Shopify all converge on for "filter one list by status,
                     show a live count" (see design-system references: joined pill tracks are for
@@ -739,30 +971,34 @@ export function OrdersPage() {
                         key={t.key}
                         onClick={() => handleTabChange(t.key)}
                         className={clsx(
-                          'relative flex shrink-0 items-center gap-1.5 whitespace-nowrap pb-2.5 pt-1 text-sm font-medium transition-colors',
-                          active ? 'text-slate-900' : 'text-slate-500 hover:text-slate-700'
+                          "relative flex shrink-0 items-center gap-1.5 whitespace-nowrap pb-2.5 pt-1 text-sm font-medium transition-colors",
+                          active
+                            ? "text-slate-900"
+                            : "text-slate-500 hover:text-slate-700",
                         )}
                       >
                         {t.label}
                         <span
                           className={clsx(
-                            'text-xs tabular-nums',
+                            "text-xs tabular-nums",
                             active
-                              ? 'font-semibold text-slate-600'
-                              : t.key === 'priority' && count > 0
-                              ? 'font-semibold text-rose-600'
-                              : 'text-slate-400'
+                              ? "font-semibold text-slate-600"
+                              : t.key === "priority" && count > 0
+                                ? "font-semibold text-rose-600"
+                                : "text-slate-400",
                           )}
                         >
                           {count.toLocaleString()}
                         </span>
-                        {active && <span className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-slate-900" />}
+                        {active && (
+                          <span className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-slate-900" />
+                        )}
                       </button>
                     );
                   })}
                 </div>
-                <div className="flex flex-wrap items-center gap-3 pt-3">
-                  <div className="flex flex-wrap items-center gap-2">
+                <div className="zs-toolbox-row pt-3">
+                  <div className="zs-toolbox-left">
                     <DateRangeMenu
                       value={statsDateRange}
                       onChange={setStatsDateRange}
@@ -773,43 +1009,52 @@ export function OrdersPage() {
                       icon={StoreIcon}
                       allLabel="All Channels"
                       value={storeFilter}
-                      options={stores.map((s) => ({ value: s.id, label: s.displayName }))}
+                      options={stores.map((s) => ({
+                        value: s.id,
+                        label: s.displayName,
+                      }))}
                       onChange={setStoreFilter}
                     />
-                    {tab === 'hold' && (
+                    {tab === "hold" && (
                       <FilterMenu
                         icon={PhoneCall}
                         allLabel="All Hold Reasons"
                         value={holdReasonFilter}
-                        options={ALL_HOLD_REASONS.map((r) => ({ value: r, label: r }))}
+                        options={ALL_HOLD_REASONS.map((r) => ({
+                          value: r,
+                          label: r,
+                        }))}
                         onChange={setHoldReasonFilter}
                       />
                     )}
-                    {tab === 'cancelled' && (
+                    {tab === "cancelled" && (
                       <FilterMenu
                         icon={Ban}
                         allLabel="All Cancel Reasons"
                         value={cancelReasonFilter}
-                        options={CANCEL_REASONS_FOR_FILTER.map((r) => ({ value: r, label: r }))}
+                        options={CANCEL_REASONS_FOR_FILTER.map((r) => ({
+                          value: r,
+                          label: r,
+                        }))}
                         onChange={setCancelReasonFilter}
                       />
                     )}
-                    {tab === 'confirmed' && (
+                    {tab === "confirmed" && (
                       <FilterMenu
                         icon={Package}
                         allLabel="All Stock"
                         value={stockStatusFilter}
                         options={[
-                          { value: 'ready', label: 'Ready to pack' },
-                          { value: 'short', label: 'Short on stock' },
+                          { value: "ready", label: "Ready to pack" },
+                          { value: "short", label: "Short on stock" },
                         ]}
                         onChange={(v) => {
                           setStockStatusFilter(v);
-                          if (v !== 'ready') setRestockedOnly(false);
+                          if (v !== "ready") setRestockedOnly(false);
                         }}
                       />
                     )}
-                    {tab === 'confirmed' && stockStatusFilter === 'ready' && (
+                    {tab === "confirmed" && stockStatusFilter === "ready" && (
                       <label className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-xs font-medium text-slate-600 hover:bg-slate-50">
                         <input
                           type="checkbox"
@@ -824,11 +1069,17 @@ export function OrdersPage() {
                       icon={CreditCard}
                       allLabel="All Payment Types"
                       value={paymentFilter}
-                      options={PAYMENT_STATUSES.map((s) => ({ value: s, label: s }))}
+                      options={PAYMENT_STATUSES.map((s) => ({
+                        value: s,
+                        label: s,
+                      }))}
                       onChange={setPaymentFilter}
                     />
-                    <MoreFiltersMenu value={advancedFilters} onApply={setAdvancedFilters} />
-                    {(!noFiltersActive || statsDateRange !== 'today') && (
+                    <MoreFiltersMenu
+                      value={advancedFilters}
+                      onApply={setAdvancedFilters}
+                    />
+                    {(!noFiltersActive || statsDateRange !== "today") && (
                       <button
                         onClick={clearFilters}
                         className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-slate-400 hover:bg-slate-50 hover:text-slate-600"
@@ -837,15 +1088,18 @@ export function OrdersPage() {
                       </button>
                     )}
                   </div>
-                  <div className="ml-auto flex items-center gap-3 border-l border-slate-200 pl-3">
-                    <div className="relative w-64 sm:w-80">
-                      <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <div className="zs-toolbox-right">
+                    <div className="zs-search">
+                      <Search
+                        size={15}
+                        className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"
+                      />
                       <input
                         ref={searchRef}
                         value={searchInput}
                         onChange={(e) => setSearchInput(e.target.value)}
                         placeholder="Search order #, customer, phone"
-                        className="h-8 w-full rounded-lg border border-slate-200 bg-slate-50 pl-8 pr-3 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15"
+                        className="zs-search-input"
                       />
                     </div>
                     <Popover
@@ -854,7 +1108,9 @@ export function OrdersPage() {
                       trigger={() => (
                         <div className="flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-slate-200/80 bg-white px-2.5 text-xs font-medium text-slate-600 hover:bg-slate-50">
                           <span className="text-slate-400">Sort by:</span>
-                          {SORT_OPTIONS.find((o) => o.key === sort.key && o.dir === sort.dir)?.label ?? 'Custom'}
+                          {SORT_OPTIONS.find(
+                            (o) => o.key === sort.key && o.dir === sort.dir,
+                          )?.label ?? "Custom"}
                           <ChevronDown size={11} className="text-slate-400" />
                         </div>
                       )}
@@ -869,8 +1125,10 @@ export function OrdersPage() {
                                 close();
                               }}
                               className={clsx(
-                                'flex w-full items-center px-3 py-1.5 text-left text-sm hover:bg-slate-50',
-                                sort.key === opt.key && sort.dir === opt.dir ? 'font-semibold text-indigo-600' : 'text-slate-700'
+                                "flex w-full items-center px-3 py-1.5 text-left text-sm hover:bg-slate-50",
+                                sort.key === opt.key && sort.dir === opt.dir
+                                  ? "font-semibold text-indigo-600"
+                                  : "text-slate-700",
                               )}
                             >
                               {opt.label}
@@ -883,16 +1141,23 @@ export function OrdersPage() {
                 </div>
               </div>
 
-              {tab !== 'priority' && (
-                <PriorityCallsBanner count={stats?.tabCounts.priority ?? 0} onView={() => handleTabChange('priority')} />
+              {tab !== "priority" && (
+                <PriorityCallsBanner
+                  count={stats?.tabCounts.priority ?? 0}
+                  onView={() => handleTabChange("priority")}
+                />
               )}
 
-              {!(tab === 'confirmed' && stockStatusFilter === 'ready' && restockedOnly) && (
+              {!(
+                tab === "confirmed" &&
+                stockStatusFilter === "ready" &&
+                restockedOnly
+              ) && (
                 <RestockedOrdersBanner
                   count={stats?.restockedReadyCount ?? 0}
                   onView={() => {
-                    handleTabChange('confirmed');
-                    setStockStatusFilter('ready');
+                    handleTabChange("confirmed");
+                    setStockStatusFilter("ready");
                     setRestockedOnly(true);
                   }}
                 />
@@ -903,29 +1168,44 @@ export function OrdersPage() {
                   onClick={refreshAll}
                   className="flex w-full animate-pop-in items-center justify-center gap-2 border-b border-indigo-100 bg-indigo-50 px-4 py-2 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
                 >
-                  {newOrdersCount} new order{newOrdersCount === 1 ? '' : 's'} arrived. Click to refresh
+                  {newOrdersCount} new order{newOrdersCount === 1 ? "" : "s"}{" "}
+                  arrived. Click to refresh
                 </button>
               )}
 
-              <FastTrackBanner count={fastTrackIds.length} loading={bulkBusy} onConfirmAll={() => handleBulkConfirm(fastTrackIds)} />
+              <FastTrackBanner
+                count={fastTrackIds.length}
+                loading={bulkBusy}
+                onConfirmAll={() => handleBulkConfirm(fastTrackIds)}
+              />
 
-              <div className={clsx('overflow-x-auto transition-opacity', ordersLoading && 'opacity-50')}>
+              <div
+                className={clsx(
+                  "overflow-x-auto transition-opacity",
+                  ordersLoading && "opacity-50",
+                )}
+              >
                 {ordersLoading && orders.length === 0 ? (
                   <TableSkeleton />
                 ) : (
                   <table className="w-full min-w-[1100px] table-auto max-2xl:min-w-0 max-2xl:table-fixed border-collapse text-sm">
                     <thead>
-                      <tr className="border-b border-slate-200 text-left text-xs font-semibold text-slate-500">
+                      <tr className="zs-table-head">
                         <th className="w-10 px-4 py-2.5 max-2xl:w-[4%] max-2xl:px-2">
                           <input
                             type="checkbox"
-                            checked={orders.length > 0 && selected.size === orders.length}
+                            checked={
+                              orders.length > 0 &&
+                              selected.size === orders.length
+                            }
                             onChange={toggleSelectAll}
                             className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                           />
                         </th>
                         <th className="px-3 py-2.5 max-2xl:w-[11%]">Order</th>
-                        <th className="px-3 py-2.5 max-2xl:w-[24%]">Customer</th>
+                        <th className="px-3 py-2.5 max-2xl:w-[24%]">
+                          Customer
+                        </th>
                         <th className="px-3 py-2.5 max-2xl:w-[8%]">Product</th>
                         <th className="px-3 py-2.5 max-2xl:w-[5%]">Channel</th>
                         <th className="px-3 py-2.5 max-2xl:w-[11%]">Amount</th>
@@ -938,29 +1218,49 @@ export function OrdersPage() {
                     <tbody>
                       {orders.map((order) => {
                         const store = storeById.get(order.storeId);
-                        const meta = store ? PLATFORM_META[store.platform] : null;
+                        const meta = store
+                          ? PLATFORM_META[store.platform]
+                          : null;
                         const isSelected = selected.has(order.id);
                         const urgency =
-                          order.stage === 'Pending' || order.stage === 'Flagged' ? pendingUrgency(ageMinutes(order.createdAt)) : 'normal';
+                          order.stage === "Pending" || order.stage === "Flagged"
+                            ? pendingUrgency(ageMinutes(order.createdAt))
+                            : "normal";
                         // Only Confirmed orders get flagged here — that's the one stage where "no
                         // stock" is actually actionable right now (send to packing or not). A
                         // Pending/mixed order isn't a problem yet; it just hasn't been resolved,
                         // and gets caught by the confirm-time popup instead of cluttering the list.
-                        const stockSummary = order.stage === 'Confirmed' && stockLookup ? summarizeOrderStock(order.lineItems, stockLookup) : null;
-                        const isShortConfirmed = Boolean(stockSummary && stockSummary.shortCount > 0);
-                        const isClaimedByOther = Boolean(order.claimedBy && order.claimedBy.userId !== user?.id);
+                        const stockSummary =
+                          order.stage === "Confirmed" && stockLookup
+                            ? summarizeOrderStock(order.lineItems, stockLookup)
+                            : null;
+                        const isShortConfirmed = Boolean(
+                          stockSummary && stockSummary.shortCount > 0,
+                        );
+                        const isClaimedByOther = Boolean(
+                          order.claimedBy &&
+                          order.claimedBy.userId !== user?.id,
+                        );
                         return (
                           <tr
                             key={order.id}
                             onClick={() => setActiveOrder(order)}
                             className={clsx(
-                              'cursor-pointer border-b border-l-4 border-slate-100 transition-colors hover:bg-slate-50',
-                              isShortConfirmed ? 'border-l-amber-400 bg-amber-50/50 hover:bg-amber-50/70' : 'border-l-transparent',
-                              !isShortConfirmed && isSelected && 'bg-indigo-50/50',
-                              isClaimedByOther && 'bg-slate-50/80 opacity-60 grayscale-[30%] hover:bg-slate-50/80'
+                              "zs-data-row cursor-pointer border-b border-l-4 border-slate-100",
+                              isShortConfirmed
+                                ? "border-l-amber-400 bg-amber-50/50 hover:bg-amber-50/70"
+                                : "border-l-transparent",
+                              !isShortConfirmed &&
+                                isSelected &&
+                                "bg-indigo-50/50",
+                              isClaimedByOther &&
+                                "bg-slate-50/80 opacity-60 grayscale-[30%] hover:bg-slate-50/80",
                             )}
                           >
-                            <td className="px-4 py-3" onClick={(e) => toggleSelect(order.id, e)}>
+                            <td
+                              className="px-4 py-3"
+                              onClick={(e) => toggleSelect(order.id, e)}
+                            >
                               <input
                                 type="checkbox"
                                 checked={isSelected}
@@ -971,100 +1271,175 @@ export function OrdersPage() {
                             <td className="px-3 py-3 font-medium text-slate-800 whitespace-nowrap">
                               <div className="flex items-center gap-1.5 max-2xl:flex-wrap">
                                 {order.isPriorityCall && (
-                                  <span title={order.priorityNote ?? 'Marked as priority call'} className="text-orange-500">
+                                  <span
+                                    title={
+                                      order.priorityNote ??
+                                      "Marked as priority call"
+                                    }
+                                    className="text-orange-500"
+                                  >
                                     <PhoneCall size={13} />
                                   </span>
                                 )}
                                 {order.isCustomerBlocked && (
-                                  <span title="This customer is blocked" className="text-rose-500">
+                                  <span
+                                    title="This customer is blocked"
+                                    className="text-rose-500"
+                                  >
                                     <UserX size={13} />
                                   </span>
                                 )}
-                                {user?.installedPlugins?.includes('fraudChecker') && order.stage === 'Flagged' && (
-                                  <span title={order.flagReason ?? 'Flagged by ZetSales Fraud Checker'} className="text-rose-500">
-                                    <ShieldAlert size={13} />
-                                  </span>
-                                )}
-                                <AppBlock target="admin.orders.index.row-badge" context={{ orderId: order.id }} />
+                                {user?.installedPlugins?.includes(
+                                  "fraudChecker",
+                                ) &&
+                                  order.stage === "Flagged" && (
+                                    <span
+                                      title={
+                                        order.flagReason ??
+                                        "Flagged by ZetSales Fraud Checker"
+                                      }
+                                      className="text-rose-500"
+                                    >
+                                      <ShieldAlert size={13} />
+                                    </span>
+                                  )}
+                                <AppBlock
+                                  target="admin.orders.index.row-badge"
+                                  context={{ orderId: order.id }}
+                                />
                                 {order.number}
-                                <button onClick={(e) => copyOrderId(order, e)} title="Copy order ID" className="text-slate-300 hover:text-slate-500">
-                                  {copiedOrderId === order.id ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
+                                <button
+                                  onClick={(e) => copyOrderId(order, e)}
+                                  title="Copy order ID"
+                                  className="text-slate-300 hover:text-slate-500"
+                                >
+                                  {copiedOrderId === order.id ? (
+                                    <Check
+                                      size={12}
+                                      className="text-emerald-600"
+                                    />
+                                  ) : (
+                                    <Copy size={12} />
+                                  )}
                                 </button>
-                                {order.stage === 'Confirmed' && order.wasShortOfStock && (
-                                  <span
-                                    title="Confirmed while short of stock — now fully covered. Worth a customer call before sending to packing."
-                                    className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-600 ring-1 ring-inset ring-indigo-600/20"
-                                  >
-                                    <Package size={10} /> Restocked
-                                  </span>
-                                )}
+                                {order.stage === "Confirmed" &&
+                                  order.wasShortOfStock && (
+                                    <span
+                                      title="Confirmed while short of stock — now fully covered. Worth a customer call before sending to packing."
+                                      className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-600 ring-1 ring-inset ring-indigo-600/20"
+                                    >
+                                      <Package size={10} /> Restocked
+                                    </span>
+                                  )}
                               </div>
                             </td>
                             <td className="px-3 py-3 whitespace-nowrap">
-                              <p className="max-2xl:truncate font-medium text-slate-700">{order.customerName || 'No name'}</p>
+                              <p className="max-2xl:truncate font-medium text-slate-700">
+                                {order.customerName || "No name"}
+                              </p>
                               {order.customerPhone && (
                                 <div className="flex items-center gap-1">
-                                  <p className="max-2xl:truncate text-xs text-slate-400">{order.customerPhone}</p>
+                                  <p className="max-2xl:truncate text-xs text-slate-400">
+                                    {order.customerPhone}
+                                  </p>
                                   <button
                                     onClick={(e) => copyPhone(order, e)}
                                     title="Copy phone number"
                                     className="text-slate-300 hover:text-slate-500"
                                   >
-                                    {copiedPhoneId === order.id ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
+                                    {copiedPhoneId === order.id ? (
+                                      <Check
+                                        size={11}
+                                        className="text-emerald-600"
+                                      />
+                                    ) : (
+                                      <Copy size={11} />
+                                    )}
                                   </button>
                                 </div>
                               )}
                               <div className="mt-1 flex flex-wrap items-center gap-1.5">
                                 {order.customerPhone && (
                                   <span
-                                    title={order.isReturningCustomer ? 'This customer has ordered before' : "This is the customer's first order"}
+                                    title={
+                                      order.isReturningCustomer
+                                        ? "This customer has ordered before"
+                                        : "This is the customer's first order"
+                                    }
                                     className={clsx(
-                                      'inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset',
-                                      order.isReturningCustomer ? 'bg-blue-50 text-blue-600 ring-blue-600/20' : 'bg-emerald-50 text-emerald-600 ring-emerald-600/20'
+                                      "inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset",
+                                      order.isReturningCustomer
+                                        ? "bg-blue-50 text-blue-600 ring-blue-600/20"
+                                        : "bg-emerald-50 text-emerald-600 ring-emerald-600/20",
                                     )}
                                   >
-                                    {order.isReturningCustomer ? 'Returning' : 'New'}
+                                    {order.isReturningCustomer
+                                      ? "Returning"
+                                      : "New"}
                                   </span>
                                 )}
-                                {user?.installedPlugins?.includes('fraudChecker') && order.riskLabel && (
-                                  <span
-                                    title={`${order.riskLabel} — ${order.riskSuccessRate}% delivery success with Steadfast/Pathao`}
-                                    className={clsx(
-                                      'inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset',
-                                      order.riskLabel === 'Trusted'
-                                        ? 'bg-violet-50 text-violet-600 ring-violet-600/20'
-                                        : order.riskLabel === 'Risky'
-                                          ? 'bg-rose-50 text-rose-600 ring-rose-600/20'
-                                          : 'bg-slate-100 text-slate-500 ring-slate-500/10'
-                                    )}
-                                  >
-                                    {order.riskLabel} {order.riskSuccessRate}%
-                                  </span>
-                                )}
+                                {user?.installedPlugins?.includes(
+                                  "fraudChecker",
+                                ) &&
+                                  order.riskLabel && (
+                                    <span
+                                      title={`${order.riskLabel} — ${order.riskSuccessRate}% delivery success with Steadfast/Pathao`}
+                                      className={clsx(
+                                        "inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset",
+                                        order.riskLabel === "Trusted"
+                                          ? "bg-violet-50 text-violet-600 ring-violet-600/20"
+                                          : order.riskLabel === "Risky"
+                                            ? "bg-rose-50 text-rose-600 ring-rose-600/20"
+                                            : "bg-slate-100 text-slate-500 ring-slate-500/10",
+                                      )}
+                                    >
+                                      {order.riskLabel} {order.riskSuccessRate}%
+                                    </span>
+                                  )}
                                 {isClaimedByOther && order.claimedBy && (
                                   <span
                                     title={`${order.claimedBy.email} is currently calling this customer`}
-                                    className={clsx('inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset', CLAIM_TONE)}
+                                    className={clsx(
+                                      "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset",
+                                      CLAIM_TONE,
+                                    )}
                                   >
-                                    <Lock size={9} /> {order.claimedBy.email.split('@')[0]}
+                                    <Lock size={9} />{" "}
+                                    {order.claimedBy.email.split("@")[0]}
                                   </span>
                                 )}
                               </div>
                             </td>
-                            <td className="px-3 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                              <OrderProductsCell lineItems={order.lineItems} currency={order.currency} />
+                            <td
+                              className="px-3 py-3 whitespace-nowrap"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <OrderProductsCell
+                                lineItems={order.lineItems}
+                                currency={order.currency}
+                              />
                             </td>
                             <td className="px-3 py-3 whitespace-nowrap">
                               {meta && store && (
-                                <span title={store.displayName} className="inline-flex items-center gap-1.5 text-slate-600">
-                                  <meta.logo size={18} className="shrink-0 rounded" />
-                                  <span className="max-2xl:hidden">{store.displayName}</span>
+                                <span
+                                  title={store.displayName}
+                                  className="inline-flex items-center gap-1.5 text-slate-600"
+                                >
+                                  <meta.logo
+                                    size={18}
+                                    className="shrink-0 rounded"
+                                  />
+                                  <span className="max-2xl:hidden">
+                                    {store.displayName}
+                                  </span>
                                 </span>
                               )}
                             </td>
                             <td className="px-3 py-3 font-medium tabular-nums text-slate-800 whitespace-nowrap">
                               {order.currency} {order.total.toLocaleString()}
-                              <p className="text-xs font-normal text-slate-400">{PAYMENT_METHOD_SHORT[order.paymentMethod]}</p>
+                              <p className="text-xs font-normal text-slate-400">
+                                {PAYMENT_METHOD_SHORT[order.paymentMethod]}
+                              </p>
                             </td>
                             <td className="px-3 py-3 whitespace-nowrap">
                               <span className="inline-flex items-center gap-1.5">
@@ -1084,16 +1459,28 @@ export function OrdersPage() {
                                     </span>
                                   </Tooltip>
                                 ) : (
-                                  <span className={clsx('inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset', STAGE_TONE[order.stage])}>
+                                  <span
+                                    className={clsx(
+                                      "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset",
+                                      STAGE_TONE[order.stage],
+                                    )}
+                                  >
                                     {STAGE_LABEL[order.stage]}
                                   </span>
                                 )}
                               </span>
                             </td>
-                            <td className="px-3 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                            <td
+                              className="px-3 py-3 whitespace-nowrap"
+                              onClick={(e) => e.stopPropagation()}
+                            >
                               {order.customerPhone ? (
                                 <div className="flex items-center gap-1 max-2xl:flex-wrap">
-                                  <a href={telLink(order.customerPhone)} title="Call" className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-indigo-600">
+                                  <a
+                                    href={telLink(order.customerPhone)}
+                                    title="Call"
+                                    className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-indigo-600"
+                                  >
                                     <Phone size={14} />
                                   </a>
                                   <a
@@ -1113,29 +1500,58 @@ export function OrdersPage() {
                             <td className="px-3 py-3 whitespace-nowrap">
                               <p
                                 className={clsx(
-                                  urgency === 'critical' ? 'font-semibold text-rose-600' : urgency === 'warn' ? 'font-medium text-amber-600' : 'text-slate-700'
+                                  urgency === "critical"
+                                    ? "font-semibold text-rose-600"
+                                    : urgency === "warn"
+                                      ? "font-medium text-amber-600"
+                                      : "text-slate-700",
                                 )}
                               >
                                 {formatAbsoluteDateTime(order.createdAt)}
                               </p>
-                              <p className="text-xs text-slate-400">{relativeDayLabel(order.createdAt)}</p>
+                              <p className="text-xs text-slate-400">
+                                {relativeDayLabel(order.createdAt)}
+                              </p>
                             </td>
-                            <td className="px-3 py-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                            <td
+                              className="px-3 py-3 text-right whitespace-nowrap"
+                              onClick={(e) => e.stopPropagation()}
+                            >
                               <RowActionsMenu
                                 order={order}
                                 onView={() => setActiveOrder(order)}
-                                onConfirm={() => handleBulkConfirm([order.id], { stage: order.stage })}
+                                onConfirm={() =>
+                                  handleBulkConfirm([order.id], {
+                                    stage: order.stage,
+                                  })
+                                }
                                 onCancel={(reason: CancelReason) =>
-                                  void runBulk([order.id], { stage: 'Cancelled', cancelReason: reason, note: null }, { stage: order.stage })
+                                  void runBulk(
+                                    [order.id],
+                                    {
+                                      stage: "Cancelled",
+                                      cancelReason: reason,
+                                      note: null,
+                                    },
+                                    { stage: order.stage },
+                                  )
                                 }
                                 onTogglePriority={(next) =>
                                   void runBulk(
                                     [order.id],
-                                    { isPriorityCall: next, priorityNote: null },
-                                    { isPriorityCall: order.isPriorityCall, priorityNote: order.priorityNote }
+                                    {
+                                      isPriorityCall: next,
+                                      priorityNote: null,
+                                    },
+                                    {
+                                      isPriorityCall: order.isPriorityCall,
+                                      priorityNote: order.priorityNote,
+                                    },
                                   )
                                 }
-                                onToggleBlock={(next) => void handleToggleBlock(order, next)}
+                                onToggleBlock={(next) =>
+                                  void handleToggleBlock(order, next)
+                                }
                               />
                             </td>
                           </tr>
@@ -1144,7 +1560,11 @@ export function OrdersPage() {
                     </tbody>
                   </table>
                 )}
-                {!ordersLoading && orders.length === 0 && <div className="py-16 text-center text-sm text-slate-400">No orders match your filters.</div>}
+                {!ordersLoading && orders.length === 0 && (
+                  <div className="py-16 text-center text-sm text-slate-400">
+                    No orders match your filters.
+                  </div>
+                )}
               </div>
 
               {total > 0 && (
@@ -1169,37 +1589,71 @@ export function OrdersPage() {
         count={selected.size}
         busy={bulkBusy}
         onClear={() => setSelected(new Set())}
-        onConfirm={confirmableSelectedIds.length > 0 ? () => handleBulkConfirm(confirmableSelectedIds) : undefined}
-        onMarkShipped={shippableSelectedIds.length > 0 ? () => void runBulk(shippableSelectedIds, { stage: 'Shipped' }) : undefined}
-        onHandOverToCourier={
-          handoverReadySelectedIds.length > 0
-            ? () => void runBulk(handoverReadySelectedIds, { stage: 'Out for Delivery', note: 'Handed over to courier' })
+        onConfirm={
+          confirmableSelectedIds.length > 0
+            ? () => handleBulkConfirm(confirmableSelectedIds)
             : undefined
         }
-        onSendToPacking={packableSelectedIds.length > 0 ? () => handleBulkSendToPacking(packableSelectedIds) : undefined}
+        onMarkShipped={
+          shippableSelectedIds.length > 0
+            ? () => void runBulk(shippableSelectedIds, { stage: "Shipped" })
+            : undefined
+        }
+        onHandOverToCourier={
+          handoverReadySelectedIds.length > 0
+            ? () =>
+                void runBulk(handoverReadySelectedIds, {
+                  stage: "Out for Delivery",
+                  note: "Handed over to courier",
+                })
+            : undefined
+        }
+        onSendToPacking={
+          packableSelectedIds.length > 0
+            ? () => handleBulkSendToPacking(packableSelectedIds)
+            : undefined
+        }
         onHold={
           holdableSelectedIds.length > 0
-            ? (reason, note, rescheduledFor) => void runBulk(holdableSelectedIds, { stage: 'On Hold', holdReason: reason as HoldReason, note: note || null, rescheduledFor })
+            ? (reason, note, rescheduledFor) =>
+                void runBulk(holdableSelectedIds, {
+                  stage: "On Hold",
+                  holdReason: reason as HoldReason,
+                  note: note || null,
+                  rescheduledFor,
+                })
             : undefined
         }
         onCancel={
           cancellableSelectedIds.length > 0
-            ? (reason, note) => void runBulk(cancellableSelectedIds, { stage: 'Cancelled', cancelReason: reason as CancelReason, note: note || null })
+            ? (reason, note) =>
+                void runBulk(cancellableSelectedIds, {
+                  stage: "Cancelled",
+                  cancelReason: reason as CancelReason,
+                  note: note || null,
+                })
             : undefined
         }
-        onMarkCollected={collectibleSelectedIds.length > 0 ? () => void handleBulkMarkCollected(collectibleSelectedIds) : undefined}
+        onMarkCollected={
+          collectibleSelectedIds.length > 0
+            ? () => void handleBulkMarkCollected(collectibleSelectedIds)
+            : undefined
+        }
         onRecheckFraud={
-          user?.installedPlugins?.includes('fraudChecker') && recheckableSelectedIds.length > 0
+          user?.installedPlugins?.includes("fraudChecker") &&
+          recheckableSelectedIds.length > 0
             ? () => void handleBulkRecheckFraud(recheckableSelectedIds)
             : undefined
         }
-        holdReasons={holdReasonsForMany(holdableSelectedOrders.map((o) => o.stage))}
-        onPrintInvoices={() => setPrintDocType('invoice')}
+        holdReasons={holdReasonsForMany(
+          holdableSelectedOrders.map((o) => o.stage),
+        )}
+        onPrintInvoices={() => setPrintDocType("invoice")}
         onPrintPackingSlips={
           packSlipEligibleSelected
             ? () => {
                 void loadBinLookup();
-                setPrintDocType('packingSlip');
+                setPrintDocType("packingSlip");
               }
             : undefined
         }
@@ -1207,7 +1661,7 @@ export function OrdersPage() {
           packSlipEligibleSelected
             ? () => {
                 void loadBinLookup();
-                setPrintDocType('combined');
+                setPrintDocType("combined");
               }
             : undefined
         }
@@ -1227,7 +1681,9 @@ export function OrdersPage() {
 
       <OrderDetailDrawer
         order={activeOrder}
-        store={activeOrder ? storeById.get(activeOrder.storeId) ?? null : null}
+        store={
+          activeOrder ? (storeById.get(activeOrder.storeId) ?? null) : null
+        }
         couriers={couriers}
         onClose={() => setActiveOrder(null)}
         onUpdated={refreshAll}
@@ -1236,11 +1692,19 @@ export function OrdersPage() {
         open={printDocType !== null}
         onClose={() => setPrintDocType(null)}
         orders={selectedOrders}
-        docType={printDocType ?? 'invoice'}
+        docType={printDocType ?? "invoice"}
         binLookup={binLookup}
       />
-      <CourierLabelModal open={labelModalOpen} onClose={() => setLabelModalOpen(false)} orders={selectedOrders} />
-      <ImportOrdersModal store={importTarget} onClose={() => setImportTarget(null)} onImported={handleImported} />
+      <CourierLabelModal
+        open={labelModalOpen}
+        onClose={() => setLabelModalOpen(false)}
+        orders={selectedOrders}
+      />
+      <ImportOrdersModal
+        store={importTarget}
+        onClose={() => setImportTarget(null)}
+        onImported={handleImported}
+      />
       <ExportOrdersModal
         open={exportModalOpen}
         onClose={() => setExportModalOpen(false)}

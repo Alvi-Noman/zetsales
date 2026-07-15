@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { CheckCircle2, Clock, RotateCcw, Search, Truck, X } from 'lucide-react';
-import clsx from 'clsx';
-import type { OrderDTO, StoreDTO } from '@zetsales/shared';
-import { listOrders, listStores, updateOrder } from '../../lib/commerceApi';
-import { useToast } from '../../components/ui/ToastProvider';
-import { formatAbsoluteDateTime } from '../../components/orders/time';
+import { useEffect, useMemo, useRef, useState } from "react";
+import { CheckCircle2, Clock, RotateCcw, Search, Truck, X } from "lucide-react";
+import clsx from "clsx";
+import type { OrderDTO, StoreDTO } from "@zetsales/shared";
+import { listOrders, listStores, updateOrder } from "../../lib/commerceApi";
+import { useToast } from "../../components/ui/ToastProvider";
+import { formatAbsoluteDateTime } from "../../components/orders/time";
 
 function money(order: OrderDTO) {
   return `${order.currency} ${order.total.toLocaleString()}`;
@@ -15,34 +15,46 @@ function orderCode(order: OrderDTO) {
 }
 
 function codeTokens(value: string | null | undefined) {
-  const raw = (value ?? '').trim().toLowerCase();
+  const raw = (value ?? "").trim().toLowerCase();
   if (!raw) return [];
-  const withoutHash = raw.replace(/^#/, '');
+  const withoutHash = raw.replace(/^#/, "");
   return Array.from(new Set([raw, withoutHash, `#${withoutHash}`]));
 }
 
 function orderMatchesCode(order: OrderDTO, code: string) {
   const wanted = new Set(codeTokens(code));
-  return [order.invoiceNo, order.number, order.courierTrackingId, order.courierConsignmentId].some((value) =>
-    codeTokens(value).some((token) => wanted.has(token))
-  );
+  return [
+    order.invoiceNo,
+    order.number,
+    order.courierTrackingId,
+    order.courierConsignmentId,
+  ].some((value) => codeTokens(value).some((token) => wanted.has(token)));
 }
 
 export function DispatchPage() {
   const toast = useToast();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [scanInput, setScanInput] = useState('');
+  const [scanInput, setScanInput] = useState("");
   const [readyOrders, setReadyOrders] = useState<OrderDTO[]>([]);
   const [stores, setStores] = useState<StoreDTO[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [recent, setRecent] = useState<OrderDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
-  const [lastResult, setLastResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [lastResult, setLastResult] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
 
   const readyCount = readyOrders.length;
-  const readyCod = useMemo(() => readyOrders.reduce((sum, order) => sum + order.total, 0), [readyOrders]);
-  const storeById = useMemo(() => new Map(stores.map((store) => [store.id, store])), [stores]);
+  const readyCod = useMemo(
+    () => readyOrders.reduce((sum, order) => sum + order.total, 0),
+    [readyOrders],
+  );
+  const storeById = useMemo(
+    () => new Map(stores.map((store) => [store.id, store])),
+    [stores],
+  );
   const query = scanInput.trim().toLowerCase();
   const filteredReadyOrders = useMemo(() => {
     if (!query) return readyOrders;
@@ -59,22 +71,34 @@ export function DispatchPage() {
         store?.displayName,
       ]
         .filter(Boolean)
-        .join(' ')
+        .join(" ")
         .toLowerCase();
       return haystack.includes(query);
     });
   }, [query, readyOrders, storeById]);
-  const selectedOrders = useMemo(() => readyOrders.filter((order) => selected.has(order.id)), [readyOrders, selected]);
-  const filteredIds = useMemo(() => filteredReadyOrders.map((order) => order.id), [filteredReadyOrders]);
-  const allVisibleSelected = filteredIds.length > 0 && filteredIds.every((id) => selected.has(id));
+  const selectedOrders = useMemo(
+    () => readyOrders.filter((order) => selected.has(order.id)),
+    [readyOrders, selected],
+  );
+  const filteredIds = useMemo(
+    () => filteredReadyOrders.map((order) => order.id),
+    [filteredReadyOrders],
+  );
+  const allVisibleSelected =
+    filteredIds.length > 0 && filteredIds.every((id) => selected.has(id));
 
   const loadReady = async () => {
     setLoading(true);
     try {
-      const { orders } = await listOrders({ tab: 'courierBooked', sortKey: 'date', sortDir: 'asc', pageSize: 100 });
+      const { orders } = await listOrders({
+        tab: "courierBooked",
+        sortKey: "date",
+        sortDir: "asc",
+        pageSize: 100,
+      });
       setReadyOrders(orders);
     } catch {
-      toast.push('Could not load ready parcels.', 'info');
+      toast.push("Could not load ready parcels.", "info");
     } finally {
       setLoading(false);
       setTimeout(() => inputRef.current?.focus(), 0);
@@ -83,7 +107,9 @@ export function DispatchPage() {
 
   useEffect(() => {
     void loadReady();
-    void listStores().then(setStores).catch(() => {});
+    void listStores()
+      .then(setStores)
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -116,26 +142,43 @@ export function DispatchPage() {
     try {
       for (const order of ordersToHandOver) {
         try {
-          const res = await updateOrder(order.id, { stage: 'Out for Delivery', note: 'Handed over to courier' });
+          const res = await updateOrder(order.id, {
+            stage: "Out for Delivery",
+            note: "Handed over to courier",
+          });
           handed.push(res.order);
         } catch (error) {
-          failures.push(error instanceof Error ? error.message : `${orderCode(order)} could not be handed over.`);
+          failures.push(
+            error instanceof Error
+              ? error.message
+              : `${orderCode(order)} could not be handed over.`,
+          );
         }
       }
       const handedIds = new Set(handed.map((order) => order.id));
-      setReadyOrders((current) => current.filter((order) => !handedIds.has(order.id)));
+      setReadyOrders((current) =>
+        current.filter((order) => !handedIds.has(order.id)),
+      );
       setSelected(new Set());
-      setRecent((current) => [...handed, ...current.filter((order) => !handedIds.has(order.id))].slice(0, 25));
+      setRecent((current) =>
+        [
+          ...handed,
+          ...current.filter((order) => !handedIds.has(order.id)),
+        ].slice(0, 25),
+      );
       if (handed.length > 0) {
         setLastResult({
-          type: failures.length > 0 ? 'error' : 'success',
+          type: failures.length > 0 ? "error" : "success",
           message:
             failures.length > 0
-              ? `Handed over ${handed.length} parcel${handed.length === 1 ? '' : 's'}; ${failures.length} failed: ${failures[0]}`
-              : `Handed over ${handed.length} parcel${handed.length === 1 ? '' : 's'}.`,
+              ? `Handed over ${handed.length} parcel${handed.length === 1 ? "" : "s"}; ${failures.length} failed: ${failures[0]}`
+              : `Handed over ${handed.length} parcel${handed.length === 1 ? "" : "s"}.`,
         });
       } else {
-        setLastResult({ type: 'error', message: failures[0] ?? 'Could not hand over selected parcels.' });
+        setLastResult({
+          type: "error",
+          message: failures[0] ?? "Could not hand over selected parcels.",
+        });
       }
     } finally {
       setScanning(false);
@@ -147,38 +190,65 @@ export function DispatchPage() {
     const code = scanInput.trim();
     if (!code || scanning) return;
 
-    const localMatch = readyOrders.find((order) => orderMatchesCode(order, code));
+    const localMatch = readyOrders.find((order) =>
+      orderMatchesCode(order, code),
+    );
     if (localMatch) {
       await handOverOrders([localMatch]);
-      setScanInput('');
+      setScanInput("");
       return;
     }
 
     setScanning(true);
     try {
-      const searchTerm = code.replace(/^#/, '');
-      const { orders } = await listOrders({ tab: 'courierBooked', search: searchTerm, sortKey: 'date', sortDir: 'asc', pageSize: 10 });
+      const searchTerm = code.replace(/^#/, "");
+      const { orders } = await listOrders({
+        tab: "courierBooked",
+        search: searchTerm,
+        sortKey: "date",
+        sortDir: "asc",
+        pageSize: 10,
+      });
       const exactMatch = orders.find((order) => orderMatchesCode(order, code));
       const match = exactMatch ?? (orders.length === 1 ? orders[0] : null);
       if (!match) {
-        setLastResult({ type: 'error', message: `No ready parcel matches ${code}.` });
-        setScanInput('');
+        setLastResult({
+          type: "error",
+          message: `No ready parcel matches ${code}.`,
+        });
+        setScanInput("");
         return;
       }
 
-      const { order } = await updateOrder(match.id, { stage: 'Out for Delivery', note: 'Handed over to courier' });
-      setReadyOrders((current) => current.filter((item) => item.id !== order.id));
+      const { order } = await updateOrder(match.id, {
+        stage: "Out for Delivery",
+        note: "Handed over to courier",
+      });
+      setReadyOrders((current) =>
+        current.filter((item) => item.id !== order.id),
+      );
       setSelected((current) => {
         const next = new Set(current);
         next.delete(order.id);
         return next;
       });
-      setRecent((current) => [order, ...current.filter((item) => item.id !== order.id)].slice(0, 25));
-      setLastResult({ type: 'success', message: `${orderCode(order)} handed over to courier.` });
-      setScanInput('');
+      setRecent((current) =>
+        [order, ...current.filter((item) => item.id !== order.id)].slice(0, 25),
+      );
+      setLastResult({
+        type: "success",
+        message: `${orderCode(order)} handed over to courier.`,
+      });
+      setScanInput("");
     } catch (error) {
-      setLastResult({ type: 'error', message: error instanceof Error ? error.message : 'Could not hand over this parcel.' });
-      setScanInput('');
+      setLastResult({
+        type: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Could not hand over this parcel.",
+      });
+      setScanInput("");
     } finally {
       setScanning(false);
       setTimeout(() => inputRef.current?.focus(), 0);
@@ -194,12 +264,18 @@ export function DispatchPage() {
     if (!last) return;
     setScanning(true);
     try {
-      const { order } = await updateOrder(last.id, { stage: 'Shipped', note: 'Dispatch scan undone' });
+      const { order } = await updateOrder(last.id, {
+        stage: "Shipped",
+        note: "Dispatch scan undone",
+      });
       setRecent((current) => current.slice(1));
       setReadyOrders((current) => [order, ...current]);
-      setLastResult({ type: 'success', message: `${orderCode(order)} returned to Ready for pickup.` });
+      setLastResult({
+        type: "success",
+        message: `${orderCode(order)} returned to Ready for pickup.`,
+      });
     } catch {
-      toast.push('Could not undo the last scan.', 'info');
+      toast.push("Could not undo the last scan.", "info");
     } finally {
       setScanning(false);
       setTimeout(() => inputRef.current?.focus(), 0);
@@ -207,16 +283,18 @@ export function DispatchPage() {
   };
 
   return (
-    <div className="flex min-h-full flex-col bg-white">
-      <div className="flex items-start justify-between gap-4 border-b border-slate-200 bg-white px-4 py-4 lg:px-8">
+    <div className="zs-page">
+      <div className="zs-page-header flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-xl font-bold text-slate-900">Dispatch</h1>
+            <h1 className="zs-page-title">Dispatch</h1>
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500 tabular-nums">
               {readyCount.toLocaleString()}
             </span>
           </div>
-          <p className="mt-1 text-sm text-slate-500">Scan or select ready parcels when handing them to the courier.</p>
+          <p className="zs-page-description">
+            Scan or select ready parcels when handing them to the courier.
+          </p>
         </div>
         <button
           onClick={() => void loadReady()}
@@ -226,9 +304,9 @@ export function DispatchPage() {
         </button>
       </div>
 
-      <div className="border-b border-slate-200 bg-white px-4 pb-3 pt-5 lg:px-8">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex flex-wrap items-center gap-2">
+      <div className="zs-toolbox">
+        <div className="zs-toolbox-row">
+          <div className="zs-toolbox-left">
             <span className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-600">
               Waiting {readyCount.toLocaleString()}
             </span>
@@ -239,18 +317,21 @@ export function DispatchPage() {
               Handed over {recent.length.toLocaleString()}
             </span>
           </div>
-          <div className="ml-auto flex min-w-[280px] flex-1 items-center gap-2 sm:max-w-xl">
-            <div className="relative w-full">
-              <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+          <div className="zs-toolbox-right">
+            <div className="zs-search sm:w-[28rem]">
+              <Search
+                size={15}
+                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"
+              />
               <input
                 ref={inputRef}
                 value={scanInput}
                 onChange={(event) => setScanInput(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter') void handleScan();
+                  if (event.key === "Enter") void handleScan();
                 }}
                 placeholder="Scan or search bill, order, customer, phone, tracking"
-                className="h-8 w-full rounded-lg border border-slate-200 bg-slate-50 pl-8 pr-3 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15"
+                className="zs-search-input"
               />
             </div>
             <button
@@ -265,8 +346,10 @@ export function DispatchPage() {
         {lastResult && (
           <div
             className={clsx(
-              'mt-3 rounded-lg px-3 py-2 text-sm font-semibold',
-              lastResult.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
+              "mt-3 rounded-lg px-3 py-2 text-sm font-semibold",
+              lastResult.type === "success"
+                ? "bg-emerald-50 text-emerald-700"
+                : "bg-rose-50 text-rose-700",
             )}
           >
             {lastResult.message}
@@ -276,19 +359,28 @@ export function DispatchPage() {
 
       <div className="flex-1 overflow-x-auto">
         {loading ? (
-          <div className="p-10 text-center text-sm text-slate-400">Loading parcels...</div>
+          <div className="p-10 text-center text-sm text-slate-400">
+            Loading parcels...
+          </div>
         ) : readyOrders.length === 0 ? (
           <div className="flex min-h-[360px] flex-col items-center justify-center gap-2 px-8 text-center">
             <Truck size={28} className="text-slate-300" />
-            <p className="text-sm font-medium text-slate-600">No parcels are ready for pickup</p>
-            <p className="max-w-sm text-sm text-slate-400">Orders marked Ready for pickup will appear here for barcode scan or manual handover.</p>
+            <p className="text-sm font-medium text-slate-600">
+              No parcels are ready for pickup
+            </p>
+            <p className="max-w-sm text-sm text-slate-400">
+              Orders marked Ready for pickup will appear here for barcode scan
+              or manual handover.
+            </p>
           </div>
         ) : filteredReadyOrders.length === 0 ? (
-          <div className="p-10 text-center text-sm text-slate-400">No ready parcel matches this search.</div>
+          <div className="p-10 text-center text-sm text-slate-400">
+            No ready parcel matches this search.
+          </div>
         ) : (
           <table className="w-full min-w-[980px] border-collapse text-sm">
             <thead>
-              <tr className="border-b border-slate-200 text-left text-xs font-semibold text-slate-500">
+              <tr className="zs-table-head">
                 <th className="w-10 px-4 py-2.5">
                   <input
                     type="checkbox"
@@ -313,8 +405,10 @@ export function DispatchPage() {
                   <tr
                     key={order.id}
                     className={clsx(
-                      'border-b border-slate-100 transition-colors',
-                      selected.has(order.id) ? 'bg-indigo-50/60' : 'hover:bg-slate-50'
+                      "zs-data-row border-b border-slate-100",
+                      selected.has(order.id)
+                        ? "bg-indigo-50/60 hover:bg-indigo-50/70"
+                        : undefined,
                     )}
                   >
                     <td className="px-4 py-3">
@@ -327,25 +421,47 @@ export function DispatchPage() {
                       />
                     </td>
                     <td className="px-3 py-3">
-                      <p className="font-bold text-slate-900">{orderCode(order)}</p>
-                      {order.invoiceNo && <p className="text-xs text-slate-400">Order {order.number}</p>}
+                      <p className="font-bold text-slate-900">
+                        {orderCode(order)}
+                      </p>
+                      {order.invoiceNo && (
+                        <p className="text-xs text-slate-400">
+                          Order {order.number}
+                        </p>
+                      )}
                     </td>
                     <td className="px-3 py-3">
-                      <p className="font-medium text-slate-800">{order.customerName ?? 'No customer'}</p>
-                      <p className="text-xs text-slate-400">{order.customerPhone ?? 'No phone'}</p>
+                      <p className="font-medium text-slate-800">
+                        {order.customerName ?? "No customer"}
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {order.customerPhone ?? "No phone"}
+                      </p>
                     </td>
-                    <td className="px-3 py-3 text-slate-600">{store?.displayName ?? 'Store'}</td>
+                    <td className="px-3 py-3 text-slate-600">
+                      {store?.displayName ?? "Store"}
+                    </td>
                     <td className="px-3 py-3">
-                      <p className="capitalize text-slate-700">{order.courierPartner ?? 'Courier'}</p>
-                      {order.courierConsignmentId && <p className="text-xs text-slate-400">{order.courierConsignmentId}</p>}
+                      <p className="capitalize text-slate-700">
+                        {order.courierPartner ?? "Courier"}
+                      </p>
+                      {order.courierConsignmentId && (
+                        <p className="text-xs text-slate-400">
+                          {order.courierConsignmentId}
+                        </p>
+                      )}
                     </td>
-                    <td className="px-3 py-3 text-right font-semibold text-slate-900">{money(order)}</td>
-                    <td className="px-3 py-3 text-xs text-slate-500">{formatAbsoluteDateTime(order.updatedAt)}</td>
+                    <td className="px-3 py-3 text-right font-semibold text-slate-900">
+                      {money(order)}
+                    </td>
+                    <td className="px-3 py-3 text-xs text-slate-500">
+                      {formatAbsoluteDateTime(order.updatedAt)}
+                    </td>
                     <td className="px-4 py-3 text-right">
                       <button
                         onClick={() => void handOverOrders([order])}
                         disabled={scanning}
-                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         Hand over
                       </button>
@@ -361,11 +477,18 @@ export function DispatchPage() {
       {recent.length > 0 && (
         <div className="border-t border-slate-200 bg-white px-4 py-3 lg:px-8">
           <div className="flex items-center gap-4 overflow-x-auto">
-            <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-slate-400">Recent</span>
+            <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-slate-400">
+              Recent
+            </span>
             {recent.slice(0, 8).map((order) => (
-              <div key={order.id} className="flex shrink-0 items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5">
+              <div
+                key={order.id}
+                className="flex shrink-0 items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5"
+              >
                 <CheckCircle2 size={13} className="text-emerald-600" />
-                <span className="text-xs font-semibold text-slate-700">{orderCode(order)}</span>
+                <span className="text-xs font-semibold text-slate-700">
+                  {orderCode(order)}
+                </span>
                 <span className="flex items-center gap-1 text-[10px] text-slate-400">
                   <Clock size={10} /> {formatAbsoluteDateTime(order.updatedAt)}
                 </span>
@@ -377,23 +500,28 @@ export function DispatchPage() {
 
       {selectedOrders.length > 0 && (
         <div className="pointer-events-none fixed inset-x-0 bottom-6 z-40 flex justify-center">
-          <div className="pointer-events-auto flex animate-pop-in items-center gap-2 rounded-2xl border border-slate-800 bg-slate-900/95 px-3 py-2 text-white shadow-2xl shadow-slate-900/30 backdrop-blur">
-            <button onClick={() => setSelected(new Set())} className="rounded-full p-1.5 text-slate-400 hover:bg-white/10 hover:text-white">
+          <div className="pointer-events-auto flex animate-pop-in items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/95 px-3 py-2 text-white shadow-2xl shadow-slate-900/30 backdrop-blur">
+            <button
+              onClick={() => setSelected(new Set())}
+              className="rounded-full p-1.5 text-slate-400 hover:bg-white/10 hover:text-white"
+            >
               <X size={14} />
             </button>
-            <span className="pr-1 text-sm font-semibold tabular-nums">{selectedOrders.length} selected</span>
+            <span className="pr-1 text-sm font-semibold tabular-nums">
+              {selectedOrders.length} selected
+            </span>
             <div className="h-5 w-px bg-white/10" />
             <button
               onClick={() => void handOverSelected()}
               disabled={scanning}
-              className="flex items-center gap-1.5 rounded-xl bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 hover:bg-slate-100 disabled:opacity-60"
+              className="flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 hover:bg-slate-100 disabled:opacity-60"
             >
               <Truck size={13} /> Hand over to courier
             </button>
             <button
               onClick={() => void undoLast()}
               disabled={scanning || recent.length === 0}
-              className="flex items-center gap-1.5 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20 disabled:opacity-60"
+              className="flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20 disabled:opacity-60"
             >
               <RotateCcw size={13} /> Undo last
             </button>

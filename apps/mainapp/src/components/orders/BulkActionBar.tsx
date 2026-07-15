@@ -1,9 +1,23 @@
-import { Ban, PhoneCall, PauseCircle, X, Printer, FileText, ClipboardList, Tag, Scissors, Banknote, Truck, Package, ShieldAlert } from 'lucide-react';
-import type { HoldReason } from '@zetsales/shared';
-import { ALL_CANCEL_REASONS } from './reasons';
-import { ReasonNoteMenu } from './ReasonNoteMenu';
-import { Popover } from '../ui/Popover';
-import { AppBlock } from '../apps/AppBlock';
+import {
+  Ban,
+  PhoneCall,
+  PauseCircle,
+  X,
+  Printer,
+  FileText,
+  ClipboardList,
+  Tag,
+  Scissors,
+  Banknote,
+  Truck,
+  Package,
+  ShieldAlert,
+} from "lucide-react";
+import type { HoldReason } from "@zetsales/shared";
+import { ALL_CANCEL_REASONS } from "./reasons";
+import { ReasonNoteMenu } from "./ReasonNoteMenu";
+import { Popover } from "../ui/Popover";
+import { AppBlock } from "../apps/AppBlock";
 
 interface BulkActionBarProps {
   count: number;
@@ -21,7 +35,11 @@ interface BulkActionBarProps {
   // this advances Confirmed -> Processing on its own, running the same stock-check popup as the
   // print flow does, for sellers who don't want packing gated behind printing a slip.
   onSendToPacking?: () => void;
-  onHold?: (reason: string, note: string, rescheduledFor: string | null) => void;
+  onHold?: (
+    reason: string,
+    note: string,
+    rescheduledFor: string | null,
+  ) => void;
   onCancel?: (reason: string, note: string) => void;
   onPrintInvoices: () => void;
   // Undefined unless at least one selected order has actually reached packing (see
@@ -45,14 +63,32 @@ interface BulkActionBarProps {
 }
 
 export function BulkActionBar({
-  count, onClear, onConfirm, onMarkShipped, onHandOverToCourier, onSendToPacking, onHold, onCancel, onPrintInvoices, onPrintPackingSlips, onPrintCombined, onPrintLabels, onMarkCollected, onRecheckFraud, holdReasons, busy,
+  count,
+  onClear,
+  onConfirm,
+  onMarkShipped,
+  onHandOverToCourier,
+  onSendToPacking,
+  onHold,
+  onCancel,
+  onPrintInvoices,
+  onPrintPackingSlips,
+  onPrintCombined,
+  onPrintLabels,
+  onMarkCollected,
+  onRecheckFraud,
+  holdReasons,
+  busy,
 }: BulkActionBarProps) {
   if (count === 0) return null;
 
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-6 z-40 flex justify-center">
-      <div className="pointer-events-auto flex animate-pop-in items-center gap-2 rounded-2xl border border-slate-800 bg-slate-900/95 px-3 py-2 text-white shadow-2xl shadow-slate-900/30 backdrop-blur">
-        <button onClick={onClear} className="rounded-full p-1.5 text-slate-400 hover:bg-white/10 hover:text-white">
+      <div className="pointer-events-auto flex animate-pop-in items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/95 px-3 py-2 text-white shadow-2xl shadow-slate-900/30 backdrop-blur">
+        <button
+          onClick={onClear}
+          className="rounded-full p-1.5 text-slate-400 hover:bg-white/10 hover:text-white"
+        >
           <X size={14} />
         </button>
         <span className="pr-1 text-sm font-semibold tabular-nums">
@@ -63,7 +99,7 @@ export function BulkActionBar({
           <button
             onClick={onConfirm}
             disabled={busy}
-            className="flex items-center gap-1.5 rounded-xl bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 hover:bg-slate-100 disabled:opacity-60"
+            className="flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 hover:bg-slate-100 disabled:opacity-60"
           >
             <PhoneCall size={13} /> Confirm
           </button>
@@ -72,7 +108,7 @@ export function BulkActionBar({
           <button
             onClick={onSendToPacking}
             disabled={busy}
-            className="flex items-center gap-1.5 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20 disabled:opacity-60"
+            className="flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20 disabled:opacity-60"
           >
             <Package size={13} /> Send to packing
           </button>
@@ -81,7 +117,7 @@ export function BulkActionBar({
           <button
             onClick={onMarkShipped}
             disabled={busy}
-            className="flex items-center gap-1.5 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20 disabled:opacity-60"
+            className="flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20 disabled:opacity-60"
           >
             <Truck size={13} /> Ready for pickup
           </button>
@@ -90,7 +126,7 @@ export function BulkActionBar({
           <button
             onClick={onHandOverToCourier}
             disabled={busy}
-            className="flex items-center gap-1.5 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20 disabled:opacity-60"
+            className="flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20 disabled:opacity-60"
           >
             <Truck size={13} /> Hand over to courier
           </button>
@@ -99,7 +135,7 @@ export function BulkActionBar({
           align="right"
           widthClass="w-44"
           trigger={() => (
-            <div className="flex items-center gap-1.5 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20 cursor-pointer">
+            <div className="flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20 cursor-pointer">
               <Printer size={13} /> Print
             </div>
           )}
@@ -114,7 +150,8 @@ export function BulkActionBar({
                   }}
                   className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
                 >
-                  <ClipboardList size={13} className="text-slate-400" /> Print packing slips
+                  <ClipboardList size={13} className="text-slate-400" /> Print
+                  packing slips
                 </button>
               )}
               <button
@@ -134,7 +171,8 @@ export function BulkActionBar({
                   }}
                   className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
                 >
-                  <Scissors size={13} className="text-slate-400" /> Invoice + Slips
+                  <Scissors size={13} className="text-slate-400" /> Invoice +
+                  Slips
                 </button>
               )}
               <button
@@ -153,7 +191,7 @@ export function BulkActionBar({
           <button
             onClick={onRecheckFraud}
             disabled={busy}
-            className="flex items-center gap-1.5 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20 disabled:opacity-60"
+            className="flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20 disabled:opacity-60"
           >
             <ShieldAlert size={13} /> Re-check fraud
           </button>
@@ -163,7 +201,7 @@ export function BulkActionBar({
           <button
             onClick={onMarkCollected}
             disabled={busy}
-            className="flex items-center gap-1.5 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20 disabled:opacity-60"
+            className="flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20 disabled:opacity-60"
           >
             <Banknote size={13} /> Mark COD collected
           </button>
@@ -176,7 +214,7 @@ export function BulkActionBar({
             onApply={onHold}
             align="right"
             trigger={() => (
-              <div className="flex items-center gap-1.5 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20 cursor-pointer">
+              <div className="flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold hover:bg-white/20 cursor-pointer">
                 <PauseCircle size={13} /> Hold
               </div>
             )}
@@ -191,7 +229,7 @@ export function BulkActionBar({
             onApply={onCancel}
             align="right"
             trigger={() => (
-              <div className="flex items-center gap-1.5 rounded-xl bg-rose-500/20 px-3 py-1.5 text-xs font-semibold text-rose-200 hover:bg-rose-500/30 cursor-pointer">
+              <div className="flex items-center gap-1.5 rounded-lg bg-rose-500/20 px-3 py-1.5 text-xs font-semibold text-rose-200 hover:bg-rose-500/30 cursor-pointer">
                 <Ban size={13} /> Cancel
               </div>
             )}

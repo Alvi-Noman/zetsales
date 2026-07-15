@@ -1,12 +1,12 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
-import clsx from 'clsx';
-import { useClickOutside } from '../../hooks/useClickOutside';
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import clsx from "clsx";
+import { useClickOutside } from "../../hooks/useClickOutside";
 
 interface PopoverProps {
   trigger: (open: boolean) => ReactNode;
   children: ReactNode | ((close: () => void) => ReactNode);
-  align?: 'left' | 'right';
+  align?: "left" | "right";
   widthClass?: string;
   wrapperClassName?: string;
   // Sizes the content to match the trigger's own rendered width (e.g. a picker meant to look like
@@ -21,9 +21,21 @@ interface PopoverProps {
   allowOverflow?: boolean;
 }
 
-export function Popover({ trigger, children, align = 'left', widthClass = 'w-64', wrapperClassName, matchTriggerWidth, allowOverflow }: PopoverProps) {
+export function Popover({
+  trigger,
+  children,
+  align = "left",
+  widthClass = "w-64",
+  wrapperClassName,
+  matchTriggerWidth,
+  allowOverflow,
+}: PopoverProps) {
   const [open, setOpen] = useState(false);
-  const [coords, setCoords] = useState<{ top: number; left: number; width: number | null } | null>(null);
+  const [coords, setCoords] = useState<{
+    top: number;
+    left: number;
+    width: number | null;
+  } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   // Trigger and content are two separate DOM subtrees now that content is portaled to <body> — a
@@ -51,9 +63,20 @@ export function Popover({ trigger, children, align = 'left', widthClass = 'w-64'
       const triggerRect = ref.current.getBoundingClientRect();
       const contentWidth = contentRef.current.offsetWidth;
       const contentHeight = contentRef.current.offsetHeight;
-      const top = Math.max(8, Math.min(triggerRect.bottom + 8, window.innerHeight - contentHeight - 8));
-      const left = align === 'right' ? triggerRect.right - contentWidth : triggerRect.left;
-      setCoords({ top, left, width: matchTriggerWidth ? triggerRect.width : null });
+      const top = Math.max(
+        8,
+        Math.min(
+          triggerRect.bottom + 8,
+          window.innerHeight - contentHeight - 8,
+        ),
+      );
+      const left =
+        align === "right" ? triggerRect.right - contentWidth : triggerRect.left;
+      setCoords({
+        top,
+        left,
+        width: matchTriggerWidth ? triggerRect.width : null,
+      });
     };
 
     recompute();
@@ -63,32 +86,44 @@ export function Popover({ trigger, children, align = 'left', widthClass = 'w-64'
     // scroll doesn't bubble.
     const resizeObserver = new ResizeObserver(recompute);
     resizeObserver.observe(contentRef.current);
-    window.addEventListener('scroll', recompute, true);
-    window.addEventListener('resize', recompute);
+    window.addEventListener("scroll", recompute, true);
+    window.addEventListener("resize", recompute);
     return () => {
       resizeObserver.disconnect();
-      window.removeEventListener('scroll', recompute, true);
-      window.removeEventListener('resize', recompute);
+      window.removeEventListener("scroll", recompute, true);
+      window.removeEventListener("resize", recompute);
     };
   }, [open, align, matchTriggerWidth]);
 
   return (
-    <div className={clsx('relative', wrapperClassName)} ref={ref}>
+    <div className={clsx("relative", wrapperClassName)} ref={ref}>
       <div onClick={() => setOpen((o) => !o)}>{trigger(open)}</div>
       {open &&
         createPortal(
           <div
             ref={contentRef}
-            style={coords ? { top: coords.top, left: coords.left, width: coords.width ?? undefined } : { top: 0, left: -9999 }}
+            style={
+              coords
+                ? {
+                    top: coords.top,
+                    left: coords.left,
+                    width: coords.width ?? undefined,
+                  }
+                : { top: 0, left: -9999 }
+            }
             className={clsx(
-              'fixed z-[100] rounded-xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5',
-              allowOverflow ? 'overflow-visible' : 'max-h-[80vh] overflow-y-auto',
-              !matchTriggerWidth && widthClass
+              "fixed z-[100] rounded-lg border border-slate-200 bg-white shadow-lg shadow-slate-900/5",
+              allowOverflow
+                ? "overflow-visible"
+                : "max-h-[80vh] overflow-y-auto",
+              !matchTriggerWidth && widthClass,
             )}
           >
-            {typeof children === 'function' ? children(() => setOpen(false)) : children}
+            {typeof children === "function"
+              ? children(() => setOpen(false))
+              : children}
           </div>,
-          document.body
+          document.body,
         )}
     </div>
   );

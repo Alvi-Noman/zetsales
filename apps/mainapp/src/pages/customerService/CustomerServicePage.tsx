@@ -1,9 +1,20 @@
-import { useEffect, useRef, useState } from 'react';
-import { Camera, Image as ImageIcon, Loader2, MessageCircle, Send } from 'lucide-react';
-import clsx from 'clsx';
-import type { ConversationDTO, MessageDTO } from '@zetsales/shared';
-import { listConversations, listMessages, sendReply, uploadMessagingImage } from '../../lib/messagingApi';
-import { useToast } from '../../components/ui/ToastProvider';
+import { useEffect, useRef, useState } from "react";
+import {
+  Camera,
+  Image as ImageIcon,
+  Loader2,
+  MessageCircle,
+  Send,
+} from "lucide-react";
+import clsx from "clsx";
+import type { ConversationDTO, MessageDTO } from "@zetsales/shared";
+import {
+  listConversations,
+  listMessages,
+  sendReply,
+  uploadMessagingImage,
+} from "../../lib/messagingApi";
+import { useToast } from "../../components/ui/ToastProvider";
 
 const PROVIDER_ICON = { facebook: MessageCircle, instagram: Camera } as const;
 
@@ -23,13 +34,17 @@ function ConversationRow({
     <button
       onClick={onClick}
       className={clsx(
-        'flex w-full items-start gap-3 border-b border-slate-100 px-4 py-3 text-left transition-colors',
-        active ? 'bg-indigo-50' : 'hover:bg-slate-50'
+        "flex w-full items-start gap-3 border-b border-slate-100 px-4 py-3 text-left transition-colors",
+        active ? "bg-indigo-50" : "hover:bg-slate-50",
       )}
     >
       <div className="relative shrink-0">
         {conversation.participantAvatar ? (
-          <img src={conversation.participantAvatar} alt="" className="h-10 w-10 rounded-full object-cover" />
+          <img
+            src={conversation.participantAvatar}
+            alt=""
+            className="h-10 w-10 rounded-full object-cover"
+          />
         ) : (
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-200 text-sm font-semibold text-slate-500">
             {conversation.participantName.slice(0, 1).toUpperCase()}
@@ -41,11 +56,19 @@ function ConversationRow({
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
-          <p className="truncate text-sm font-semibold text-slate-800">{conversation.participantName}</p>
-          <span className="shrink-0 text-[11px] text-slate-400">{new Date(conversation.lastMessageAt).toLocaleDateString()}</span>
+          <p className="truncate text-sm font-semibold text-slate-800">
+            {conversation.participantName}
+          </p>
+          <span className="shrink-0 text-[11px] text-slate-400">
+            {new Date(conversation.lastMessageAt).toLocaleDateString()}
+          </span>
         </div>
-        <p className="truncate text-xs text-slate-400">{conversation.accountName}</p>
-        <p className="mt-0.5 truncate text-xs text-slate-500">{conversation.lastMessagePreview || 'No messages yet'}</p>
+        <p className="truncate text-xs text-slate-400">
+          {conversation.accountName}
+        </p>
+        <p className="mt-0.5 truncate text-xs text-slate-500">
+          {conversation.lastMessagePreview || "No messages yet"}
+        </p>
       </div>
       {conversation.unreadCount > 0 && (
         <span className="mt-1 flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-indigo-600 px-1.5 text-[10px] font-bold text-white">
@@ -62,7 +85,7 @@ export function CustomerServicePage() {
   const [loading, setLoading] = useState(true);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessageDTO[]>([]);
-  const [draft, setDraft] = useState('');
+  const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -73,7 +96,7 @@ export function CustomerServicePage() {
       const list = await listConversations();
       setConversations(list);
     } catch {
-      toast.push('Could not load conversations.', 'info');
+      toast.push("Could not load conversations.", "info");
     } finally {
       setLoading(false);
     }
@@ -81,7 +104,10 @@ export function CustomerServicePage() {
 
   useEffect(() => {
     void loadConversations();
-    const interval = setInterval(() => void loadConversations(), POLL_INTERVAL_MS);
+    const interval = setInterval(
+      () => void loadConversations(),
+      POLL_INTERVAL_MS,
+    );
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -90,22 +116,29 @@ export function CustomerServicePage() {
     try {
       const list = await listMessages(conversationId);
       setMessages(list);
-      setConversations((prev) => prev.map((c) => (c.id === conversationId ? { ...c, unreadCount: 0 } : c)));
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === conversationId ? { ...c, unreadCount: 0 } : c,
+        ),
+      );
     } catch {
-      toast.push('Could not load this conversation.', 'info');
+      toast.push("Could not load this conversation.", "info");
     }
   };
 
   useEffect(() => {
     if (!activeId) return;
     void loadMessages(activeId);
-    const interval = setInterval(() => void loadMessages(activeId), POLL_INTERVAL_MS);
+    const interval = setInterval(
+      () => void loadMessages(activeId),
+      POLL_INTERVAL_MS,
+    );
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   const handleSend = async () => {
@@ -115,10 +148,10 @@ export function CustomerServicePage() {
     try {
       const sent = await sendReply(activeId, { text });
       setMessages((prev) => [...prev, sent]);
-      setDraft('');
+      setDraft("");
       void loadConversations();
     } catch {
-      toast.push('Could not send this reply.', 'info');
+      toast.push("Could not send this reply.", "info");
     } finally {
       setSending(false);
     }
@@ -126,7 +159,7 @@ export function CustomerServicePage() {
 
   const handleImagePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    e.target.value = ''; // allow picking the same file again
+    e.target.value = ""; // allow picking the same file again
     if (!file || !activeId) return;
     setUploadingImage(true);
     try {
@@ -135,7 +168,7 @@ export function CustomerServicePage() {
       setMessages((prev) => [...prev, sent]);
       void loadConversations();
     } catch {
-      toast.push('Could not send this image.', 'info');
+      toast.push("Could not send this image.", "info");
     } finally {
       setUploadingImage(false);
     }
@@ -144,55 +177,91 @@ export function CustomerServicePage() {
   const active = conversations.find((c) => c.id === activeId) ?? null;
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="border-b border-slate-200 bg-white px-8 py-5">
-        <h1 className="text-xl font-bold text-slate-900">Messages</h1>
-        <p className="mt-1 text-sm text-slate-500">All your connected Facebook and Instagram conversations, in one inbox.</p>
+    <div className="zs-page">
+      <div className="zs-page-header">
+        <h1 className="zs-page-title">Messages</h1>
+        <p className="zs-page-description">
+          All your connected Facebook and Instagram conversations, in one inbox.
+        </p>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
         <div className="w-80 shrink-0 overflow-y-auto border-r border-slate-200 bg-white">
           {loading ? (
-            <div className="py-10 text-center text-sm text-slate-400">Loading...</div>
+            <div className="py-10 text-center text-sm text-slate-400">
+              Loading...
+            </div>
           ) : conversations.length === 0 ? (
             <div className="flex flex-col items-center gap-2 px-6 py-14 text-center">
               <MessageCircle size={24} className="text-slate-300" />
-              <p className="text-sm font-medium text-slate-600">No conversations yet</p>
+              <p className="text-sm font-medium text-slate-600">
+                No conversations yet
+              </p>
               <p className="text-xs text-slate-400">
-                Connect your Facebook Business Suite from Integrations → Messaging to start receiving messages here.
+                Connect your Facebook Business Suite from Integrations →
+                Messaging to start receiving messages here.
               </p>
             </div>
           ) : (
             conversations.map((c) => (
-              <ConversationRow key={c.id} conversation={c} active={c.id === activeId} onClick={() => setActiveId(c.id)} />
+              <ConversationRow
+                key={c.id}
+                conversation={c}
+                active={c.id === activeId}
+                onClick={() => setActiveId(c.id)}
+              />
             ))
           )}
         </div>
 
-        <div className="flex flex-1 flex-col bg-slate-50">
+        <div className="flex flex-1 flex-col bg-white">
           {!active ? (
-            <div className="flex flex-1 items-center justify-center text-sm text-slate-400">Select a conversation to view messages</div>
+            <div className="flex flex-1 items-center justify-center text-sm text-slate-400">
+              Select a conversation to view messages
+            </div>
           ) : (
             <>
               <div className="border-b border-slate-200 bg-white px-6 py-3.5">
-                <p className="text-sm font-semibold text-slate-800">{active.participantName}</p>
-                <p className="text-xs text-slate-400">via {active.accountName}</p>
+                <p className="text-sm font-semibold text-slate-800">
+                  {active.participantName}
+                </p>
+                <p className="text-xs text-slate-400">
+                  via {active.accountName}
+                </p>
               </div>
 
               <div className="flex-1 overflow-y-auto px-6 py-5">
                 <div className="space-y-3">
                   {messages.map((m) => (
-                    <div key={m.id} className={clsx('flex', m.direction === 'out' ? 'justify-end' : 'justify-start')}>
+                    <div
+                      key={m.id}
+                      className={clsx(
+                        "flex",
+                        m.direction === "out" ? "justify-end" : "justify-start",
+                      )}
+                    >
                       <div
                         className={clsx(
-                          'max-w-md space-y-2 rounded-2xl px-4 py-2.5 text-sm',
-                          m.direction === 'out' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-800 shadow-sm',
-                          m.attachments.length > 0 && !m.text && 'p-1.5'
+                          "max-w-md space-y-2 rounded-lg px-4 py-2.5 text-sm",
+                          m.direction === "out"
+                            ? "bg-indigo-600 text-white"
+                            : "bg-white text-slate-800 shadow-sm",
+                          m.attachments.length > 0 && !m.text && "p-1.5",
                         )}
                       >
                         {m.attachments.map((url) => (
-                          <a key={url} href={url} target="_blank" rel="noreferrer" className="block">
-                            <img src={url} alt="" className="max-h-64 rounded-xl object-cover" />
+                          <a
+                            key={url}
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="block"
+                          >
+                            <img
+                              src={url}
+                              alt=""
+                              className="max-h-64 rounded-lg object-cover"
+                            />
                           </a>
                         ))}
                         {m.text && <p>{m.text}</p>}
@@ -218,13 +287,17 @@ export function CustomerServicePage() {
                     title="Send an image"
                     className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {uploadingImage ? <Loader2 size={16} className="animate-spin" /> : <ImageIcon size={16} />}
+                    {uploadingImage ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <ImageIcon size={16} />
+                    )}
                   </button>
                   <textarea
                     value={draft}
                     onChange={(e) => setDraft(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
+                      if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
                         void handleSend();
                       }
@@ -238,7 +311,11 @@ export function CustomerServicePage() {
                     disabled={sending || !draft.trim()}
                     className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                    {sending ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <Send size={16} />
+                    )}
                   </button>
                 </div>
               </div>

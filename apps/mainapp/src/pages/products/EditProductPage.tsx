@@ -1,16 +1,33 @@
-import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Loader2, ShoppingBag, Store as StoreIcon } from 'lucide-react';
-import type { ProductPushResultDTO } from '@zetsales/shared';
-import { getProduct, updateProduct, type ProductStoreRef } from '../../lib/commerceApi';
-import { ProductFormFields, EMPTY_PRODUCT_FORM, type ProductFormState } from '../../components/products/ProductFormFields';
-import { ProductPushSummary } from '../../components/products/ProductPushSummary';
-import { ProductPushProgress, pushProgressLabel, type PushProgressItem } from '../../components/products/ProductPushProgress';
-import { useToast } from '../../components/ui/ToastProvider';
+import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import {
+  ArrowLeft,
+  Loader2,
+  ShoppingBag,
+  Store as StoreIcon,
+} from "lucide-react";
+import type { ProductPushResultDTO } from "@zetsales/shared";
+import {
+  getProduct,
+  updateProduct,
+  type ProductStoreRef,
+} from "../../lib/commerceApi";
+import {
+  ProductFormFields,
+  EMPTY_PRODUCT_FORM,
+  type ProductFormState,
+} from "../../components/products/ProductFormFields";
+import { ProductPushSummary } from "../../components/products/ProductPushSummary";
+import {
+  ProductPushProgress,
+  pushProgressLabel,
+  type PushProgressItem,
+} from "../../components/products/ProductPushProgress";
+import { useToast } from "../../components/ui/ToastProvider";
 
 const PLATFORM_META = {
-  shopify: { label: 'Shopify', color: 'bg-[#95BF47]', icon: ShoppingBag },
-  woocommerce: { label: 'WooCommerce', color: 'bg-[#7f54b3]', icon: StoreIcon },
+  shopify: { label: "Shopify", color: "bg-[#95BF47]", icon: ShoppingBag },
+  woocommerce: { label: "WooCommerce", color: "bg-[#7f54b3]", icon: StoreIcon },
 } as const;
 
 export function EditProductPage() {
@@ -20,7 +37,8 @@ export function EditProductPage() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [form, setForm] = useState<ProductFormState>(EMPTY_PRODUCT_FORM);
-  const [initialForm, setInitialForm] = useState<ProductFormState>(EMPTY_PRODUCT_FORM);
+  const [initialForm, setInitialForm] =
+    useState<ProductFormState>(EMPTY_PRODUCT_FORM);
   const [ownStore, setOwnStore] = useState<ProductStoreRef | null>(null);
   const [siblings, setSiblings] = useState<ProductStoreRef[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -35,23 +53,24 @@ export function EditProductPage() {
         const p = res.product;
         const loaded: ProductFormState = {
           title: p.title,
-          description: p.description ?? '',
-          category: p.category ?? '',
+          description: p.description ?? "",
+          category: p.category ?? "",
           images: p.images,
-          weight: p.weight != null ? String(p.weight) : '',
+          weight: p.weight != null ? String(p.weight) : "",
           weightUnit: p.weightUnit,
           sourceUrl: p.sourceUrl ?? undefined,
           sourcePlatform: p.sourcePlatform ?? undefined,
           options: p.options,
           variants: p.variants.map((v) => ({
-            sku: v.sku ?? '',
+            sku: v.sku ?? "",
             price: String(v.price),
-            compareAtPrice: v.compareAtPrice != null ? String(v.compareAtPrice) : '',
+            compareAtPrice:
+              v.compareAtPrice != null ? String(v.compareAtPrice) : "",
             optionValues: v.optionValues,
             continueSellingWhenOutOfStock: v.continueSellingWhenOutOfStock,
             title: v.title,
             imageUrl: v.image ?? null,
-            initialQuantity: '',
+            initialQuantity: "",
           })),
         };
         setForm(loaded);
@@ -67,13 +86,24 @@ export function EditProductPage() {
   }, [id]);
 
   const isDirty = JSON.stringify(form) !== JSON.stringify(initialForm);
-  const canSubmit = isDirty && form.title.trim().length > 0 && form.variants.every((v) => v.price.trim().length > 0) && !submitting;
+  const canSubmit =
+    isDirty &&
+    form.title.trim().length > 0 &&
+    form.variants.every((v) => v.price.trim().length > 0) &&
+    !submitting;
   const affectedStores = ownStore ? [ownStore, ...siblings] : siblings;
 
   const handleSubmit = async () => {
     if (!id || !canSubmit) return;
     setSubmitting(true);
-    setPushItems(affectedStores.map((s) => ({ storeId: s.storeId, displayName: s.displayName, platform: s.platform, status: 'pending' })));
+    setPushItems(
+      affectedStores.map((s) => ({
+        storeId: s.storeId,
+        displayName: s.displayName,
+        platform: s.platform,
+        status: "pending",
+      })),
+    );
     try {
       const res = await updateProduct(
         id,
@@ -90,58 +120,88 @@ export function EditProductPage() {
           variants: form.variants.map((v) => ({
             sku: v.sku.trim() || undefined,
             price: Number(v.price) || 0,
-            compareAtPrice: v.compareAtPrice.trim() ? Number(v.compareAtPrice) : undefined,
+            compareAtPrice: v.compareAtPrice.trim()
+              ? Number(v.compareAtPrice)
+              : undefined,
             optionValues: v.optionValues,
             continueSellingWhenOutOfStock: v.continueSellingWhenOutOfStock,
             image: v.imageUrl,
           })),
         },
         (event) => {
-          if (event.type === 'store:start') {
-            setPushItems((prev) => prev?.map((item) => (item.storeId === event.storeId ? { ...item, status: 'pushing' } : item)) ?? prev);
-          } else if (event.type === 'store:done') {
+          if (event.type === "store:start") {
             setPushItems(
               (prev) =>
                 prev?.map((item) =>
-                  item.storeId === event.storeId ? { ...item, status: event.success ? 'done' : 'error', error: event.error } : item
-                ) ?? prev
+                  item.storeId === event.storeId
+                    ? { ...item, status: "pushing" }
+                    : item,
+                ) ?? prev,
+            );
+          } else if (event.type === "store:done") {
+            setPushItems(
+              (prev) =>
+                prev?.map((item) =>
+                  item.storeId === event.storeId
+                    ? {
+                        ...item,
+                        status: event.success ? "done" : "error",
+                        error: event.error,
+                      }
+                    : item,
+                ) ?? prev,
             );
           }
-        }
+        },
       );
       setResults(res.results);
       const successCount = res.results.filter((r) => r.success).length;
-      if (successCount > 0) toast.push(`Updated "${form.title.trim()}" on ${successCount} store${successCount === 1 ? '' : 's'}.`);
+      if (successCount > 0)
+        toast.push(
+          `Updated "${form.title.trim()}" on ${successCount} store${successCount === 1 ? "" : "s"}.`,
+        );
     } catch (err) {
       setPushItems(null);
-      toast.push(err instanceof Error ? err.message : 'Could not update this product.', 'info');
+      toast.push(
+        err instanceof Error ? err.message : "Could not update this product.",
+        "info",
+      );
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto">
-      <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-8 py-5">
-        <button onClick={() => navigate('/products')} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+    <div className="zs-page-scroll">
+      <div className="zs-page-header flex items-center gap-3">
+        <button
+          onClick={() => navigate("/products")}
+          className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+        >
           <ArrowLeft size={18} />
         </button>
         <div>
-          <h1 className="text-xl font-bold text-slate-900">Edit product</h1>
-          <p className="mt-0.5 text-sm text-slate-500">Changes push straight to the connected store(s).</p>
+          <h1 className="zs-page-title">Edit product</h1>
+          <p className="zs-page-description">
+            Changes push straight to the connected store(s).
+          </p>
         </div>
       </div>
 
-      <div className="mx-auto w-full max-w-3xl px-8 py-6">
+      <div className="zs-page-body mx-auto w-full max-w-3xl">
         {loading ? (
-          <div className="py-16 text-center text-sm text-slate-400">Loading...</div>
+          <div className="zs-loading-state h-40">Loading...</div>
         ) : notFound ? (
-          <div className="py-16 text-center text-sm text-slate-400">Product not found.</div>
+          <div className="zs-empty-state h-40">Product not found.</div>
         ) : results ? (
           <div className="space-y-5">
-            <ProductPushSummary title={form.title.trim()} image={form.images[0] ?? null} results={results} />
+            <ProductPushSummary
+              title={form.title.trim()}
+              image={form.images[0] ?? null}
+              results={results}
+            />
             <button
-              onClick={() => navigate('/products')}
+              onClick={() => navigate("/products")}
               className="w-full rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
             >
               View products
@@ -153,22 +213,33 @@ export function EditProductPage() {
 
             {pushItems ? (
               <div>
-                <label className="mb-1.5 block text-xs font-semibold text-slate-600">Pushing to</label>
+                <label className="mb-1.5 block text-xs font-semibold text-slate-600">
+                  Pushing to
+                </label>
                 <ProductPushProgress items={pushItems} />
               </div>
             ) : (
               siblings.length > 0 && (
                 <div>
-                  <label className="mb-1.5 block text-xs font-semibold text-slate-600">This will update</label>
+                  <label className="mb-1.5 block text-xs font-semibold text-slate-600">
+                    This will update
+                  </label>
                   <div className="space-y-2">
                     {affectedStores.map((s) => {
                       const meta = PLATFORM_META[s.platform];
                       return (
-                        <div key={s.storeId} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3.5 py-2.5">
-                          <span className={`flex h-7 w-7 items-center justify-center rounded-lg text-white ${meta.color}`}>
+                        <div
+                          key={s.storeId}
+                          className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3.5 py-2.5"
+                        >
+                          <span
+                            className={`flex h-7 w-7 items-center justify-center rounded-lg text-white ${meta.color}`}
+                          >
                             <meta.icon size={14} />
                           </span>
-                          <span className="text-sm font-medium text-slate-800">{s.displayName}</span>
+                          <span className="text-sm font-medium text-slate-800">
+                            {s.displayName}
+                          </span>
                         </div>
                       );
                     })}
@@ -183,7 +254,9 @@ export function EditProductPage() {
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {submitting && <Loader2 size={15} className="animate-spin" />}
-              {submitting ? pushProgressLabel(pushItems, 'Saving...') : 'Save changes'}
+              {submitting
+                ? pushProgressLabel(pushItems, "Saving...")
+                : "Save changes"}
             </button>
           </div>
         )}

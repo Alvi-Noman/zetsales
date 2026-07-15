@@ -1,65 +1,65 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
-import { AppShell } from './layouts/AppShell';
-import { OrdersPage } from './pages/orders/OrdersPage';
-import { DispatchPage } from './pages/dispatch/DispatchPage';
-import { PlaceholderPage } from './pages/PlaceholderPage';
-import { ToastProvider } from './components/ui/ToastProvider';
-import { AuthProvider, useAuth } from './context/AuthContext';
-import { LoginPage } from './pages/auth/LoginPage';
-import { SignupPage } from './pages/auth/SignupPage';
-import { OnboardingPage } from './pages/onboarding/OnboardingPage';
-import { IntegrationsPage } from './pages/integrations/IntegrationsPage';
-import { CustomerServicePage } from './pages/customerService/CustomerServicePage';
-import { ProductsPage } from './pages/products/ProductsPage';
-import { AddProductPage } from './pages/products/AddProductPage';
-import { EditProductPage } from './pages/products/EditProductPage';
-import { InventoryPage } from './pages/inventory/InventoryPage';
-import { WarehousesPage } from './pages/warehouses/WarehousesPage';
-import { PreOrderListPage } from './pages/preOrders/PreOrderListPage';
-import { ReturnsPage } from './pages/returns/ReturnsPage';
-import { PrintOutPage } from './pages/printOut/PrintOutPage';
-import { InvoiceTemplatesPage } from './pages/printOut/InvoiceTemplatesPage';
-import { HomePage } from './pages/home/HomePage';
-import { AccountingPage } from './pages/accounting/AccountingPage';
-import { SuppliersPage } from './pages/supplyChain/SuppliersPage';
-import { SupplierDetailPage } from './pages/supplyChain/SupplierDetailPage';
-import { DeliveryPartnersPage } from './pages/supplyChain/DeliveryPartnersPage';
-import { CustomersPage } from './pages/customers/CustomersPage';
-import { CustomerDetailPage } from './pages/customers/CustomerDetailPage';
-import { TeamPage } from './pages/team/TeamPage';
-import { AcceptInvitePage } from './pages/auth/AcceptInvitePage';
-import { AnalyticsEntryPage } from './pages/analytics/AnalyticsEntryPage';
-import { AnalyticsDetailPage } from './pages/analytics/AnalyticsDetailPage';
-import { AdPerformancePage } from './pages/adPerformance/AdPerformancePage';
-import { CallCenterPage } from './pages/callCenter/CallCenterPage';
-import { AppHostPage } from './pages/apps/AppHostPage';
-import { AppsPage } from './pages/settings/AppsPage';
-import { AppDetailPage } from './pages/settings/AppDetailPage';
-import { ZetSalesAdsPage } from './pages/zetsalesAds/ZetSalesAdsPage';
-import { NAV_ITEMS, NAV_FOOTER_ITEMS } from './nav/navigation';
+import { Routes, Route, Navigate } from "react-router-dom";
+import { AppShell } from "./layouts/AppShell";
+import { OrdersPage } from "./pages/orders/OrdersPage";
+import { DispatchPage } from "./pages/dispatch/DispatchPage";
+import { PlaceholderPage } from "./pages/PlaceholderPage";
+import { ToastProvider } from "./components/ui/ToastProvider";
+import { AuthProvider, useAuth } from "./context/AuthContext";
+import { LoginPage } from "./pages/auth/LoginPage";
+import { SignupPage } from "./pages/auth/SignupPage";
+import { OnboardingPage } from "./pages/onboarding/OnboardingPage";
+import IntegrationsPage from "./pages/integrations/IntegrationsPage";
+import { CustomerServicePage } from "./pages/customerService/CustomerServicePage";
+import { ProductsPage } from "./pages/products/ProductsPage";
+import { AddProductPage } from "./pages/products/AddProductPage";
+import { EditProductPage } from "./pages/products/EditProductPage";
+import { InventoryPage } from "./pages/inventory/InventoryPage";
+import { WarehousesPage } from "./pages/warehouses/WarehousesPage";
+import { PreOrderListPage } from "./pages/preOrders/PreOrderListPage";
+import { ReturnsPage } from "./pages/returns/ReturnsPage";
+import { PrintOutPage } from "./pages/printOut/PrintOutPage";
+import { InvoiceTemplatesPage } from "./pages/printOut/InvoiceTemplatesPage";
+import { HomePage } from "./pages/home/HomePage";
+import { AccountingPage } from "./pages/accounting/AccountingPage";
+import { SuppliersPage } from "./pages/supplyChain/SuppliersPage";
+import { SupplierDetailPage } from "./pages/supplyChain/SupplierDetailPage";
+import { DeliveryPartnersPage } from "./pages/supplyChain/DeliveryPartnersPage";
+import { CustomersPage } from "./pages/customers/CustomersPage";
+import { CustomerDetailPage } from "./pages/customers/CustomerDetailPage";
+import { TeamPage } from "./pages/team/TeamPage";
+import { AcceptInvitePage } from "./pages/auth/AcceptInvitePage";
+import { AnalyticsEntryPage } from "./pages/analytics/AnalyticsEntryPage";
+import { AnalyticsDetailPage } from "./pages/analytics/AnalyticsDetailPage";
+import { AdPerformancePage } from "./pages/adPerformance/AdPerformancePage";
+import { CallCenterPage } from "./pages/callCenter/CallCenterPage";
+import { AppHostPage } from "./pages/apps/AppHostPage";
+import { AppsPage } from "./pages/settings/AppsPage";
+import { AppDetailPage } from "./pages/settings/AppDetailPage";
+import { ZetSalesAdsPage } from "./pages/zetsalesAds/ZetSalesAdsPage";
+import { NAV_ITEMS, NAV_FOOTER_ITEMS } from "./nav/navigation";
 
 const routeEntries = new Map<string, string>();
 [...NAV_ITEMS, ...NAV_FOOTER_ITEMS].forEach((item) => {
   routeEntries.set(item.path, item.label);
   item.children?.forEach((child) => routeEntries.set(child.path, child.label));
 });
-routeEntries.delete('/home');
-routeEntries.delete('/orders');
-routeEntries.delete('/dispatch');
-routeEntries.delete('/integrations');
-routeEntries.delete('/products');
-routeEntries.delete('/inventory');
-routeEntries.delete('/messages');
-routeEntries.delete('/team');
-routeEntries.delete('/accounting');
-routeEntries.delete('/suppliers');
-routeEntries.delete('/customers');
-routeEntries.delete('/analytics');
-routeEntries.delete('/ad-performance');
-routeEntries.delete('/call-center');
-routeEntries.delete('/delivery-partners');
-routeEntries.delete('/settings/apps');
-routeEntries.delete('/zetsales-ads');
+routeEntries.delete("/home");
+routeEntries.delete("/orders");
+routeEntries.delete("/dispatch");
+routeEntries.delete("/integrations");
+routeEntries.delete("/products");
+routeEntries.delete("/inventory");
+routeEntries.delete("/messages");
+routeEntries.delete("/team");
+routeEntries.delete("/accounting");
+routeEntries.delete("/suppliers");
+routeEntries.delete("/customers");
+routeEntries.delete("/analytics");
+routeEntries.delete("/ad-performance");
+routeEntries.delete("/call-center");
+routeEntries.delete("/delivery-partners");
+routeEntries.delete("/settings/apps");
+routeEntries.delete("/zetsales-ads");
 
 function FullScreenLoader() {
   return (
@@ -105,7 +105,10 @@ function AppRoutes() {
         <Route path="/dispatch" element={<DispatchPage />} />
         <Route path="/integrations" element={<IntegrationsPage />} />
         <Route path="/messages" element={<CustomerServicePage />} />
-        <Route path="/customer-service" element={<Navigate to="/messages" replace />} />
+        <Route
+          path="/customer-service"
+          element={<Navigate to="/messages" replace />}
+        />
         <Route path="/team" element={<TeamPage />} />
         <Route path="/products" element={<ProductsPage />} />
         <Route path="/products/new" element={<AddProductPage />} />
@@ -131,7 +134,11 @@ function AppRoutes() {
         <Route path="/settings/apps/:appKey" element={<AppDetailPage />} />
         <Route path="/apps/:appKey" element={<AppHostPage />} />
         {[...routeEntries.entries()].map(([path, label]) => (
-          <Route key={path} path={path} element={<PlaceholderPage title={label} />} />
+          <Route
+            key={path}
+            path={path}
+            element={<PlaceholderPage title={label} />}
+          />
         ))}
         <Route path="*" element={<Navigate to="/home" replace />} />
       </Route>

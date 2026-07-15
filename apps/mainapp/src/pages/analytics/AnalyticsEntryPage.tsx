@@ -1,17 +1,40 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { SlidersHorizontal, TrendingDown, TrendingUp } from 'lucide-react';
-import clsx from 'clsx';
-import type { AnalyticsCardKey, AnalyticsCategory, AnalyticsLayoutDTO, AnalyticsSummaryDTO, StoreDTO } from '@zetsales/shared';
-import { listStores } from '../../lib/commerceApi';
-import { getAnalyticsLayout, getAnalyticsSummary } from '../../lib/analyticsApi';
-import { AnalyticsFilterBar } from '../../components/analytics/AnalyticsFilterBar';
-import { CustomizeDrawer } from '../../components/analytics/CustomizeDrawer';
-import { ANALYTICS_CARD_MAP, ANALYTICS_CARDS, ANALYTICS_CATEGORY_ORDER } from '../../analytics/cardRegistry';
-import type { AnalyticsCardDefinition } from '../../analytics/types';
-import { toAnalyticsQuery } from '../../analytics/query';
-import { formatMoney, formatCount, formatPercentRounded } from '../../analytics/format';
-import type { CustomDateRange, DateRangeKey } from '../../components/orders/dateRange';
-import type { ComparisonMode, CustomComparisonRange } from '../../components/analytics/comparisonMode';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { SlidersHorizontal, TrendingDown, TrendingUp } from "lucide-react";
+import clsx from "clsx";
+import type {
+  AnalyticsCardKey,
+  AnalyticsCategory,
+  AnalyticsLayoutDTO,
+  AnalyticsSummaryDTO,
+  StoreDTO,
+} from "@zetsales/shared";
+import { listStores } from "../../lib/commerceApi";
+import {
+  getAnalyticsLayout,
+  getAnalyticsSummary,
+} from "../../lib/analyticsApi";
+import { AnalyticsFilterBar } from "../../components/analytics/AnalyticsFilterBar";
+import { CustomizeDrawer } from "../../components/analytics/CustomizeDrawer";
+import {
+  ANALYTICS_CARD_MAP,
+  ANALYTICS_CARDS,
+  ANALYTICS_CATEGORY_ORDER,
+} from "../../analytics/cardRegistry";
+import type { AnalyticsCardDefinition } from "../../analytics/types";
+import { toAnalyticsQuery } from "../../analytics/query";
+import {
+  formatMoney,
+  formatCount,
+  formatPercentRounded,
+} from "../../analytics/format";
+import type {
+  CustomDateRange,
+  DateRangeKey,
+} from "../../components/orders/dateRange";
+import type {
+  ComparisonMode,
+  CustomComparisonRange,
+} from "../../components/analytics/comparisonMode";
 
 // Module-level, not state: this page fully unmounts when you click into a card's detail view
 // (a separate route) and remounts on the way back, so any scroll position saved in component state
@@ -21,32 +44,77 @@ let savedScrollTop = 0;
 
 function summaryTiles(summary: AnalyticsSummaryDTO | null) {
   return [
-    { label: 'Total sales', value: summary ? formatMoney(summary.totalSales.value) : null, trend: summary?.totalSales.trend },
-    { label: 'Total orders', value: summary ? formatCount(summary.totalOrders.value) : null, trend: summary?.totalOrders.trend },
-    { label: 'Avg order value', value: summary ? formatMoney(summary.aov.value) : null, trend: summary?.aov.trend },
-    { label: 'Confirmation rate', value: summary ? formatPercentRounded(summary.confirmationRate.value) : null, trend: summary?.confirmationRate.trend },
-    { label: 'Delivered rate', value: summary ? formatPercentRounded(summary.deliveredRate.value) : null, trend: summary?.deliveredRate.trend },
-    { label: 'RTO rate', value: summary ? formatPercentRounded(summary.rtoRate.value) : null, trend: summary?.rtoRate.trend, invert: true },
-    { label: 'COD outstanding', value: summary ? formatMoney(summary.codOutstanding.value) : null, trend: null },
-    { label: 'Gross profit margin', value: summary ? formatPercentRounded(summary.grossProfitMargin.value) : null, trend: summary?.grossProfitMargin.trend },
+    {
+      label: "Total sales",
+      value: summary ? formatMoney(summary.totalSales.value) : null,
+      trend: summary?.totalSales.trend,
+    },
+    {
+      label: "Total orders",
+      value: summary ? formatCount(summary.totalOrders.value) : null,
+      trend: summary?.totalOrders.trend,
+    },
+    {
+      label: "Avg order value",
+      value: summary ? formatMoney(summary.aov.value) : null,
+      trend: summary?.aov.trend,
+    },
+    {
+      label: "Confirmation rate",
+      value: summary
+        ? formatPercentRounded(summary.confirmationRate.value)
+        : null,
+      trend: summary?.confirmationRate.trend,
+    },
+    {
+      label: "Delivered rate",
+      value: summary ? formatPercentRounded(summary.deliveredRate.value) : null,
+      trend: summary?.deliveredRate.trend,
+    },
+    {
+      label: "RTO rate",
+      value: summary ? formatPercentRounded(summary.rtoRate.value) : null,
+      trend: summary?.rtoRate.trend,
+      invert: true,
+    },
+    {
+      label: "COD outstanding",
+      value: summary ? formatMoney(summary.codOutstanding.value) : null,
+      trend: null,
+    },
+    {
+      label: "Gross profit margin",
+      value: summary
+        ? formatPercentRounded(summary.grossProfitMargin.value)
+        : null,
+      trend: summary?.grossProfitMargin.trend,
+    },
   ];
 }
 
 export function AnalyticsEntryPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [dateRange, setDateRange] = useState<DateRangeKey>('last30');
+  const [dateRange, setDateRange] = useState<DateRangeKey>("last30");
   const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
-  const [storeId, setStoreId] = useState('all');
-  const [comparisonMode, setComparisonMode] = useState<ComparisonMode>('none');
-  const [comparisonRange, setComparisonRange] = useState<CustomComparisonRange | null>(null);
+  const [storeId, setStoreId] = useState("all");
+  const [comparisonMode, setComparisonMode] = useState<ComparisonMode>("none");
+  const [comparisonRange, setComparisonRange] =
+    useState<CustomComparisonRange | null>(null);
   const [stores, setStores] = useState<StoreDTO[]>([]);
   const [summary, setSummary] = useState<AnalyticsSummaryDTO | null>(null);
   const [layout, setLayout] = useState<AnalyticsLayoutDTO | null>(null);
   const [customizeOpen, setCustomizeOpen] = useState(false);
 
   const query = useMemo(
-    () => toAnalyticsQuery(dateRange, customRange, storeId, comparisonMode, comparisonRange),
-    [dateRange, customRange, storeId, comparisonMode, comparisonRange]
+    () =>
+      toAnalyticsQuery(
+        dateRange,
+        customRange,
+        storeId,
+        comparisonMode,
+        comparisonRange,
+      ),
+    [dateRange, customRange, storeId, comparisonMode, comparisonRange],
   );
 
   useEffect(() => {
@@ -57,14 +125,28 @@ export function AnalyticsEntryPage() {
   useEffect(() => {
     setSummary(null);
     void getAnalyticsSummary(query).then(setSummary);
-  }, [query.range, query.from, query.to, query.storeId, query.comparisonMode, query.comparisonFrom, query.comparisonTo]);
+  }, [
+    query.range,
+    query.from,
+    query.to,
+    query.storeId,
+    query.comparisonMode,
+    query.comparisonFrom,
+    query.comparisonTo,
+  ]);
 
   const orderedVisibleCards = useMemo(() => {
     if (!layout) return ANALYTICS_CARDS;
     const savedKeys = new Set(layout.cards.map((c) => c.key));
-    const fromLayout = layout.cards.map((c) => ({ ...c, def: ANALYTICS_CARD_MAP[c.key] })).filter((c) => c.def);
-    const notYetSaved = ANALYTICS_CARDS.filter((c) => !savedKeys.has(c.key as AnalyticsCardKey)).map((def) => ({ key: def.key as AnalyticsCardKey, hidden: false, def }));
-    return [...fromLayout, ...notYetSaved].filter((c) => !c.hidden).map((c) => c.def!);
+    const fromLayout = layout.cards
+      .map((c) => ({ ...c, def: ANALYTICS_CARD_MAP[c.key] }))
+      .filter((c) => c.def);
+    const notYetSaved = ANALYTICS_CARDS.filter(
+      (c) => !savedKeys.has(c.key as AnalyticsCardKey),
+    ).map((def) => ({ key: def.key as AnalyticsCardKey, hidden: false, def }));
+    return [...fromLayout, ...notYetSaved]
+      .filter((c) => !c.hidden)
+      .map((c) => c.def!);
   }, [layout]);
 
   // Grouped into a labeled section per category (Sales, Orders, Delivery, Customers, Finance,
@@ -78,7 +160,10 @@ export function AnalyticsEntryPage() {
       list.push(def);
       groups.set(def.category, list);
     }
-    return ANALYTICS_CATEGORY_ORDER.map((category) => ({ category, cards: groups.get(category) ?? [] })).filter((g) => g.cards.length > 0);
+    return ANALYTICS_CATEGORY_ORDER.map((category) => ({
+      category,
+      cards: groups.get(category) ?? [],
+    })).filter((g) => g.cards.length > 0);
   }, [orderedVisibleCards]);
 
   // Restore before paint (not useEffect) so there's no visible flash of the top of the page before
@@ -95,13 +180,16 @@ export function AnalyticsEntryPage() {
       onScroll={(e) => {
         savedScrollTop = e.currentTarget.scrollTop;
       }}
-      className="flex h-full flex-col overflow-y-auto bg-slate-50"
+      className="zs-page-scroll"
     >
-      <div className="border-b border-slate-200 bg-white px-8 py-5">
+      <div className="zs-page-header">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl font-bold text-slate-900">Analytics</h1>
-            <p className="mt-1 text-sm text-slate-500">Real performance across every connected store, right down to why an order didn't convert.</p>
+            <h1 className="zs-page-title">Analytics</h1>
+            <p className="zs-page-description">
+              Real performance across every connected store, right down to why
+              an order didn't convert.
+            </p>
           </div>
           <button
             onClick={() => setCustomizeOpen(true)}
@@ -127,21 +215,31 @@ export function AnalyticsEntryPage() {
         </div>
       </div>
 
-      <div className="flex-1 space-y-6 px-8 py-6">
+      <div className="zs-page-body space-y-6">
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {summaryTiles(summary).map((tile) => (
-            <div key={tile.label} className="rounded-xl border border-slate-200 bg-white p-4">
-              <p className="text-[10.5px] font-semibold uppercase tracking-wider text-slate-400">{tile.label}</p>
+            <div key={tile.label} className="zs-surface p-4">
+              <p className="text-[10.5px] font-semibold uppercase tracking-wider text-slate-400">
+                {tile.label}
+              </p>
               <div className="mt-1.5 flex items-baseline gap-2">
-                <span className="text-lg font-bold tabular-nums text-slate-900">{tile.value ?? '—'}</span>
+                <span className="text-lg font-bold tabular-nums text-slate-900">
+                  {tile.value ?? "—"}
+                </span>
                 {tile.trend != null && (
                   <span
                     className={clsx(
-                      'flex items-center gap-0.5 text-[11px] font-semibold tabular-nums',
-                      (tile.invert ? tile.trend <= 0 : tile.trend >= 0) ? 'text-emerald-600' : 'text-rose-600'
+                      "flex items-center gap-0.5 text-[11px] font-semibold tabular-nums",
+                      (tile.invert ? tile.trend <= 0 : tile.trend >= 0)
+                        ? "text-emerald-600"
+                        : "text-rose-600",
                     )}
                   >
-                    {tile.trend >= 0 ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
+                    {tile.trend >= 0 ? (
+                      <TrendingUp size={11} />
+                    ) : (
+                      <TrendingDown size={11} />
+                    )}
                     {Math.abs(tile.trend)}%
                   </span>
                 )}
@@ -152,7 +250,9 @@ export function AnalyticsEntryPage() {
 
         {cardsByCategory.map(({ category, cards }) => (
           <section key={category}>
-            <h2 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">{category}</h2>
+            <h2 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+              {category}
+            </h2>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {cards.map((def) => (
                 <def.CardComponent key={def.key} query={query} />
@@ -162,9 +262,14 @@ export function AnalyticsEntryPage() {
         ))}
 
         {orderedVisibleCards.length === 0 && (
-          <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white py-16 text-center">
-            <p className="text-sm font-medium text-slate-600">Every card is hidden</p>
-            <button onClick={() => setCustomizeOpen(true)} className="mt-1 rounded-lg bg-slate-900 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-800">
+          <div className="zs-dashed-surface flex flex-col items-center justify-center gap-2 py-16 text-center">
+            <p className="text-sm font-medium text-slate-600">
+              Every card is hidden
+            </p>
+            <button
+              onClick={() => setCustomizeOpen(true)}
+              className="mt-1 rounded-lg bg-slate-900 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
+            >
               Add cards back
             </button>
           </div>

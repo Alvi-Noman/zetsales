@@ -1,7 +1,20 @@
-import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, ClipboardList, Package, Printer, RefreshCw, Search, Truck } from 'lucide-react';
-import clsx from 'clsx';
-import type { CourierAccountDTO, CourierHandoverDTO, CourierHandoverDetailDTO, EligibleHandoverOrderDTO } from '@zetsales/shared';
+import { useEffect, useMemo, useState } from "react";
+import {
+  CheckCircle2,
+  ClipboardList,
+  Package,
+  Printer,
+  RefreshCw,
+  Search,
+  Truck,
+} from "lucide-react";
+import clsx from "clsx";
+import type {
+  CourierAccountDTO,
+  CourierHandoverDTO,
+  CourierHandoverDetailDTO,
+  EligibleHandoverOrderDTO,
+} from "@zetsales/shared";
 import {
   confirmCourierHandover,
   createCourierHandover,
@@ -9,17 +22,17 @@ import {
   listCourierHandovers,
   listCouriers,
   listEligibleHandoverOrders,
-} from '../../lib/commerceApi';
-import { Modal } from '../../components/ui/Modal';
-import { useToast } from '../../components/ui/ToastProvider';
-import { Barcode } from '../../components/orders/Barcode';
+} from "../../lib/commerceApi";
+import { Modal } from "../../components/ui/Modal";
+import { useToast } from "../../components/ui/ToastProvider";
+import { Barcode } from "../../components/orders/Barcode";
 
 function money(value: number) {
   return `৳${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 }
 
 function providerLabel(courier: CourierAccountDTO) {
-  return courier.provider === 'steadfast' ? 'Steadfast' : 'Pathao';
+  return courier.provider === "steadfast" ? "Steadfast" : "Pathao";
 }
 
 function ManifestModal({
@@ -33,16 +46,16 @@ function ManifestModal({
 }) {
   const toast = useToast();
   const [detail, setDetail] = useState<CourierHandoverDetailDTO | null>(null);
-  const [note, setNote] = useState('');
+  const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!handoverId) return;
     setDetail(null);
-    setNote('');
+    setNote("");
     void getCourierHandover(handoverId)
       .then(({ handover }) => setDetail(handover))
-      .catch(() => toast.push('Could not load this pickup manifest.', 'info'));
+      .catch(() => toast.push("Could not load this pickup manifest.", "info"));
   }, [handoverId, toast]);
 
   if (!handoverId) return null;
@@ -50,60 +63,99 @@ function ManifestModal({
   const markReceived = async () => {
     setBusy(true);
     try {
-      const { handover } = await confirmCourierHandover(handoverId, note.trim() || undefined);
+      const { handover } = await confirmCourierHandover(
+        handoverId,
+        note.trim() || undefined,
+      );
       setDetail((prev) => (prev ? { ...prev, ...handover } : prev));
       onConfirmed(handover);
-      toast.push('Pickup manifest marked as accepted by courier.');
+      toast.push("Pickup manifest marked as accepted by courier.");
     } catch {
-      toast.push('Could not mark this manifest as accepted.', 'info');
+      toast.push("Could not mark this manifest as accepted.", "info");
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <Modal open onClose={onClose} title="Pickup manifest" subtitle={detail ? new Date(detail.handoverDate).toLocaleDateString() : undefined} widthClass="max-w-4xl">
+    <Modal
+      open
+      onClose={onClose}
+      title="Pickup manifest"
+      subtitle={
+        detail ? new Date(detail.handoverDate).toLocaleDateString() : undefined
+      }
+      widthClass="max-w-4xl"
+    >
       {!detail ? (
-              <p className="py-10 text-center text-sm text-slate-400">Loading manifest...</p>
+        <p className="py-10 text-center text-sm text-slate-400">
+          Loading manifest...
+        </p>
       ) : (
         <div className="space-y-5">
           <div className="print-area space-y-5">
-            <div className="flex flex-wrap items-center gap-4 rounded-xl bg-slate-50 p-4">
+            <div className="flex flex-wrap items-center gap-4 rounded-lg bg-slate-50 p-4">
               <div className="min-w-[12rem]">
-                <p className="text-[10.5px] font-semibold uppercase tracking-wide text-slate-400">Manifest</p>
-                <p className="text-sm font-bold text-slate-900">{detail.manifestNo}</p>
+                <p className="text-[10.5px] font-semibold uppercase tracking-wide text-slate-400">
+                  Manifest
+                </p>
+                <p className="text-sm font-bold text-slate-900">
+                  {detail.manifestNo}
+                </p>
                 <div className="mt-2 w-44">
                   <Barcode value={detail.manifestNo} height={30} />
                 </div>
               </div>
               <div>
-                <p className="text-[10.5px] font-semibold uppercase tracking-wide text-slate-400">Status</p>
+                <p className="text-[10.5px] font-semibold uppercase tracking-wide text-slate-400">
+                  Status
+                </p>
                 <span
                   className={clsx(
-                    'mt-0.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset',
-                    detail.status === 'Confirmed' ? 'bg-emerald-50 text-emerald-700 ring-emerald-600/20' : 'bg-amber-50 text-amber-700 ring-amber-600/20'
+                    "mt-0.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset",
+                    detail.status === "Confirmed"
+                      ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20"
+                      : "bg-amber-50 text-amber-700 ring-amber-600/20",
                   )}
                 >
-                  {detail.status === 'Confirmed' && <CheckCircle2 size={11} />}
-                  {detail.status === 'Confirmed' ? 'Accepted by courier' : 'Waiting for courier'}
+                  {detail.status === "Confirmed" && <CheckCircle2 size={11} />}
+                  {detail.status === "Confirmed"
+                    ? "Accepted by courier"
+                    : "Waiting for courier"}
                 </span>
               </div>
               <div>
-                <p className="text-[10.5px] font-semibold uppercase tracking-wide text-slate-400">Parcels</p>
-                <p className="text-sm font-bold text-slate-800">{detail.parcelCount}</p>
+                <p className="text-[10.5px] font-semibold uppercase tracking-wide text-slate-400">
+                  Parcels
+                </p>
+                <p className="text-sm font-bold text-slate-800">
+                  {detail.parcelCount}
+                </p>
               </div>
               <div>
-                <p className="text-[10.5px] font-semibold uppercase tracking-wide text-slate-400">Items</p>
-                <p className="text-sm font-bold text-slate-800">{detail.itemCount}</p>
+                <p className="text-[10.5px] font-semibold uppercase tracking-wide text-slate-400">
+                  Items
+                </p>
+                <p className="text-sm font-bold text-slate-800">
+                  {detail.itemCount}
+                </p>
               </div>
               <div>
-                <p className="text-[10.5px] font-semibold uppercase tracking-wide text-slate-400">COD total</p>
-                <p className="text-sm font-bold text-slate-800">{money(detail.totalCodAmount)}</p>
+                <p className="text-[10.5px] font-semibold uppercase tracking-wide text-slate-400">
+                  COD total
+                </p>
+                <p className="text-sm font-bold text-slate-800">
+                  {money(detail.totalCodAmount)}
+                </p>
               </div>
               {detail.note && (
                 <div className="min-w-0 flex-1">
-                  <p className="text-[10.5px] font-semibold uppercase tracking-wide text-slate-400">Note</p>
-                  <p className="truncate text-sm text-slate-600">{detail.note}</p>
+                  <p className="text-[10.5px] font-semibold uppercase tracking-wide text-slate-400">
+                    Note
+                  </p>
+                  <p className="truncate text-sm text-slate-600">
+                    {detail.note}
+                  </p>
                 </div>
               )}
             </div>
@@ -119,17 +171,31 @@ function ManifestModal({
                     <th className="px-3 py-2 text-right">COD</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="zs-table-body">
                   {detail.orders.map((order) => (
                     <tr key={order.orderId}>
                       <td className="px-3 py-2">
-                        <p className="font-semibold text-slate-800">{order.invoiceNo ?? order.orderNumber}</p>
-                        {order.invoiceNo && <p className="text-[10px] text-slate-400">{order.orderNumber}</p>}
+                        <p className="font-semibold text-slate-800">
+                          {order.invoiceNo ?? order.orderNumber}
+                        </p>
+                        {order.invoiceNo && (
+                          <p className="text-[10px] text-slate-400">
+                            {order.orderNumber}
+                          </p>
+                        )}
                       </td>
-                      <td className="px-3 py-2 text-slate-500">{order.customerName ?? '-'}</td>
-                      <td className="px-3 py-2 font-mono text-slate-500">{order.consignmentId ?? '-'}</td>
-                      <td className="px-3 py-2 text-right text-slate-600">{order.itemCount}</td>
-                      <td className="px-3 py-2 text-right font-semibold text-slate-800">{money(order.total)}</td>
+                      <td className="px-3 py-2 text-slate-500">
+                        {order.customerName ?? "-"}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-slate-500">
+                        {order.consignmentId ?? "-"}
+                      </td>
+                      <td className="px-3 py-2 text-right text-slate-600">
+                        {order.itemCount}
+                      </td>
+                      <td className="px-3 py-2 text-right font-semibold text-slate-800">
+                        {money(order.total)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -144,7 +210,7 @@ function ManifestModal({
             >
               <Printer size={13} /> Print manifest
             </button>
-            {detail.status !== 'Confirmed' && (
+            {detail.status !== "Confirmed" && (
               <>
                 <input
                   value={note}
@@ -168,30 +234,42 @@ function ManifestModal({
   );
 }
 
-export function CourierHandoverPanel({ onChanged }: { onChanged?: () => void } = {}) {
+export function CourierHandoverPanel({
+  onChanged,
+}: { onChanged?: () => void } = {}) {
   const toast = useToast();
   const [couriers, setCouriers] = useState<CourierAccountDTO[]>([]);
-  const [courierId, setCourierId] = useState('');
+  const [courierId, setCourierId] = useState("");
   const [eligible, setEligible] = useState<EligibleHandoverOrderDTO[]>([]);
   const [handovers, setHandovers] = useState<CourierHandoverDTO[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [scanInput, setScanInput] = useState('');
-  const [note, setNote] = useState('');
+  const [scanInput, setScanInput] = useState("");
+  const [note, setNote] = useState("");
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [activeHandoverId, setActiveHandoverId] = useState<string | null>(null);
 
-  const activeCourier = couriers.find((courier) => courier.id === courierId) ?? null;
-  const selectedOrders = eligible.filter((order) => selected.has(order.orderId));
-  const selectedItems = selectedOrders.reduce((sum, order) => sum + order.itemCount, 0);
-  const selectedCod = selectedOrders.reduce((sum, order) => sum + order.total, 0);
+  const activeCourier =
+    couriers.find((courier) => courier.id === courierId) ?? null;
+  const selectedOrders = eligible.filter((order) =>
+    selected.has(order.orderId),
+  );
+  const selectedItems = selectedOrders.reduce(
+    (sum, order) => sum + order.itemCount,
+    0,
+  );
+  const selectedCod = selectedOrders.reduce(
+    (sum, order) => sum + order.total,
+    0,
+  );
 
   const lookup = useMemo(() => {
     const map = new Map<string, EligibleHandoverOrderDTO>();
     for (const order of eligible) {
       map.set(order.orderNumber.toLowerCase(), order);
       if (order.invoiceNo) map.set(order.invoiceNo.toLowerCase(), order);
-      if (order.consignmentId) map.set(order.consignmentId.toLowerCase(), order);
+      if (order.consignmentId)
+        map.set(order.consignmentId.toLowerCase(), order);
     }
     return map;
   }, [eligible]);
@@ -201,9 +279,9 @@ export function CourierHandoverPanel({ onChanged }: { onChanged?: () => void } =
     try {
       const { couriers: list } = await listCouriers();
       setCouriers(list);
-      setCourierId((current) => current || list[0]?.id || '');
+      setCourierId((current) => current || list[0]?.id || "");
     } catch {
-      toast.push('Could not load couriers.', 'info');
+      toast.push("Could not load couriers.", "info");
     } finally {
       setLoading(false);
     }
@@ -217,12 +295,15 @@ export function CourierHandoverPanel({ onChanged }: { onChanged?: () => void } =
     }
     setLoading(true);
     try {
-      const [eligibleRes, handoversRes] = await Promise.all([listEligibleHandoverOrders(id), listCourierHandovers(id)]);
+      const [eligibleRes, handoversRes] = await Promise.all([
+        listEligibleHandoverOrders(id),
+        listCourierHandovers(id),
+      ]);
       setEligible(eligibleRes.orders);
       setHandovers(handoversRes.handovers);
       setSelected(new Set());
     } catch {
-      toast.push('Could not load pickup work.', 'info');
+      toast.push("Could not load pickup work.", "info");
     } finally {
       setLoading(false);
     }
@@ -248,15 +329,18 @@ export function CourierHandoverPanel({ onChanged }: { onChanged?: () => void } =
   };
 
   const scan = () => {
-    const value = scanInput.trim().toLowerCase().replace(/^#/, '');
+    const value = scanInput.trim().toLowerCase().replace(/^#/, "");
     if (!value) return;
     const found = lookup.get(value) ?? lookup.get(`#${value}`);
     if (!found) {
-      toast.push('No waiting parcel matches that order or consignment code.', 'info');
+      toast.push(
+        "No waiting parcel matches that order or consignment code.",
+        "info",
+      );
       return;
     }
     setSelected((previous) => new Set(previous).add(found.orderId));
-    setScanInput('');
+    setScanInput("");
   };
 
   const createManifest = async () => {
@@ -268,14 +352,21 @@ export function CourierHandoverPanel({ onChanged }: { onChanged?: () => void } =
         orderIds: [...selected],
         note: note.trim() || undefined,
       });
-      toast.push(`Pickup manifest created for ${handover.parcelCount} parcel${handover.parcelCount === 1 ? '' : 's'}.`);
-      setNote('');
+      toast.push(
+        `Pickup manifest created for ${handover.parcelCount} parcel${handover.parcelCount === 1 ? "" : "s"}.`,
+      );
+      setNote("");
       setHandovers((previous) => [handover, ...previous]);
       setActiveHandoverId(handover.id);
       await loadCourierWork(activeCourier.id);
       onChanged?.();
     } catch (error) {
-      toast.push(error instanceof Error ? error.message : 'Could not create pickup manifest.', 'info');
+      toast.push(
+        error instanceof Error
+          ? error.message
+          : "Could not create pickup manifest.",
+        "info",
+      );
     } finally {
       setCreating(false);
     }
@@ -284,82 +375,135 @@ export function CourierHandoverPanel({ onChanged }: { onChanged?: () => void } =
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-slate-500">Scan or select ready parcels, then print the manifest when the rider picks them up.</p>
-        <button onClick={() => courierId && loadCourierWork(courierId)} className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+        <p className="text-sm text-slate-500">
+          Scan or select ready parcels, then print the manifest when the rider
+          picks them up.
+        </p>
+        <button
+          onClick={() => courierId && loadCourierWork(courierId)}
+          className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+        >
           <RefreshCw size={14} /> Refresh
         </button>
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_360px]">
         <main className="space-y-4">
-          <section className="rounded-xl border border-slate-200 bg-white p-4">
+          <section className="zs-surface p-4">
             <div className="flex flex-wrap items-center gap-2">
               {couriers.map((courier) => (
                 <button
                   key={courier.id}
                   onClick={() => setCourierId(courier.id)}
                   className={clsx(
-                    'flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold',
-                    courierId === courier.id ? 'border-indigo-200 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                    "flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold",
+                    courierId === courier.id
+                      ? "border-indigo-200 bg-indigo-50 text-indigo-700"
+                      : "border-slate-200 text-slate-600 hover:bg-slate-50",
                   )}
                 >
-                  <Truck size={14} /> {courier.displayName || providerLabel(courier)}
+                  <Truck size={14} />{" "}
+                  {courier.displayName || providerLabel(courier)}
                 </button>
               ))}
-              {!loading && couriers.length === 0 && <p className="text-sm text-slate-400">Connect a courier account first.</p>}
+              {!loading && couriers.length === 0 && (
+                <p className="text-sm text-slate-400">
+                  Connect a courier account first.
+                </p>
+              )}
             </div>
           </section>
 
-          <section className="rounded-xl border border-slate-200 bg-white">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-4">
+          <section className="zs-surface overflow-hidden">
+            <div className="zs-section-toolbar">
               <div>
-                <h2 className="text-sm font-bold text-slate-900">Waiting for pickup</h2>
-                <p className="mt-0.5 text-xs text-slate-400">These parcels are ready for pickup but not yet added to a manifest.</p>
+                <h2 className="text-sm font-bold text-slate-900">
+                  Waiting for pickup
+                </h2>
+                <p className="mt-0.5 text-xs text-slate-400">
+                  These parcels are ready for pickup but not yet added to a
+                  manifest.
+                </p>
               </div>
-              <div className="relative w-full sm:w-80">
-                <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  value={scanInput}
-                  onChange={(event) => setScanInput(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') scan();
-                  }}
-                  placeholder="Scan order or consignment"
-                  className="h-9 w-full rounded-lg border border-slate-200 pl-8 pr-3 text-sm outline-none focus:border-indigo-400"
-                />
+              <div className="zs-toolbox-right">
+                <div className="zs-search">
+                  <Search
+                    size={15}
+                    className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
+                  <input
+                    value={scanInput}
+                    onChange={(event) => setScanInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") scan();
+                    }}
+                    placeholder="Scan order or consignment"
+                    className="zs-search-input"
+                  />
+                </div>
               </div>
             </div>
 
             {loading ? (
-              <div className="flex h-64 items-center justify-center text-sm text-slate-400">Loading parcels...</div>
+              <div className="zs-loading-state">Loading parcels...</div>
             ) : eligible.length === 0 ? (
-              <div className="flex h-64 flex-col items-center justify-center gap-2 px-8 text-center">
+              <div className="zs-empty-state">
                 <Package size={28} className="text-slate-300" />
-                <p className="text-sm font-semibold text-slate-700">No parcels waiting for pickup</p>
-                <p className="max-w-md text-sm text-slate-400">Mark packed orders ready for pickup first. They will appear here before physical handover.</p>
+                <p className="text-sm font-semibold text-slate-700">
+                  No parcels waiting for pickup
+                </p>
+                <p className="max-w-md text-sm text-slate-400">
+                  Mark packed orders ready for pickup first. They will appear
+                  here before physical handover.
+                </p>
               </div>
             ) : (
-              <div className="divide-y divide-slate-100">
+              <div className="zs-table-body">
                 <label className="flex cursor-pointer items-center gap-3 px-4 py-2 text-xs font-semibold text-slate-500 hover:bg-slate-50">
                   <input
                     type="checkbox"
                     checked={selected.size === eligible.length}
-                    onChange={() => setSelected(selected.size === eligible.length ? new Set() : new Set(eligible.map((order) => order.orderId)))}
+                    onChange={() =>
+                      setSelected(
+                        selected.size === eligible.length
+                          ? new Set()
+                          : new Set(eligible.map((order) => order.orderId)),
+                      )
+                    }
                     className="h-4 w-4 rounded border-slate-300"
                   />
                   {selected.size} of {eligible.length} selected
                 </label>
                 {eligible.map((order) => (
-                  <label key={order.orderId} className="flex cursor-pointer items-center gap-3 px-4 py-3 hover:bg-slate-50">
-                    <input type="checkbox" checked={selected.has(order.orderId)} onChange={() => toggle(order.orderId)} className="h-4 w-4 rounded border-slate-300" />
+                  <label
+                    key={order.orderId}
+                    className="zs-data-row flex cursor-pointer items-center gap-3 px-4 py-3"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selected.has(order.orderId)}
+                      onChange={() => toggle(order.orderId)}
+                      className="h-4 w-4 rounded border-slate-300"
+                    />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-slate-900">{order.invoiceNo ?? order.orderNumber}</p>
-                      <p className="truncate text-xs text-slate-400">
-                        {order.customerName ?? 'No customer'} {order.consignmentId ? `· ${order.consignmentId}` : ''}
+                      <p className="truncate text-sm font-semibold text-slate-900">
+                        {order.invoiceNo ?? order.orderNumber}
                       </p>
-                      {order.invoiceNo && <p className="truncate text-[10px] text-slate-400">{order.orderNumber}</p>}
+                      <p className="truncate text-xs text-slate-400">
+                        {order.customerName ?? "No customer"}{" "}
+                        {order.consignmentId ? `· ${order.consignmentId}` : ""}
+                      </p>
+                      {order.invoiceNo && (
+                        <p className="truncate text-[10px] text-slate-400">
+                          {order.orderNumber}
+                        </p>
+                      )}
                     </div>
-                    <span className="text-xs text-slate-400">{order.itemCount} items</span>
-                    <span className="w-20 text-right text-sm font-bold text-slate-800">{money(order.total)}</span>
+                    <span className="text-xs text-slate-400">
+                      {order.itemCount} items
+                    </span>
+                    <span className="w-20 text-right text-sm font-bold text-slate-800">
+                      {money(order.total)}
+                    </span>
                   </label>
                 ))}
               </div>
@@ -368,20 +512,34 @@ export function CourierHandoverPanel({ onChanged }: { onChanged?: () => void } =
         </main>
 
         <aside className="space-y-4">
-          <section className="rounded-xl border border-slate-200 bg-white p-4">
-            <h2 className="text-sm font-bold text-slate-900">Create manifest</h2>
+          <section className="zs-surface p-4">
+            <h2 className="text-sm font-bold text-slate-900">
+              Create manifest
+            </h2>
             <div className="mt-4 grid grid-cols-3 gap-2">
               <div className="rounded-lg bg-slate-50 p-3">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Parcels</p>
-                <p className="mt-1 text-lg font-black text-slate-900">{selected.size}</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                  Parcels
+                </p>
+                <p className="mt-1 text-lg font-black text-slate-900">
+                  {selected.size}
+                </p>
               </div>
               <div className="rounded-lg bg-slate-50 p-3">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Items</p>
-                <p className="mt-1 text-lg font-black text-slate-900">{selectedItems}</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                  Items
+                </p>
+                <p className="mt-1 text-lg font-black text-slate-900">
+                  {selectedItems}
+                </p>
               </div>
               <div className="rounded-lg bg-slate-50 p-3">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">COD</p>
-                <p className="mt-1 text-lg font-black text-slate-900">{money(selectedCod)}</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                  COD
+                </p>
+                <p className="mt-1 text-lg font-black text-slate-900">
+                  {money(selectedCod)}
+                </p>
               </div>
             </div>
             <textarea
@@ -399,11 +557,15 @@ export function CourierHandoverPanel({ onChanged }: { onChanged?: () => void } =
             </button>
           </section>
 
-          <section className="rounded-xl border border-slate-200 bg-white p-4">
-            <h2 className="text-sm font-bold text-slate-900">Recent manifests</h2>
+          <section className="zs-surface p-4">
+            <h2 className="text-sm font-bold text-slate-900">
+              Recent manifests
+            </h2>
             <div className="mt-3 space-y-1.5">
               {handovers.length === 0 ? (
-                <p className="text-xs text-slate-400">No manifests yet for this courier.</p>
+                <p className="text-xs text-slate-400">
+                  No manifests yet for this courier.
+                </p>
               ) : (
                 handovers.slice(0, 8).map((handover) => (
                   <button
@@ -412,17 +574,26 @@ export function CourierHandoverPanel({ onChanged }: { onChanged?: () => void } =
                     className="flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-xs hover:bg-slate-50"
                   >
                     <span className="min-w-0">
-                      <span className="block font-semibold text-slate-700">{handover.manifestNo}</span>
-                      <span className="block text-slate-400">{new Date(handover.handoverDate).toLocaleDateString()}</span>
-                      <span className="text-slate-400">{handover.parcelCount} parcels · {money(handover.totalCodAmount)}</span>
+                      <span className="block font-semibold text-slate-700">
+                        {handover.manifestNo}
+                      </span>
+                      <span className="block text-slate-400">
+                        {new Date(handover.handoverDate).toLocaleDateString()}
+                      </span>
+                      <span className="text-slate-400">
+                        {handover.parcelCount} parcels ·{" "}
+                        {money(handover.totalCodAmount)}
+                      </span>
                     </span>
                     <span
                       className={clsx(
-                        'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset',
-                        handover.status === 'Confirmed' ? 'bg-emerald-50 text-emerald-700 ring-emerald-600/20' : 'bg-amber-50 text-amber-700 ring-amber-600/20'
+                        "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset",
+                        handover.status === "Confirmed"
+                          ? "bg-emerald-50 text-emerald-700 ring-emerald-600/20"
+                          : "bg-amber-50 text-amber-700 ring-amber-600/20",
                       )}
                     >
-                      {handover.status === 'Confirmed' ? 'Received' : 'Pending'}
+                      {handover.status === "Confirmed" ? "Received" : "Pending"}
                     </span>
                   </button>
                 ))
@@ -436,7 +607,11 @@ export function CourierHandoverPanel({ onChanged }: { onChanged?: () => void } =
         handoverId={activeHandoverId}
         onClose={() => setActiveHandoverId(null)}
         onConfirmed={(updated) => {
-          setHandovers((previous) => previous.map((handover) => (handover.id === updated.id ? updated : handover)));
+          setHandovers((previous) =>
+            previous.map((handover) =>
+              handover.id === updated.id ? updated : handover,
+            ),
+          );
           if (courierId) void loadCourierWork(courierId);
           onChanged?.();
         }}
@@ -447,11 +622,16 @@ export function CourierHandoverPanel({ onChanged }: { onChanged?: () => void } =
 
 export function CourierHandoverPage() {
   return (
-    <div className="flex min-h-full flex-col px-4 py-5 lg:px-8">
-      <div className="mb-4">
-        <h1 className="text-xl font-bold text-slate-900">Pickup Manifests</h1>
+    <div className="zs-page">
+      <div className="zs-page-header">
+        <h1 className="zs-page-title">Pickup Manifests</h1>
+        <p className="zs-page-description">
+          Build courier handover sheets from pickup-ready orders.
+        </p>
       </div>
-      <CourierHandoverPanel />
+      <div className="zs-page-body">
+        <CourierHandoverPanel />
+      </div>
     </div>
   );
 }
