@@ -39,6 +39,7 @@ import {
   bulkRecheckFraud,
   bulkUpdateOrders,
   getOrderStats,
+  getOrderInventorySnapshot,
   listAllInventoryLevels,
   listCouriers,
   listOrders,
@@ -249,12 +250,11 @@ export function OrdersPage() {
   );
   const [bulkShipCourierPartner, setBulkShipCourierPartner] = useState("");
   const [binLookup, setBinLookup] = useState<BinLookup | undefined>(undefined);
-  // Backs the Confirmed-tab "Ready to pack"/"N short" badge and the Pending/Flagged "Mixed stock"
-  // heads-up badge — loaded once up front (like stores/couriers) rather than per-tab, since both
-  // surfaces need it.
-  const [stockLevels, setStockLevels] = useState<InventoryLevelDTO[] | null>(
-    null,
-  );
+  // Per-order stock snapshots, loaded only when a bulk stock decision needs them. Avoids scanning
+  // every inventory page just to open Orders.
+  const [stockSnapshots, setStockSnapshots] = useState<
+    Record<string, InventoryLevelDTO[]>
+  >({});
   const searchRef = useRef<HTMLInputElement>(null);
   const knownTabCountRef = useRef<number | null>(null);
 
@@ -349,11 +349,6 @@ export function OrdersPage() {
     void loadStores();
     void loadCouriers();
     void loadStats();
-    void listAllInventoryLevels()
-      .then((levels) => setStockLevels(levels))
-      .catch(() => {
-        // The stock badges/mixed-order gating are a nice-to-have hint; the list still works without them.
-      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -423,8 +418,11 @@ export function OrdersPage() {
     [stores],
   );
   const stockLookup = useMemo(
-    () => (stockLevels ? buildStockLookup(stockLevels) : undefined),
-    [stockLevels],
+    () => {
+      const levels = Object.values(stockSnapshots).flat();
+      return levels.length > 0 ? buildStockLookup(levels) : undefined;
+    },
+    [stockSnapshots],
   );
 
   const refreshAll = () => {
@@ -553,19 +551,36 @@ export function OrdersPage() {
   // "Send to packing" is the only way Confirmed orders advance to Processing — printing a packing
   // slip no longer triggers this (packing slips are only printable once an order is already in
   // Processing+). Same stock-check popup as handleBulkConfirm above.
-  const getCurrentStockLookup = async () => {
-    if (stockLookup) return stockLookup;
-    const levels = await listAllInventoryLevels();
-    setStockLevels(levels);
-    return buildStockLookup(levels);
+  const getOrderStockLookup = async (selectedForPacking: OrderDTO[]) => {
+    const missing = selectedForPacking.filter((o) => !stockSnapshots[o.id]);
+    if (missing.length === 0) {
+      return buildStockLookup(
+        selectedForPacking.flatMap((o) => stockSnapshots[o.id] ?? []),
+      );
+    }
+
+    const entries = await Promise.all(
+      missing.map(async (order) => {
+        const { levels } = await getOrderInventorySnapshot(order.id);
+        return [order.id, levels] as const;
+      }),
+    );
+    const nextSnapshots = {
+      ...stockSnapshots,
+      ...Object.fromEntries(entries),
+    };
+    setStockSnapshots(nextSnapshots);
+    return buildStockLookup(
+      selectedForPacking.flatMap((o) => nextSnapshots[o.id] ?? []),
+    );
   };
 
   const handleBulkSendToPacking = async (ids: string[]) => {
     if (ids.length === 0) return;
     const selectedForPacking = orders.filter((o) => ids.includes(o.id));
-    let lookup = stockLookup;
+    let lookup: ReturnType<typeof buildStockLookup>;
     try {
-      lookup = await getCurrentStockLookup();
+      lookup = await getOrderStockLookup(selectedForPacking);
     } catch {
       toast.push("Could not check stock before sending to packing.", "info");
       return;
