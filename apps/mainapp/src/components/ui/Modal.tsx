@@ -8,6 +8,7 @@ interface ModalProps {
   title: string;
   subtitle?: string;
   widthClass?: string;
+  bodyClassName?: string;
   children: ReactNode;
 }
 
@@ -17,6 +18,7 @@ export function Modal({
   title,
   subtitle,
   widthClass = "max-w-md",
+  bodyClassName = "max-h-[70vh] overflow-y-auto px-6 py-5",
   children,
 }: ModalProps) {
   if (!open) return null;
@@ -43,7 +45,7 @@ export function Modal({
             <X size={16} />
           </button>
         </div>
-        <div className="max-h-[70vh] overflow-y-auto px-6 py-5">{children}</div>
+        <div className={bodyClassName}>{children}</div>
       </div>
     </div>
   );

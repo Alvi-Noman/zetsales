@@ -43,7 +43,8 @@ export function BulkShipModal({
       onClose={onClose}
       title={title ?? `Mark ${count} order${count === 1 ? '' : 's'} ready for pickup`}
       subtitle={subtitle ?? 'Moves packed parcels into the pickup queue.'}
-      widthClass="max-w-md"
+      widthClass="max-w-lg"
+      bodyClassName="overflow-visible px-6 py-5"
     >
       <div className="space-y-4">
         <div className="rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-600">
@@ -70,6 +71,7 @@ export function BulkShipModal({
                 onChange={(value) => onCourierChange?.(value)}
                 options={[{ value: '', label: 'Select courier' }, ...courierOptions]}
                 className="bg-white"
+                menuClassName="z-50"
               />
             ) : (
               <p className="rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-amber-800">
