@@ -208,8 +208,7 @@ export function OrdersPage() {
   const [cancelReasonFilter, setCancelReasonFilter] = useState<string>("all");
   const [stockStatusFilter, setStockStatusFilter] = useState<string>("all");
   const [restockedOnly, setRestockedOnly] = useState(false);
-  const [dateRange, setDateRange] = useState<DateRangeKey>("all");
-  const [statsDateRange, setStatsDateRange] = useState<DateRangeKey>("today");
+  const [dateRange, setDateRange] = useState<DateRangeKey>("today");
   const [statsCustomRange, setStatsCustomRange] =
     useState<CustomDateRange | null>(null);
   const [advancedFilters, setAdvancedFilters] = useState<AdvancedFilters>(
@@ -281,7 +280,7 @@ export function OrdersPage() {
 
   const loadStats = async () => {
     try {
-      const { from, to } = getRangeBounds(statsDateRange, statsCustomRange);
+      const { from, to } = getRangeBounds(dateRange, statsCustomRange);
       const data = await getOrderStats({
         storeId: storeFilter !== "all" ? storeFilter : undefined,
         dateFrom: from ?? undefined,
@@ -386,12 +385,12 @@ export function OrdersPage() {
   useEffect(() => {
     void loadStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storeFilter, statsDateRange, statsCustomRange, tab]);
+  }, [storeFilter, dateRange, statsCustomRange, tab]);
 
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const { from, to } = getRangeBounds(statsDateRange, statsCustomRange);
+        const { from, to } = getRangeBounds(dateRange, statsCustomRange);
         const data = await getOrderStats({
           storeId: storeFilter !== "all" ? storeFilter : undefined,
           dateFrom: from ?? undefined,
@@ -406,7 +405,7 @@ export function OrdersPage() {
       }
     }, NEW_ORDERS_POLL_MS);
     return () => clearInterval(interval);
-  }, [storeFilter, statsDateRange, statsCustomRange, tab]);
+  }, [storeFilter, dateRange, statsCustomRange, tab]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -1011,7 +1010,7 @@ export function OrdersPage() {
     holdReasonFilter === "all" &&
     cancelReasonFilter === "all" &&
     stockStatusFilter === "all" &&
-    dateRange === "all" &&
+    dateRange === "today" &&
     activeAdvancedFilterCount(advancedFilters) === 0;
 
   const clearFilters = () => {
@@ -1019,8 +1018,7 @@ export function OrdersPage() {
     setStoreFilter("all");
     handleTabChange("all");
     setPaymentFilter("all");
-    setDateRange("all");
-    setStatsDateRange("today");
+    setDateRange("today");
     setStatsCustomRange(null);
     setAdvancedFilters(EMPTY_ADVANCED_FILTERS);
   };
@@ -1133,8 +1131,8 @@ export function OrdersPage() {
                 <div className="zs-toolbox-row pt-3">
                   <div className="zs-toolbox-left">
                     <DateRangeMenu
-                      value={statsDateRange}
-                      onChange={setStatsDateRange}
+                      value={dateRange}
+                      onChange={setDateRange}
                       customRange={statsCustomRange}
                       onCustomRangeChange={setStatsCustomRange}
                     />
@@ -1212,7 +1210,7 @@ export function OrdersPage() {
                       value={advancedFilters}
                       onApply={setAdvancedFilters}
                     />
-                    {(!noFiltersActive || statsDateRange !== "today") && (
+                    {(!noFiltersActive || dateRange !== "today") && (
                       <button
                         onClick={clearFilters}
                         className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-slate-400 hover:bg-slate-50 hover:text-slate-600"
