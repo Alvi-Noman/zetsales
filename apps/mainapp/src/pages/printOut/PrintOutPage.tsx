@@ -46,6 +46,7 @@ type PrintTask =
   | "combined"
   | "courierLabel"
   | "purchaseOrder";
+type PackingPrintSource = "packing" | "readyForPickup" | "both";
 
 const PRINT_TASKS: {
   key: PrintTask;
@@ -103,6 +104,12 @@ const PO_STATUS_OPTIONS: {
   { value: "cancelled", label: "Cancelled" },
 ];
 
+const PACKING_SOURCE_OPTIONS: { value: PackingPrintSource; label: string }[] = [
+  { value: "packing", label: "Source: Packing" },
+  { value: "readyForPickup", label: "Source: Ready for pickup" },
+  { value: "both", label: "Source: Packing + Ready" },
+];
+
 const PO_STATUS_LABEL: Record<PurchaseOrderStatus, string> = {
   draft: "Draft",
   sent: "Sent",
@@ -153,6 +160,8 @@ export function PrintOutPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [warehouseFilter, setWarehouseFilter] = useState("all");
+  const [packingSource, setPackingSource] =
+    useState<PackingPrintSource>("packing");
   const [poStatus, setPoStatus] = useState<PurchaseOrderStatus | "all">("all");
   const [warehouses, setWarehouses] = useState<WarehouseDTO[]>([]);
 
@@ -197,7 +206,7 @@ export function PrintOutPage() {
                 sortDir: "asc",
                 pageSize: 100,
               })
-            : await listPackingPrintableOrders();
+            : await listPackingPrintableOrders(packingSource);
 
       setOrders(res.orders);
       setPurchaseOrders([]);
@@ -220,13 +229,14 @@ export function PrintOutPage() {
   useEffect(() => {
     void loadTaskRows(task);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [task, poStatus]);
+  }, [task, poStatus, packingSource]);
 
   const activeTask = PRINT_TASKS.find((item) => item.key === task)!;
   const selectedTemplate =
     templates.find((template) => template.id === selectedTemplateId) ?? null;
   const isPurchaseTask = task === "purchaseOrder";
   const isCourierLabelTask = task === "courierLabel";
+  const isPackingPrintTask = task === "packingSlip" || task === "combined";
 
   const toggleSelected = (id: string) => {
     setSelectedIds((current) => {
@@ -438,6 +448,15 @@ export function PrintOutPage() {
           </div>
 
           <div className="zs-toolbox-right">
+            {isPackingPrintTask && (
+              <Select
+                value={packingSource}
+                onChange={(value) =>
+                  setPackingSource(value as PackingPrintSource)
+                }
+                options={PACKING_SOURCE_OPTIONS}
+              />
+            )}
             {!isCourierLabelTask && !isPurchaseTask && (
               <Select
                 value={selectedTemplateId}
@@ -630,6 +649,13 @@ export function PrintOutPage() {
                   helper={
                     isCourierLabelTask
                       ? "Ready-for-pickup parcels only."
+                      : isPackingPrintTask && packingSource === "packing"
+                        ? "Packing orders only."
+                        : isPackingPrintTask &&
+                            packingSource === "readyForPickup"
+                          ? "Ready-for-pickup orders only."
+                          : isPackingPrintTask
+                            ? "Packing and ready-for-pickup orders."
                       : "Selected rows will print together."
                   }
                 />
@@ -737,23 +763,32 @@ export function PrintOutPage() {
   );
 }
 
-async function listPackingPrintableOrders(): Promise<{ orders: OrderDTO[] }> {
-  const [packing, readyForPickup] = await Promise.all([
+async function listPackingPrintableOrders(
+  source: PackingPrintSource,
+): Promise<{ orders: OrderDTO[] }> {
+  const loadPacking = () =>
     listOrders({
       tab: "processing",
       sortKey: "date",
       sortDir: "asc",
       pageSize: 100,
-    }),
+    });
+  const loadReadyForPickup = () =>
     listOrders({
       tab: "courierBooked",
       sortKey: "date",
       sortDir: "asc",
       pageSize: 100,
-    }),
-  ]);
+    });
+  const responses =
+    source === "packing"
+      ? [await loadPacking()]
+      : source === "readyForPickup"
+        ? [await loadReadyForPickup()]
+        : await Promise.all([loadPacking(), loadReadyForPickup()]);
   const byId = new Map<string, OrderDTO>();
-  [...packing.orders, ...readyForPickup.orders]
+  responses
+    .flatMap((response) => response.orders)
     .sort(
       (a, b) =>
         new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
