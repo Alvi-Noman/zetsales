@@ -13,12 +13,13 @@ import {
 } from "lucide-react";
 import type { InvoiceTemplateDTO, OrderDTO } from "@zetsales/shared";
 import {
-  listAllInventoryLevels,
+  getOrderInventorySnapshot,
   listOrders,
   listPrintTemplates,
   listPurchaseOrders,
   listReadyToPrintOrders,
   listWarehouses,
+  type InventoryLevelDTO,
   type PurchaseOrderDTO,
   type PurchaseOrderStatus,
   type WarehouseDTO,
@@ -146,6 +147,7 @@ export function PrintOutPage() {
   const [binLookup, setBinLookup] = useState<BinLookup | undefined>(undefined);
   const [orderModalOpen, setOrderModalOpen] = useState(false);
   const [labelModalOpen, setLabelModalOpen] = useState(false);
+  const [preparingPrint, setPreparingPrint] = useState(false);
   const [printingPo, setPrintingPo] = useState<PurchaseOrderDTO | null>(null);
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
@@ -156,9 +158,8 @@ export function PrintOutPage() {
 
   const loadSupportData = async () => {
     try {
-      const [templatesRes, levels, warehouseRes] = await Promise.all([
+      const [templatesRes, warehouseRes] = await Promise.all([
         listPrintTemplates(),
-        listAllInventoryLevels(),
         listWarehouses(),
       ]);
       setTemplates(templatesRes.templates);
@@ -166,7 +167,6 @@ export function PrintOutPage() {
         (template) => template.isDefault,
       );
       if (defaultTemplate) setSelectedTemplateId(defaultTemplate.id);
-      setBinLookup(buildBinLookup(levels));
       setWarehouses(warehouseRes.warehouses);
     } catch {
       toast.push("Could not load print settings.", "info");
@@ -331,7 +331,7 @@ export function PrintOutPage() {
     });
   };
 
-  const handlePrimaryPrint = () => {
+  const handlePrimaryPrint = async () => {
     if (isPurchaseTask) {
       const selectedPo = purchaseOrders.find((po) => selectedIds.has(po.id));
       if (selectedPo) setPrintingPo(selectedPo);
@@ -340,6 +340,22 @@ export function PrintOutPage() {
     if (isCourierLabelTask) {
       setLabelModalOpen(true);
       return;
+    }
+    setPreparingPrint(true);
+    try {
+      const snapshots = await Promise.all(
+        selectedOrders.map((order) =>
+          getOrderInventorySnapshot(order.id)
+            .then((res) => res.levels)
+            .catch(() => [] as InventoryLevelDTO[]),
+        ),
+      );
+      setBinLookup(buildBinLookup(snapshots.flat()));
+    } catch {
+      setBinLookup(undefined);
+      toast.push("Could not load shelf bins for these orders.", "info");
+    } finally {
+      setPreparingPrint(false);
     }
     setOrderModalOpen(true);
   };
@@ -444,12 +460,14 @@ export function PrintOutPage() {
               />
             )}
             <button
-              onClick={handlePrimaryPrint}
-              disabled={primaryPrintDisabled}
+              onClick={() => void handlePrimaryPrint()}
+              disabled={primaryPrintDisabled || preparingPrint}
               className="flex h-9 items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Printer size={14} />
-              {isPurchaseTask
+              {preparingPrint
+                ? "Preparing..."
+                : isPurchaseTask
                 ? "Print selected PO"
                 : `Print (${selectedOrders.length})`}
             </button>
