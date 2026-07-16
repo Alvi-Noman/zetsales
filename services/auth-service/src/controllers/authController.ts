@@ -7,6 +7,12 @@ import { env } from '@zetsales/config/validateEnv';
 import { getDb } from '../utils/db.js';
 import type { AuthenticatedRequest } from '../middleware/authMiddleware.js';
 import type { TeamRole, UserDTO } from '@zetsales/shared';
+import {
+  isReservedSubdomain,
+  slugifyBusinessName,
+  workspaceSlugFromHost,
+  workspaceUrlForSlug,
+} from '../utils/workspaceDomain.js';
 
 export function signToken(
   id: string,
@@ -19,11 +25,20 @@ export function signToken(
 }
 
 export function setAuthCookie(res: Response, token: string) {
+  const cookieDomain = process.env.COOKIE_DOMAIN?.trim();
   res.cookie('token', token, {
     httpOnly: true,
     secure: env.NODE_ENV === 'production',
     sameSite: 'lax',
     maxAge: 7 * 24 * 60 * 60 * 1000,
+    ...(cookieDomain ? { domain: cookieDomain } : {}),
+  });
+}
+
+export function clearAuthCookie(res: Response) {
+  const cookieDomain = process.env.COOKIE_DOMAIN?.trim();
+  res.clearCookie('token', {
+    ...(cookieDomain ? { domain: cookieDomain } : {}),
   });
 }
 
@@ -36,14 +51,18 @@ export async function toUserDto(user: {
   role?: TeamRole | null;
 }): Promise<UserDTO> {
   let businessName: string | null = null;
+  let businessSlug: string | null = null;
+  let businessUrl: string | null = null;
   let businessType: UserDTO['businessType'] = null;
-  let installedPlugins: UserDTO['installedPlugins'] = [];
+  let installedPlugins: UserDTO['installedPlugins'] = [];
   if (user.tenantId) {
     const db = getDb();
     const business = await db.collection('businesses').findOne({ _id: new ObjectId(user.tenantId) });
     businessName = business?.name ?? null;
+    businessSlug = business?.slug ?? null;
+    businessUrl = businessSlug ? workspaceUrlForSlug(businessSlug) : null;
     businessType = business?.businessType ?? null;
-    installedPlugins = business?.installedPlugins ?? [];
+    installedPlugins = business?.installedPlugins ?? [];
   }
   return {
     id: user._id.toString(),
@@ -52,6 +71,8 @@ export async function toUserDto(user: {
     tenantId: user.tenantId ?? null,
     isOnboarded: user.isOnboarded ?? false,
     businessName,
+    businessSlug,
+    businessUrl,
     businessType,
     role: user.role ?? null,
     installedPlugins,
@@ -101,6 +122,8 @@ export async function signup(req: Request, res: Response) {
       tenantId: null,
       isOnboarded: false,
       businessName: null,
+      businessSlug: null,
+      businessUrl: null,
       businessType: null,
       role: null,
       installedPlugins: [],
@@ -115,6 +138,7 @@ export async function signup(req: Request, res: Response) {
 export async function login(req: Request, res: Response) {
   try {
     const { email, password, longLived } = req.body;
+    const requestedWorkspace = workspaceSlugFromHost(req.headers['x-forwarded-host'] ?? req.headers.host);
 
     if (!email || !password) {
       res.status(400).json({ success: false, message: 'Email and password are required' });
@@ -132,6 +156,21 @@ export async function login(req: Request, res: Response) {
     if (!match) {
       res.status(400).json({ success: false, message: 'Invalid credentials' });
       return;
+    }
+
+    if (requestedWorkspace) {
+      if (!user.tenantId) {
+        res.status(403).json({ success: false, message: 'This account is not part of this workspace.' });
+        return;
+      }
+      const business = await db.collection('businesses').findOne(
+        { _id: new ObjectId(user.tenantId) },
+        { projection: { slug: 1, name: 1 } }
+      );
+      if (!business?.slug || business.slug !== requestedWorkspace) {
+        res.status(403).json({ success: false, message: 'Use the workspace link for your business to sign in.' });
+        return;
+      }
     }
 
     // longLived is used by the browser extension's own login (not the web app's cookie session),
@@ -153,7 +192,7 @@ export async function login(req: Request, res: Response) {
 }
 
 export async function logout(_req: Request, res: Response) {
-  res.clearCookie('token');
+  clearAuthCookie(res);
   res.status(200).json({ success: true, message: 'Logged out successfully' });
 }
 
@@ -188,6 +227,21 @@ const onboardingSchema = z.object({
   teamSize: z.string().trim().min(1),
 });
 
+async function createUniqueBusinessSlug(name: string): Promise<string> {
+  const db = getDb();
+  const rawBase = slugifyBusinessName(name);
+  const base = isReservedSubdomain(rawBase) ? `${rawBase}store` : rawBase;
+  let slug = base;
+  let suffix = 2;
+
+  while (await db.collection('businesses').findOne({ slug }, { projection: { _id: 1 } })) {
+    slug = `${base}${suffix}`;
+    suffix += 1;
+  }
+
+  return slug;
+}
+
 export async function completeOnboarding(req: AuthenticatedRequest, res: Response) {
   try {
     const authUser = req.user;
@@ -204,10 +258,12 @@ export async function completeOnboarding(req: AuthenticatedRequest, res: Respons
 
     const db = getDb();
     const payload = parsed.data;
+    const slug = await createUniqueBusinessSlug(payload.businessName);
 
     const businessResult = await db.collection('businesses').insertOne({
       ownerId: new ObjectId(authUser.id),
       name: payload.businessName,
+      slug,
       businessType: payload.businessType,
       phone: payload.phone,
       channels: payload.channels,
@@ -236,6 +292,8 @@ export async function completeOnboarding(req: AuthenticatedRequest, res: Respons
       tenantId,
       isOnboarded: true,
       businessName: payload.businessName,
+      businessSlug: slug,
+      businessUrl: workspaceUrlForSlug(slug),
       businessType: payload.businessType,
       role: 'owner',
       installedPlugins: [],
@@ -244,5 +302,27 @@ export async function completeOnboarding(req: AuthenticatedRequest, res: Respons
     res.status(200).json({ success: true, user: userDto, token });
   } catch (error) {
     res.status(500).json({ success: false, message: (error as Error).message });
+  }
+}
+
+export async function allowSubdomain(req: Request, res: Response) {
+  try {
+    const domain = typeof req.query.domain === 'string' ? req.query.domain : '';
+    const slug = workspaceSlugFromHost(domain);
+    if (!slug) {
+      res.status(404).send('not allowed');
+      return;
+    }
+
+    const db = getDb();
+    const business = await db.collection('businesses').findOne({ slug }, { projection: { _id: 1 } });
+    if (!business) {
+      res.status(404).send('not allowed');
+      return;
+    }
+
+    res.status(200).send('ok');
+  } catch {
+    res.status(500).send('error');
   }
 }

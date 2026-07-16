@@ -20,10 +20,24 @@ const CORS_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:3000,http://1
   .map((s) => s.trim())
   .filter(Boolean);
 
+function isAllowedOrigin(origin: string | undefined): boolean {
+  if (!origin || CORS_ORIGINS.includes(origin)) return true;
+
+  try {
+    const hostname = new URL(origin).hostname.toLowerCase();
+    return CORS_ORIGINS.some((allowed) => {
+      const allowedHost = new URL(allowed).hostname.toLowerCase().replace(/^www\./, '');
+      return hostname === allowedHost || hostname.endsWith(`.${allowedHost}`);
+    });
+  } catch {
+    return false;
+  }
+}
+
 app.use(
   cors({
     origin: (origin, cb) => {
-      if (!origin || CORS_ORIGINS.includes(origin)) return cb(null, true);
+      if (isAllowedOrigin(origin)) return cb(null, true);
       logger.warn(`[CORS] blocked origin: ${origin}`);
       return cb(null, false);
     },

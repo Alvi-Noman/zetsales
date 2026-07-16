@@ -1,4 +1,30 @@
+{
+  on_demand_tls {
+    ask http://auth-service:3001/api/v1/auth/subdomains/allow
+  }
+}
+
 zetsales.com, www.zetsales.com, zetsales.online, www.zetsales.online {
   encode zstd gzip
   reverse_proxy mainapp:80
+}
+
+:80 {
+  @tenant host *.zetsales.com
+  handle @tenant {
+    redir https://{host}{uri} permanent
+  }
+  respond "not found" 404
+}
+
+:443 {
+  tls {
+    on_demand
+  }
+  @tenant host *.zetsales.com
+  handle @tenant {
+    encode zstd gzip
+    reverse_proxy mainapp:80
+  }
+  respond "not found" 404
 }

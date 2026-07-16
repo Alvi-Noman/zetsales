@@ -28,12 +28,26 @@ const RAW_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:3000,http://12
   .map((s) => s.trim())
   .filter(Boolean);
 
+function isAllowedOrigin(origin: string | undefined): boolean {
+  if (!origin || RAW_ORIGINS.includes(origin) || origin.startsWith('chrome-extension://')) return true;
+
+  try {
+    const hostname = new URL(origin).hostname.toLowerCase();
+    return RAW_ORIGINS.some((allowed) => {
+      const allowedHost = new URL(allowed).hostname.toLowerCase().replace(/^www\./, '');
+      return hostname === allowedHost || hostname.endsWith(`.${allowedHost}`);
+    });
+  } catch {
+    return false;
+  }
+}
+
 const corsOptions: cors.CorsOptions = {
   origin: (origin, cb) => {
     // chrome-extension:// origins can only be sent by an actual installed extension (a webpage
     // can't spoof one), so the ZetSales Product Importer extension is allowed unconditionally
     // rather than requiring its per-install extension id to be added to CORS_ORIGIN.
-    if (!origin || RAW_ORIGINS.includes(origin) || origin.startsWith('chrome-extension://')) {
+    if (isAllowedOrigin(origin)) {
       return cb(null, true);
     }
     logger.warn(`[GATEWAY CORS] blocked origin: ${origin}`);

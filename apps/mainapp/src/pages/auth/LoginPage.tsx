@@ -18,6 +18,10 @@ export function LoginPage() {
     setSubmitting(true);
     try {
       const user = await login(email, password);
+      if (user.isOnboarded && user.businessUrl && window.location.origin !== user.businessUrl) {
+        window.location.assign(`${user.businessUrl}/home`);
+        return;
+      }
       navigate(user.isOnboarded ? '/home' : '/onboarding', { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not sign in.');

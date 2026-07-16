@@ -5,6 +5,8 @@ export interface UserDTO {
   tenantId: string | null;
   isOnboarded: boolean;
   businessName: string | null;
+  businessSlug: string | null;
+  businessUrl: string | null;
   businessType: BusinessType | null;
   role: TeamRole | null;
   installedPlugins: ModuleKey[];

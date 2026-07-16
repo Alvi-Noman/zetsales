@@ -8,6 +8,7 @@ services:
       PORT: "3001"
       MONGODB_URI: ${MONGODB_URI:?MONGODB_URI is required}
       JWT_SECRET: ${JWT_SECRET:-super-secret-key-change-me}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
       FRONTEND_URL: ${PUBLIC_APP_URL:-http://localhost:3000}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000,http://localhost:8081,http://127.0.0.1:3000,http://149.28.135.115:3000}
     working_dir: /app/services/auth-service

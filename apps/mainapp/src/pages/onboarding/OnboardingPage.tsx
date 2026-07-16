@@ -182,7 +182,7 @@ export function OnboardingPage() {
     setError("");
     setFinishing(true);
     try {
-      await completeOnboarding({
+      const user = await completeOnboarding({
         businessName,
         businessType,
         phone,
@@ -190,6 +190,10 @@ export function OnboardingPage() {
         monthlyOrders,
         teamSize: finalTeamSize,
       });
+      if (user.businessUrl && window.location.origin !== user.businessUrl) {
+        window.location.assign(`${user.businessUrl}/home`);
+        return;
+      }
       navigate("/home", { replace: true });
     } catch (err) {
       setFinishing(false);
