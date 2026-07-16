@@ -1845,6 +1845,17 @@ async function checkFulfillmentGate(tenantId: string, current: any, patch: Updat
   return readiness.ready ? null : readiness.reason;
 }
 
+function checkCourierAssignmentGate(current: object, patch: UpdateOrderPatch): string | null {
+  const currentStage = 'stage' in current ? current.stage : undefined;
+  const requiresCourier =
+    (currentStage === 'Processing' && patch.stage === 'Shipped') ||
+    (currentStage === 'Shipped' && patch.stage === 'Out for Delivery');
+  if (!requiresCourier) return null;
+  const currentCourierPartner = 'courierPartner' in current ? current.courierPartner : undefined;
+  const courierPartner = patch.courierPartner === undefined ? currentCourierPartner : patch.courierPartner;
+  return courierPartner ? null : 'Select a courier before moving this order to courier handover.';
+}
+
 // Read-only precheck for the same gate `updateOrder` enforces — lets the Orders UI disable
 // "Process order"/"Mark shipped" (and explain why) before staff click, instead of only finding out
 // from a rejected request after the fact. Computed fresh from live inventory every time, same as
@@ -1884,6 +1895,11 @@ export async function updateOrder(req: AuthenticatedRequest, res: Response) {
     return;
   }
 
+  const courierBlockReason = checkCourierAssignmentGate(current, parsed.data);
+  if (courierBlockReason) {
+    res.status(409).json({ success: false, message: courierBlockReason });
+    return;
+  }
   const blockReason = await checkFulfillmentGate(tenantId, current, parsed.data);
   if (blockReason) {
     res.status(409).json({ success: false, message: blockReason });
@@ -2639,6 +2655,11 @@ export async function bulkUpdateOrders(req: AuthenticatedRequest, res: Response)
       const current = await db.collection('orders').findOne({ _id: new ObjectId(orderId), tenantId });
       if (!current) {
         results.push({ orderId, success: false, error: 'Order not found' });
+        continue;
+      }
+      const courierBlockReason = checkCourierAssignmentGate(current, parsed.data.patch);
+      if (courierBlockReason) {
+        results.push({ orderId, success: false, error: courierBlockReason });
         continue;
       }
       const blockReason = await checkFulfillmentGate(tenantId, current, parsed.data.patch);

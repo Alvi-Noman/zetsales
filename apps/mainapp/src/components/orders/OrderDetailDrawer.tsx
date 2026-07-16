@@ -839,6 +839,9 @@ export function OrderDetailDrawer({
     (detail!.stage === "Confirmed" || detail!.stage === "Processing") &&
     fulfillmentStatus != null &&
     !fulfillmentStatus.ready;
+  const courierRequiredForNextStep =
+    (detail?.stage === "Processing" || detail?.stage === "Shipped") &&
+    !detail.courierPartner;
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -1400,10 +1403,18 @@ export function OrderDetailDrawer({
                     order. Enter the code from your courier receipt below.
                   </div>
                 )}
+                {courierRequiredForNextStep && (
+                  <div className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
+                    Choose a courier before moving this order to the courier handover flow.
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="mb-1 block text-[11px] font-semibold text-slate-500">
-                      Partner
+                    <label className="mb-1 flex items-center justify-between gap-2 text-[11px] font-semibold text-slate-500">
+                      <span>Partner</span>
+                      {courierRequiredForNextStep && (
+                        <span className="text-amber-600">Required</span>
+                      )}
                     </label>
                     {courierLocked ? (
                       <div
@@ -1949,15 +1960,15 @@ export function OrderDetailDrawer({
                         void handleSplit();
                         return;
                       }
-                      if (detail.stage === "Processing") {
-                        if (!detail.courierPartner) {
-                          setConfirmShipNoCourier(true);
-                          return;
-                        }
-                        apply({ stage: primaryAction.nextStage });
-                      } else {
-                        apply({ stage: primaryAction.nextStage });
+                      if (
+                        (detail.stage === "Processing" ||
+                          detail.stage === "Shipped") &&
+                        !detail.courierPartner
+                      ) {
+                        setConfirmShipNoCourier(true);
+                        return;
                       }
+                      apply({ stage: primaryAction.nextStage });
                     }}
                     disabled={
                       fulfillmentBlocked ||
@@ -2309,14 +2320,14 @@ export function OrderDetailDrawer({
         open={confirmShipNoCourier}
         onClose={() => setConfirmShipNoCourier(false)}
         title="Courier required"
-        subtitle="Pick a courier partner before this order can ship."
+        subtitle="Pick a courier partner before this order moves to courier handover."
         widthClass="max-w-sm"
       >
         <div className="space-y-4">
           <p className="text-sm text-slate-600">
             Go back to the Courier section above and choose a partner (Steadfast
             or Pathao) — that's what gets this order a tracking code and hands
-            it off automatically once shipped.
+            it off automatically once the courier handover starts.
           </p>
           <button
             onClick={() => setConfirmShipNoCourier(false)}
