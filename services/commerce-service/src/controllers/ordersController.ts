@@ -1266,6 +1266,11 @@ function courierResultsToRiskDto(
 }
 
 export async function getOrder(req: AuthenticatedRequest, res: Response) {
+  if (!ObjectId.isValid(req.params.id)) {
+    res.status(400).json({ success: false, message: 'Invalid order id' });
+    return;
+  }
+
   const db = getDb();
   const tenantId = req.user!.tenantId!;
   const doc = await db.collection('orders').findOne({ _id: new ObjectId(req.params.id), tenantId });
@@ -1861,6 +1866,11 @@ function checkCourierAssignmentGate(current: object, patch: UpdateOrderPatch): s
 // from a rejected request after the fact. Computed fresh from live inventory every time, same as
 // the shortfall/velocity numbers elsewhere in this codebase — nothing here is cached or stored.
 export async function getOrderFulfillmentStatus(req: AuthenticatedRequest, res: Response) {
+  if (!ObjectId.isValid(req.params.id)) {
+    res.status(400).json({ success: false, message: 'Invalid order id' });
+    return;
+  }
+
   const db = getDb();
   const tenantId = req.user!.tenantId!;
   const doc = await db.collection('orders').findOne({ _id: new ObjectId(req.params.id), tenantId }, { projection: { lineItems: 1 } });
