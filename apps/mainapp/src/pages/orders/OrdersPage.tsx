@@ -248,6 +248,9 @@ export function OrdersPage() {
   const [printDocType, setPrintDocType] = useState<PrintDocType | null>(null);
   const [labelModalOpen, setLabelModalOpen] = useState(false);
   const [bulkShipModalOpen, setBulkShipModalOpen] = useState(false);
+  const [bulkShipMode, setBulkShipMode] = useState<"ready" | "handover">(
+    "ready",
+  );
   const [bulkShipCourierPartner, setBulkShipCourierPartner] = useState("");
   const [binLookup, setBinLookup] = useState<BinLookup | undefined>(undefined);
   // Backs the Confirmed-tab "Ready to pack"/"N short" badge and the Pending/Flagged "Mixed stock"
@@ -601,6 +604,19 @@ export function OrdersPage() {
   const openBulkReadyForPickup = () => {
     if (shippableSelectedIds.length === 0) return;
     const missingCount = shippableMissingCourierOrders.length;
+    setBulkShipMode("ready");
+    setBulkShipCourierPartner(
+      missingCount > 0 && courierOptions.length === 1
+        ? courierOptions[0].value
+        : "",
+    );
+    setBulkShipModalOpen(true);
+  };
+
+  const openBulkHandOverToCourier = () => {
+    if (handoverReadySelectedIds.length === 0) return;
+    const missingCount = handoverMissingCourierOrders.length;
+    setBulkShipMode("handover");
     setBulkShipCourierPartner(
       missingCount > 0 && courierOptions.length === 1
         ? courierOptions[0].value
@@ -610,8 +626,14 @@ export function OrdersPage() {
   };
 
   const handleBulkReadyForPickup = async (_details: HandoverDetails) => {
-    if (shippableSelectedIds.length === 0) return;
-    const missingCourierIds = shippableMissingCourierOrders.map((o) => o.id);
+    const isHandover = bulkShipMode === "handover";
+    const targetIds = isHandover
+      ? handoverReadySelectedIds
+      : shippableSelectedIds;
+    const missingCourierIds = (
+      isHandover ? handoverMissingCourierOrders : shippableMissingCourierOrders
+    ).map((o) => o.id);
+    if (targetIds.length === 0) return;
     if (missingCourierIds.length > 0 && !bulkShipCourierPartner) return;
 
     setBulkBusy(true);
@@ -627,9 +649,12 @@ export function OrdersPage() {
         }
       }
 
-      const res = await bulkUpdateOrders(shippableSelectedIds, {
-        stage: "Shipped",
-      });
+      const res = await bulkUpdateOrders(
+        targetIds,
+        isHandover
+          ? { stage: "Out for Delivery", note: "Handed over to courier" }
+          : { stage: "Shipped" },
+      );
       const successCount = res.results.filter((r) => r.success).length;
       const failed = res.results.find((r) => !r.success);
       setBulkShipModalOpen(false);
@@ -637,14 +662,22 @@ export function OrdersPage() {
       refreshAll();
       toast.push(
         failed?.error ??
-          `Marked ${successCount} of ${shippableSelectedIds.length} order${
-            shippableSelectedIds.length === 1 ? "" : "s"
-          } ready for pickup.`,
+          (isHandover
+            ? `Handed over ${successCount} of ${targetIds.length} order${
+                targetIds.length === 1 ? "" : "s"
+              } to courier.`
+            : `Marked ${successCount} of ${targetIds.length} order${
+                targetIds.length === 1 ? "" : "s"
+              } ready for pickup.`),
         successCount > 0 ? "success" : "info",
       );
     } catch (err) {
       toast.push(
-        err instanceof Error ? err.message : "Could not mark orders ready.",
+        err instanceof Error
+          ? err.message
+          : isHandover
+            ? "Could not hand over orders."
+            : "Could not mark orders ready.",
         "info",
       );
     } finally {
@@ -914,9 +947,27 @@ export function OrdersPage() {
       .map(([partner, count]) => `${partner} x${count}`)
       .join(", ");
   })();
-  const handoverReadySelectedIds = selectedOrders
-    .filter((o) => o.stage === "Shipped")
-    .map((o) => o.id);
+  const handoverReadySelectedOrders = selectedOrders.filter(
+    (o) => o.stage === "Shipped",
+  );
+  const handoverReadySelectedIds = handoverReadySelectedOrders.map((o) => o.id);
+  const handoverMissingCourierOrders = handoverReadySelectedOrders.filter(
+    (o) => !o.courierPartner,
+  );
+  const handoverCourierSummary = (() => {
+    if (handoverReadySelectedOrders.length === 0)
+      return "No ready-for-pickup orders selected";
+    const counts = new Map<string, number>();
+    for (const order of handoverReadySelectedOrders) {
+      counts.set(
+        order.courierPartner ?? "Unassigned",
+        (counts.get(order.courierPartner ?? "Unassigned") ?? 0) + 1,
+      );
+    }
+    return [...counts.entries()]
+      .map(([partner, count]) => `${partner} x${count}`)
+      .join(", ");
+  })();
 
   const copyOrderId = (order: OrderDTO, e: MouseEvent) => {
     e.stopPropagation();
@@ -1687,11 +1738,7 @@ export function OrdersPage() {
         }
         onHandOverToCourier={
           handoverReadySelectedIds.length > 0
-            ? () =>
-                void runBulk(handoverReadySelectedIds, {
-                  stage: "Out for Delivery",
-                  note: "Handed over to courier",
-                })
+            ? openBulkHandOverToCourier
             : undefined
         }
         onSendToPacking={
@@ -1788,9 +1835,39 @@ export function OrdersPage() {
       />
       <BulkShipModal
         open={bulkShipModalOpen}
-        count={shippableSelectedIds.length}
-        courierSummary={shippableCourierSummary}
-        missingCourierCount={shippableMissingCourierOrders.length}
+        count={
+          bulkShipMode === "handover"
+            ? handoverReadySelectedIds.length
+            : shippableSelectedIds.length
+        }
+        title={
+          bulkShipMode === "handover"
+            ? `Hand over ${
+                handoverReadySelectedIds.length
+              } order${handoverReadySelectedIds.length === 1 ? "" : "s"} to courier`
+            : undefined
+        }
+        subtitle={
+          bulkShipMode === "handover"
+            ? "Moves ready-for-pickup parcels into delivery after the courier takes them."
+            : undefined
+        }
+        submitLabel={
+          bulkShipMode === "handover" ? "Hand over to courier" : undefined
+        }
+        dateLabel={
+          bulkShipMode === "handover" ? "Handover date & time" : undefined
+        }
+        courierSummary={
+          bulkShipMode === "handover"
+            ? handoverCourierSummary
+            : shippableCourierSummary
+        }
+        missingCourierCount={
+          bulkShipMode === "handover"
+            ? handoverMissingCourierOrders.length
+            : shippableMissingCourierOrders.length
+        }
         courierOptions={courierOptions}
         selectedCourierPartner={bulkShipCourierPartner}
         busy={bulkBusy}

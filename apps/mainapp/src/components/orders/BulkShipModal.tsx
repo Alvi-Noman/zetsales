@@ -13,6 +13,10 @@ export interface HandoverDetails {
 interface BulkShipModalProps {
   open: boolean;
   count: number;
+  title?: string;
+  subtitle?: string;
+  submitLabel?: string;
+  dateLabel?: string;
   courierSummary: string;
   missingCourierCount?: number;
   courierOptions?: { value: string; label: string }[];
@@ -37,6 +41,10 @@ function nowForDatetimeLocal(): string {
 export function BulkShipModal({
   open,
   count,
+  title,
+  subtitle,
+  submitLabel,
+  dateLabel,
   courierSummary,
   missingCourierCount = 0,
   courierOptions = [],
@@ -77,8 +85,8 @@ export function BulkShipModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={`Mark ${count} order${count === 1 ? '' : 's'} ready for pickup`}
-      subtitle="Moves packed parcels into the pickup queue. Scan the bill barcode when the rider takes each parcel."
+      title={title ?? `Mark ${count} order${count === 1 ? '' : 's'} ready for pickup`}
+      subtitle={subtitle ?? "Moves packed parcels into the pickup queue. Scan the bill barcode when the rider takes each parcel."}
       widthClass="max-w-lg"
     >
       <div className="space-y-4">
@@ -116,7 +124,7 @@ export function BulkShipModal({
         )}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="mb-1.5 block text-xs font-semibold text-slate-600">Ready date &amp; time</label>
+            <label className="mb-1.5 block text-xs font-semibold text-slate-600">{dateLabel ?? 'Ready date & time'}</label>
             <input
               type="datetime-local"
               value={handoverAt}
@@ -170,7 +178,7 @@ export function BulkShipModal({
             disabled={busy || (missingCourierCount > 0 && !selectedCourierPartner)}
             className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {busy ? 'Saving...' : 'Mark ready'}
+            {busy ? 'Saving...' : (submitLabel ?? 'Mark ready')}
           </button>
         </div>
       </div>
