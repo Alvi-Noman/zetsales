@@ -8,8 +8,8 @@ export interface ExtensionSession {
 
 const STORAGE_KEY = 'zetsalesSession';
 
-export const DEFAULT_API_BASE_URL = 'https://zetsales.online/api/v1';
-export const DEFAULT_APP_BASE_URL = 'https://zetsales.online';
+export const DEFAULT_API_BASE_URL = 'https://zetsales.com/api/v1';
+export const DEFAULT_APP_BASE_URL = 'https://zetsales.com';
 
 export async function getSession(): Promise<ExtensionSession | null> {
   const result = await chrome.storage.local.get(STORAGE_KEY);

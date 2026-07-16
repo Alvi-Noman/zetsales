@@ -1,4 +1,4 @@
-zetsales.online, www.zetsales.online {
+zetsales.com, www.zetsales.com, zetsales.online, www.zetsales.online {
   encode zstd gzip
   reverse_proxy mainapp:80
 }

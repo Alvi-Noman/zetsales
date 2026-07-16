@@ -2,7 +2,7 @@
 
 client_id = "c822d87ad3a13fb1afcbdf540aa25344"
 name = "ZetSales"
-application_url = "https://zetsales.online"
+application_url = "https://zetsales.com"
 embedded = true
 
 [webhooks]
@@ -16,5 +16,5 @@ use_legacy_install_flow = false
 
 [auth]
 redirect_urls = [
-  "https://zetsales.online/api/v1/commerce/stores/shopify/oauth/callback"
+  "https://zetsales.com/api/v1/commerce/stores/shopify/oauth/callback"
 ]
