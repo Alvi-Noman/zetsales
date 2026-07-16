@@ -59,6 +59,10 @@ import {
   type BulkStockResolution,
 } from "../../components/orders/BulkStockPopup";
 import {
+  BulkShipModal,
+  type HandoverDetails,
+} from "../../components/orders/BulkShipModal";
+import {
   buildBinLookup,
   type BinLookup,
 } from "../../components/orders/binLookup";
@@ -128,6 +132,11 @@ import { useToast } from "../../components/ui/ToastProvider";
 const PLATFORM_META = {
   shopify: { label: "Shopify", logo: ShopifyLogo },
   woocommerce: { label: "WooCommerce", logo: WooCommerceLogo },
+} as const;
+
+const COURIER_PROVIDER_LABEL = {
+  steadfast: "Steadfast",
+  pathao: "Pathao",
 } as const;
 
 const NEW_ORDERS_POLL_MS = 25_000;
@@ -238,6 +247,8 @@ export function OrdersPage() {
   const [exporting, setExporting] = useState(false);
   const [printDocType, setPrintDocType] = useState<PrintDocType | null>(null);
   const [labelModalOpen, setLabelModalOpen] = useState(false);
+  const [bulkShipModalOpen, setBulkShipModalOpen] = useState(false);
+  const [bulkShipCourierPartner, setBulkShipCourierPartner] = useState("");
   const [binLookup, setBinLookup] = useState<BinLookup | undefined>(undefined);
   // Backs the Confirmed-tab "Ready to pack"/"N short" badge and the Pending/Flagged "Mixed stock"
   // heads-up badge — loaded once up front (like stores/couriers) rather than per-tab, since both
@@ -587,6 +598,60 @@ export function OrdersPage() {
     }
   };
 
+  const openBulkReadyForPickup = () => {
+    if (shippableSelectedIds.length === 0) return;
+    const missingCount = shippableMissingCourierOrders.length;
+    setBulkShipCourierPartner(
+      missingCount > 0 && courierOptions.length === 1
+        ? courierOptions[0].value
+        : "",
+    );
+    setBulkShipModalOpen(true);
+  };
+
+  const handleBulkReadyForPickup = async (_details: HandoverDetails) => {
+    if (shippableSelectedIds.length === 0) return;
+    const missingCourierIds = shippableMissingCourierOrders.map((o) => o.id);
+    if (missingCourierIds.length > 0 && !bulkShipCourierPartner) return;
+
+    setBulkBusy(true);
+    try {
+      if (missingCourierIds.length > 0) {
+        const assignRes = await bulkUpdateOrders(missingCourierIds, {
+          courierPartner: bulkShipCourierPartner,
+        });
+        const assignFailed = assignRes.results.find((r) => !r.success);
+        if (assignFailed) {
+          toast.push(assignFailed.error ?? "Could not assign courier.", "info");
+          return;
+        }
+      }
+
+      const res = await bulkUpdateOrders(shippableSelectedIds, {
+        stage: "Shipped",
+      });
+      const successCount = res.results.filter((r) => r.success).length;
+      const failed = res.results.find((r) => !r.success);
+      setBulkShipModalOpen(false);
+      setSelected(new Set());
+      refreshAll();
+      toast.push(
+        failed?.error ??
+          `Marked ${successCount} of ${shippableSelectedIds.length} order${
+            shippableSelectedIds.length === 1 ? "" : "s"
+          } ready for pickup.`,
+        successCount > 0 ? "success" : "info",
+      );
+    } catch (err) {
+      toast.push(
+        err instanceof Error ? err.message : "Could not mark orders ready.",
+        "info",
+      );
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   // Not part of the order patch schema either — a courier COD settlement is a batch payout that
   // doesn't map onto the normal stage/hold/cancel patch shape, so this goes through its own
   // dedicated bulk endpoint (bulkMarkPaymentCollected) rather than runBulk/bulkUpdateOrders.
@@ -829,6 +894,26 @@ export function OrdersPage() {
     (o) => o.stage === "Processing",
   );
   const shippableSelectedIds = shippableSelectedOrders.map((o) => o.id);
+  const shippableMissingCourierOrders = shippableSelectedOrders.filter(
+    (o) => !o.courierPartner,
+  );
+  const courierOptions = couriers.map((c) => ({
+    value: COURIER_PROVIDER_LABEL[c.provider],
+    label: COURIER_PROVIDER_LABEL[c.provider],
+  }));
+  const shippableCourierSummary = (() => {
+    if (shippableSelectedOrders.length === 0) return "No packed orders selected";
+    const counts = new Map<string, number>();
+    for (const order of shippableSelectedOrders) {
+      counts.set(
+        order.courierPartner ?? "Unassigned",
+        (counts.get(order.courierPartner ?? "Unassigned") ?? 0) + 1,
+      );
+    }
+    return [...counts.entries()]
+      .map(([partner, count]) => `${partner} x${count}`)
+      .join(", ");
+  })();
   const handoverReadySelectedIds = selectedOrders
     .filter((o) => o.stage === "Shipped")
     .map((o) => o.id);
@@ -1597,7 +1682,7 @@ export function OrdersPage() {
         }
         onMarkShipped={
           shippableSelectedIds.length > 0
-            ? () => void runBulk(shippableSelectedIds, { stage: "Shipped" })
+            ? openBulkReadyForPickup
             : undefined
         }
         onHandOverToCourier={
@@ -1700,6 +1785,18 @@ export function OrdersPage() {
         open={labelModalOpen}
         onClose={() => setLabelModalOpen(false)}
         orders={selectedOrders}
+      />
+      <BulkShipModal
+        open={bulkShipModalOpen}
+        count={shippableSelectedIds.length}
+        courierSummary={shippableCourierSummary}
+        missingCourierCount={shippableMissingCourierOrders.length}
+        courierOptions={courierOptions}
+        selectedCourierPartner={bulkShipCourierPartner}
+        busy={bulkBusy}
+        onClose={() => setBulkShipModalOpen(false)}
+        onCourierChange={setBulkShipCourierPartner}
+        onSubmit={(details) => void handleBulkReadyForPickup(details)}
       />
       <ImportOrdersModal
         store={importTarget}
