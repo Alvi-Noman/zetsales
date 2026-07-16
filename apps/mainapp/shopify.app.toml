@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "c822d87ad3a13fb1afcbdf540aa25344"
-application_url = "https://zetsales.com"
+application_url = "https://app.zetsales.com"
 embedded = true
 name = "ZetSales"
 
@@ -13,7 +13,7 @@ use_legacy_install_flow = false
 
 [auth]
 redirect_urls = [
-  "https://zetsales.com/api/v1/commerce/stores/shopify/oauth/callback"
+  "https://app.zetsales.com/api/v1/commerce/stores/shopify/oauth/callback"
 ]
 
 [webhooks]
