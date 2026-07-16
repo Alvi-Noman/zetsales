@@ -460,7 +460,7 @@ export async function listAllInventoryLevels(params: Omit<ListInventoryParams, '
   while (true) {
     const res = await listInventory({ ...params, page, pageSize });
     all.push(...res.levels);
-    if (all.length >= res.total || res.levels.length === 0 || all.length >= 20_000) break;
+    if (all.length >= res.total || res.levels.length < pageSize || all.length >= 20_000) break;
     page += 1;
   }
   return all;
