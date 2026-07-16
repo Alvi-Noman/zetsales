@@ -27,6 +27,12 @@ export async function connectDb() {
   await client.connect();
   logger.info('Connected to MongoDB!');
   const db = client.db();
+  void ensureIndexes(db).catch((error) =>
+    logger.error('Failed to ensure indexes on MongoDB', { message: (error as Error).message, stack: (error as Error).stack })
+  );
+}
+
+async function ensureIndexes(db: ReturnType<typeof client.db>) {
 
   await db.collection('stores').createIndex({ tenantId: 1 });
   await db.collection('stores').createIndex({ tenantId: 1, platform: 1, shopDomain: 1 }, { unique: true, sparse: true });
