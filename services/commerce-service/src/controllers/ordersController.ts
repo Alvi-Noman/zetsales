@@ -119,6 +119,29 @@ function toOrderDto(doc: any): OrderDTO {
   };
 }
 
+function inventoryLevelDto(doc: any) {
+  return {
+    id: doc._id.toString(),
+    productId: doc.productId ?? null,
+    variantId: doc.variantId ?? null,
+    sku: doc.sku ?? null,
+    productTitle: doc.productTitle ?? null,
+    productImage: doc.productImage ?? null,
+    variantLabel: doc.variantLabel ?? null,
+    warehouseId: doc.warehouseId,
+    warehouseName: doc.warehouseName,
+    bin: doc.bin,
+    onHand: doc.onHand ?? 0,
+    reserved: doc.reserved ?? 0,
+    inbound: doc.inbound ?? 0,
+    unitCost: doc.unitCost ?? null,
+    pendingUnitCost: doc.pendingUnitCost ?? null,
+    reorderPoint: doc.reorderPoint ?? null,
+    updatedAt: new Date(doc.updatedAt).toISOString(),
+    createdAt: new Date(doc.createdAt ?? doc.updatedAt).toISOString(),
+  };
+}
+
 function isDuplicateKeyError(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && (error as any).code === 11000);
 }
@@ -1342,6 +1365,37 @@ export async function getOrder(req: AuthenticatedRequest, res: Response) {
   await attachReturningFlags(db, tenantId, [dto]);
   await attachRiskLabels(db, tenantId, [dto]);
   res.json({ success: true, order: dto, risk, courierUnavailable });
+}
+
+export async function getOrderInventorySnapshot(req: AuthenticatedRequest, res: Response) {
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  if (!ObjectId.isValid(req.params.id)) {
+    res.status(400).json({ success: false, message: 'Invalid order id' });
+    return;
+  }
+
+  const order = await db.collection('orders').findOne(
+    { _id: new ObjectId(req.params.id), tenantId },
+    { projection: { lineItems: 1 } }
+  );
+  if (!order) {
+    res.status(404).json({ success: false, message: 'Order not found' });
+    return;
+  }
+
+  const skus = [...new Set((order.lineItems ?? []).map((item: any) => item.sku).filter((sku: unknown): sku is string => typeof sku === 'string' && sku.trim().length > 0))];
+  if (skus.length === 0) {
+    res.json({ success: true, levels: [] });
+    return;
+  }
+
+  const levels = await db
+    .collection('inventoryLevels')
+    .find({ tenantId, sku: { $in: skus } })
+    .sort({ sku: 1, onHand: -1 })
+    .toArray();
+  res.json({ success: true, levels: levels.map(inventoryLevelDto) });
 }
 
 const createOrderSchema = z.object({

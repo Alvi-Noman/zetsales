@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireAuth, requireTenant, requireModule } from '../middleware/authMiddleware.js';
 import {
-  importStoreOrdersStream, listOrders, getOrder, getOrderFulfillmentStatus, getOrderStats, getOrderTrends, updateOrder, bulkUpdateOrders, markPartialDelivered,
+  importStoreOrdersStream, listOrders, getOrder, getOrderInventorySnapshot, getOrderFulfillmentStatus, getOrderStats, getOrderTrends, updateOrder, bulkUpdateOrders, markPartialDelivered,
   blockCustomer, unblockCustomer, markPaymentCollected, bulkMarkPaymentCollected, bulkRecheckFraud, claimOrder, heartbeatOrderClaim, releaseOrderClaim, upsellOrder, removeOrderLineItem, createOrder, splitOrder,
   getReadyToPrintOrders, markOrdersPrinted, ensureOrderInvoices, getCourierShipmentStats, dispatchScanHandover,
 } from '../controllers/ordersController.js';
@@ -25,6 +25,7 @@ router.post('/orders/mark-printed', requireAuth, requireTenant, requireOrders, m
 router.get('/orders', requireAuth, requireTenant, requireOrders, listOrders);
 router.post('/orders', requireAuth, requireTenant, requireOrders, createOrder);
 router.get('/orders/:id', requireAuth, requireTenant, requireOrders, getOrder);
+router.get('/orders/:id/inventory-snapshot', requireAuth, requireTenant, requireOrders, getOrderInventorySnapshot);
 router.get('/orders/:id/fulfillment-status', requireAuth, requireTenant, requireOrders, getOrderFulfillmentStatus);
 router.patch('/orders/:id', requireAuth, requireTenant, requireOrders, updateOrder);
 router.post('/orders/:id/partial-deliver', requireAuth, requireTenant, requireOrders, markPartialDelivered);

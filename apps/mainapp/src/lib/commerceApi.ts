@@ -1019,6 +1019,11 @@ export async function getOrder(id: string, riskScope: 'network' | 'store' | 'cou
   return res.data as { success: boolean; order: OrderDTO; risk: OrderRiskDTO; courierUnavailable: boolean };
 }
 
+export async function getOrderInventorySnapshot(id: string) {
+  const res = await api.get(`/commerce/orders/${id}/inventory-snapshot`);
+  return res.data as { success: boolean; levels: InventoryLevelDTO[] };
+}
+
 export interface CreateOrderPayload {
   storeId: string;
   customerName: string;

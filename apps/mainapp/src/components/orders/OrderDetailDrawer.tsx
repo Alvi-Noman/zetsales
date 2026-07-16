@@ -46,9 +46,9 @@ import {
   createDeliveryZone,
   getOrder,
   getOrderFulfillmentStatus,
+  getOrderInventorySnapshot,
   getProduct,
   heartbeatOrderClaim,
-  listAllInventoryLevels,
   listDeliveryZones,
   markPaymentCollected,
   releaseOrderClaim,
@@ -391,9 +391,9 @@ export function OrderDetailDrawer({
   // warehouse-aware), and free stock backs the per-line-item stock display in
   // the Items section below, so staff can see at a glance whether what was just confirmed is
   // actually still in the building.
-  const loadInventorySnapshot = async () => {
+  const loadInventorySnapshot = async (orderId: string) => {
     try {
-      const levels = await listAllInventoryLevels();
+      const { levels } = await getOrderInventorySnapshot(orderId);
       setBinLookup(buildBinLookup(levels));
       setStockLookup(buildStockLookup(levels));
     } catch {
@@ -457,11 +457,15 @@ export function OrderDetailDrawer({
     setRiskScope("courier");
     setCourierUnavailable(false);
     if (order) {
+      setBinLookup(undefined);
+      setStockLookup(undefined);
       void refresh(order.id);
-      void loadInventorySnapshot();
+      void loadInventorySnapshot(order.id);
       void loadZones();
     } else {
       setDetail(null);
+      setBinLookup(undefined);
+      setStockLookup(undefined);
     }
     setAddingZone(false);
     setNewZoneName("");
@@ -2142,7 +2146,7 @@ export function OrderDetailDrawer({
                           <button
                             onClick={() => {
                               close();
-                              void loadInventorySnapshot();
+                              void loadInventorySnapshot(detail.id);
                               setPrintDocType("packingSlip");
                             }}
                             className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
@@ -2156,7 +2160,7 @@ export function OrderDetailDrawer({
                           <button
                             onClick={() => {
                               close();
-                              void loadInventorySnapshot();
+                              void loadInventorySnapshot(detail.id);
                               setPrintDocType("combined");
                             }}
                             className="flex w-full items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
