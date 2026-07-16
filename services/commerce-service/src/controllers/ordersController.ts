@@ -673,6 +673,19 @@ function orderHasShortfall(lineItems: { sku: string | null; quantity: number }[]
   });
 }
 
+function restockedCandidateExpr() {
+  return {
+    $or: [
+      { wasShortOfStock: true },
+      { splitFromOrderId: { $nin: [null, ''] } },
+    ],
+  };
+}
+
+function addRestockedCandidateFilter(match: Record<string, unknown>) {
+  match.$and = [...((match.$and as Record<string, unknown>[] | undefined) ?? []), restockedCandidateExpr()];
+}
+
 export async function listOrders(req: AuthenticatedRequest, res: Response) {
   const db = getDb();
   const tenantId = req.user!.tenantId!;
@@ -741,7 +754,7 @@ export async function listOrders(req: AuthenticatedRequest, res: Response) {
   // "short on stock" view, not here, and this stays a *narrowing* of match rather than a separate
   // mutually-exclusive filter so "Ready to pack" itself never loses these orders.
   if (stockStatus === 'ready' && req.query.restockedOnly === 'true') {
-    match.wasShortOfStock = true;
+    addRestockedCandidateFilter(match);
   }
 
   // Delivery Partners dashboard's tile filter — same candidate-fetch-then-narrow-_id shape as the
@@ -927,7 +940,7 @@ export async function getOrderStats(req: AuthenticatedRequest, res: Response) {
   // disagrees with what "Restocked only" actually lists.
   const restockedCandidates = await db
     .collection('orders')
-    .find({ ...scopedMatch, stage: 'Confirmed', wasShortOfStock: true }, { projection: { lineItems: 1 } })
+    .find({ ...scopedMatch, stage: 'Confirmed', ...restockedCandidateExpr() }, { projection: { lineItems: 1 } })
     .toArray();
   let restockedReadyCount = 0;
   if (restockedCandidates.length > 0) {
@@ -2147,6 +2160,7 @@ export async function splitOrder(req: AuthenticatedRequest, res: Response) {
     customerEmail: current.customerEmail ?? null,
     address: current.address ?? null,
     lineItems: shortItems,
+    wasShortOfStock: true,
     holdReason: null,
     cancelReason: null,
     flagReason: null,
