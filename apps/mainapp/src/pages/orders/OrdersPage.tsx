@@ -58,10 +58,7 @@ import {
   BulkStockPopup,
   type BulkStockResolution,
 } from "../../components/orders/BulkStockPopup";
-import {
-  BulkShipModal,
-  type HandoverDetails,
-} from "../../components/orders/BulkShipModal";
+import { BulkShipModal } from "../../components/orders/BulkShipModal";
 import {
   buildBinLookup,
   type BinLookup,
@@ -625,7 +622,7 @@ export function OrdersPage() {
     setBulkShipModalOpen(true);
   };
 
-  const handleBulkReadyForPickup = async (_details: HandoverDetails) => {
+  const handleBulkReadyForPickup = async () => {
     const isHandover = bulkShipMode === "handover";
     const targetIds = isHandover
       ? handoverReadySelectedIds
@@ -1855,9 +1852,6 @@ export function OrdersPage() {
         submitLabel={
           bulkShipMode === "handover" ? "Hand over to courier" : undefined
         }
-        dateLabel={
-          bulkShipMode === "handover" ? "Handover date & time" : undefined
-        }
         courierSummary={
           bulkShipMode === "handover"
             ? handoverCourierSummary
@@ -1873,7 +1867,7 @@ export function OrdersPage() {
         busy={bulkBusy}
         onClose={() => setBulkShipModalOpen(false)}
         onCourierChange={setBulkShipCourierPartner}
-        onSubmit={(details) => void handleBulkReadyForPickup(details)}
+        onSubmit={() => void handleBulkReadyForPickup()}
       />
       <ImportOrdersModal
         store={importTarget}
