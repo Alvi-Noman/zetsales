@@ -10,6 +10,8 @@ export function useInstalledApps() {
     queryKey: ['apps', user?.tenantId],
     queryFn: listApps,
     enabled: !!user?.tenantId,
-    staleTime: 60_000,
+    staleTime: 10 * 60_000,
+    refetchOnWindowFocus: false,
+    retry: false,
   });
 }

@@ -255,6 +255,11 @@ export function OrdersPage() {
   >({});
   const searchRef = useRef<HTMLInputElement>(null);
   const knownTabCountRef = useRef<number | null>(null);
+  const statsFetchRef = useRef<{
+    key: string;
+    at: number;
+    promise: Promise<void> | null;
+  }>({ key: "", at: 0, promise: null });
 
   const loadStores = async () => {
     setStoresLoading(true);
@@ -277,8 +282,21 @@ export function OrdersPage() {
   };
 
   const loadStats = async () => {
-    try {
-      const { from, to } = getRangeBounds(dateRange, statsCustomRange);
+    const { from, to } = getRangeBounds(dateRange, statsCustomRange);
+    const key = JSON.stringify({
+      storeId: storeFilter !== "all" ? storeFilter : undefined,
+      dateFrom: from ?? undefined,
+      dateTo: to ?? undefined,
+      tab,
+    });
+    const now = Date.now();
+    if (statsFetchRef.current.key === key) {
+      if (statsFetchRef.current.promise) return statsFetchRef.current.promise;
+      if (now - statsFetchRef.current.at < 10_000) return;
+    }
+
+    const promise = (async () => {
+      try {
       const data = await getOrderStats({
         storeId: storeFilter !== "all" ? storeFilter : undefined,
         dateFrom: from ?? undefined,
@@ -287,9 +305,14 @@ export function OrdersPage() {
       setStats(data);
       knownTabCountRef.current = data.tabCounts[tab];
       setNewOrdersCount(0);
-    } catch {
-      // Stats support badges and live-order hints; the table can still work without them.
-    }
+      } catch {
+        // Stats support badges and live-order hints; the table can still work without them.
+      } finally {
+        statsFetchRef.current.promise = null;
+      }
+    })();
+    statsFetchRef.current = { key, at: now, promise };
+    return promise;
   };
 
   const loadOrders = async (pageArg: number) => {
