@@ -62,13 +62,13 @@ const PRINT_TASKS: {
   {
     key: "packingSlip",
     title: "Print Packing Slip",
-    detail: "Packing orders only, for warehouse picking.",
+    detail: "Packing and ready-for-pickup orders, for warehouse picking.",
     icon: Package,
   },
   {
     key: "combined",
     title: "Print Invoice + Slip",
-    detail: "Packing orders with both customer and warehouse pages.",
+    detail: "Packing and ready-for-pickup orders with both pages.",
     icon: Printer,
   },
   {
@@ -137,7 +137,7 @@ function printCode(order: OrderDTO) {
 
 export function PrintOutPage() {
   const toast = useToast();
-  const [task, setTask] = useState<PrintTask>("invoice");
+  const [task, setTask] = useState<PrintTask>("packingSlip");
   const [orders, setOrders] = useState<OrderDTO[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrderDTO[]>([]);
   const [loading, setLoading] = useState(true);
@@ -190,12 +190,14 @@ export function PrintOutPage() {
       const res =
         nextTask === "invoice"
           ? await listReadyToPrintOrders()
-          : await listOrders({
-              tab: nextTask === "courierLabel" ? "courierBooked" : "processing",
-              sortKey: "date",
-              sortDir: "asc",
-              pageSize: 100,
-            });
+          : nextTask === "courierLabel"
+            ? await listOrders({
+                tab: "courierBooked",
+                sortKey: "date",
+                sortDir: "asc",
+                pageSize: 100,
+              })
+            : await listPackingPrintableOrders();
 
       setOrders(res.orders);
       setPurchaseOrders([]);
@@ -733,6 +735,32 @@ export function PrintOutPage() {
       />
     </div>
   );
+}
+
+async function listPackingPrintableOrders(): Promise<{ orders: OrderDTO[] }> {
+  const [packing, readyForPickup] = await Promise.all([
+    listOrders({
+      tab: "processing",
+      sortKey: "date",
+      sortDir: "asc",
+      pageSize: 100,
+    }),
+    listOrders({
+      tab: "courierBooked",
+      sortKey: "date",
+      sortDir: "asc",
+      pageSize: 100,
+    }),
+  ]);
+  const byId = new Map<string, OrderDTO>();
+  [...packing.orders, ...readyForPickup.orders]
+    .sort(
+      (a, b) =>
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    )
+    .forEach((order) => byId.set(order.id, order));
+
+  return { orders: [...byId.values()] };
 }
 
 function SelectionBar({
