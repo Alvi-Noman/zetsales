@@ -553,12 +553,26 @@ export function OrdersPage() {
   // "Send to packing" is the only way Confirmed orders advance to Processing — printing a packing
   // slip no longer triggers this (packing slips are only printable once an order is already in
   // Processing+). Same stock-check popup as handleBulkConfirm above.
-  const handleBulkSendToPacking = (ids: string[]) => {
+  const getCurrentStockLookup = async () => {
+    if (stockLookup) return stockLookup;
+    const levels = await listAllInventoryLevels();
+    setStockLevels(levels);
+    return buildStockLookup(levels);
+  };
+
+  const handleBulkSendToPacking = async (ids: string[]) => {
     if (ids.length === 0) return;
     const selectedForPacking = orders.filter((o) => ids.includes(o.id));
+    let lookup = stockLookup;
+    try {
+      lookup = await getCurrentStockLookup();
+    } catch {
+      toast.push("Could not check stock before sending to packing.", "info");
+      return;
+    }
     const { ready, mixed, fullyShort } = classifyOrdersByStock(
       selectedForPacking,
-      stockLookup,
+      lookup,
     );
     if (mixed.length === 0 && fullyShort.length === 0) {
       void runBulk(ids, { stage: "Processing" });
@@ -1738,7 +1752,7 @@ export function OrdersPage() {
         }
         onSendToPacking={
           packableSelectedIds.length > 0
-            ? () => handleBulkSendToPacking(packableSelectedIds)
+            ? () => void handleBulkSendToPacking(packableSelectedIds)
             : undefined
         }
         onHold={
