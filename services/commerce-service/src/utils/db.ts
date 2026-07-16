@@ -4,6 +4,24 @@ import logger from './logger.js';
 
 export const client = new MongoClient(env.MONGODB_URI || 'mongodb://localhost:27017/zetsales');
 
+async function ensureInvoiceNoIndex(db: ReturnType<typeof client.db>) {
+  const orders = db.collection('orders');
+  const indexName = 'tenantId_1_invoiceNo_1';
+  const existing = await orders.indexes();
+  const invoiceIndex = existing.find((index) => index.name === indexName);
+  const hasPartialStringFilter =
+    invoiceIndex?.partialFilterExpression &&
+    JSON.stringify(invoiceIndex.partialFilterExpression) === JSON.stringify({ invoiceNo: { $type: 'string' } });
+
+  if (hasPartialStringFilter) return;
+  if (invoiceIndex) await orders.dropIndex(indexName);
+
+  await orders.createIndex(
+    { tenantId: 1, invoiceNo: 1 },
+    { unique: true, partialFilterExpression: { invoiceNo: { $type: 'string' } } }
+  );
+}
+
 export async function connectDb() {
   logger.info('Connecting to MongoDB...');
   await client.connect();
@@ -16,13 +34,9 @@ export async function connectDb() {
   await db.collection('products').createIndex({ tenantId: 1, storeId: 1, externalId: 1 }, { unique: true, sparse: true });
   await db.collection('orders').createIndex({ tenantId: 1, storeId: 1 });
   await db.collection('orders').createIndex({ tenantId: 1, storeId: 1, externalId: 1 }, { unique: true, sparse: true });
-  await db.collection('orders').dropIndex('tenantId_1_invoiceNo_1').catch(() => {});
-  await db
-    .collection('orders')
-    .createIndex(
-      { tenantId: 1, invoiceNo: 1 },
-      { unique: true, partialFilterExpression: { invoiceNo: { $type: 'string' } } }
-    );
+  void ensureInvoiceNoIndex(db)
+    .then(() => logger.info('Invoice number index ensured on MongoDB.'))
+    .catch((error) => logger.error('Failed to ensure invoice number index', { message: (error as Error).message, stack: (error as Error).stack }));
   // Inventory is keyed by productId+variantId, not sku — confirmed against live data that most
   // multi-variant products (664 of 666) have two or more variants sharing an identical SKU, so raw
   // SKU can't be trusted as a unique key. sku is still stored and searched, just not unique.
