@@ -61,7 +61,9 @@ export function CallCenterPage() {
 
   useEffect(() => {
     void load();
-    const interval = setInterval(() => void load(), POLL_INTERVAL_MS);
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [load]);
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertCircle, Pause, Play } from "lucide-react";
 import clsx from "clsx";
 import type {
@@ -26,6 +26,9 @@ const STATUS_STYLE: Record<AdCampaignPlatformStatusDTO["status"], string> = {
   active: "bg-emerald-50 text-emerald-700",
   failed: "bg-rose-50 text-rose-700",
 };
+
+const CAMPAIGN_STATUS_POLL_MS = 3000;
+const CAMPAIGN_STATUS_POLL_LIMIT_MS = 2 * 60_000;
 
 function PlatformChip({
   platform,
@@ -98,6 +101,7 @@ export function CampaignList({ refreshKey }: { refreshKey: number }) {
   const toast = useToast();
   const [campaigns, setCampaigns] = useState<AdCampaignDTO[]>([]);
   const [loading, setLoading] = useState(true);
+  const statusPollStartedAtRef = useRef<number | null>(null);
 
   const load = async () => {
     try {
@@ -123,8 +127,17 @@ export function CampaignList({ refreshKey }: { refreshKey: number }) {
         (p) => p && (p.status === "pending" || p.status === "creating"),
       ),
     );
-    if (!inFlight) return;
-    const timer = setInterval(() => void load(), 3000);
+    if (!inFlight) {
+      statusPollStartedAtRef.current = null;
+      return;
+    }
+    if (statusPollStartedAtRef.current === null) {
+      statusPollStartedAtRef.current = Date.now();
+    }
+    if (Date.now() - statusPollStartedAtRef.current > CAMPAIGN_STATUS_POLL_LIMIT_MS) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, CAMPAIGN_STATUS_POLL_MS);
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaigns]);

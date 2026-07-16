@@ -105,7 +105,9 @@ export function CustomerServicePage() {
   useEffect(() => {
     void loadConversations();
     const interval = setInterval(
-      () => void loadConversations(),
+      () => {
+        if (document.visibilityState === "visible") void loadConversations();
+      },
       POLL_INTERVAL_MS,
     );
     return () => clearInterval(interval);
@@ -130,7 +132,9 @@ export function CustomerServicePage() {
     if (!activeId) return;
     void loadMessages(activeId);
     const interval = setInterval(
-      () => void loadMessages(activeId),
+      () => {
+        if (document.visibilityState === "visible") void loadMessages(activeId);
+      },
       POLL_INTERVAL_MS,
     );
     return () => clearInterval(interval);

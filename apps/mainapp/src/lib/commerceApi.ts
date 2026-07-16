@@ -446,26 +446,6 @@ export async function listInventory(params: ListInventoryParams = {}) {
   };
 }
 
-// listInventory is paginated (50 rows by default, capped at 200/page server-side) — fine for the
-// Inventory table itself, but anything building a whole-tenant lookup (bin-by-SKU for packing
-// slips, free-stock-by-SKU for the mixed-order/readiness badges) needs every row, not just the
-// first page's worth sorted by onHand. Without this, a tenant with more than ~50-200 tracked SKUs
-// would silently miss any SKU that didn't sort onto that first page — a zero-stock SKU sorts last
-// and is exactly the one these lookups most need to find. Same "loop until exhausted" shape as
-// OrdersPage's fetchAllMatching.
-export async function listAllInventoryLevels(params: Omit<ListInventoryParams, 'page' | 'pageSize'> = {}): Promise<InventoryLevelDTO[]> {
-  const pageSize = 200;
-  const all: InventoryLevelDTO[] = [];
-  let page = 1;
-  while (true) {
-    const res = await listInventory({ ...params, page, pageSize });
-    all.push(...res.levels);
-    if (all.length >= res.total || res.levels.length < pageSize || all.length >= 20_000) break;
-    page += 1;
-  }
-  return all;
-}
-
 export async function listVariantLocations(productId: string, variantId: string) {
   const res = await api.get('/commerce/inventory/variant-locations', { params: { productId, variantId } });
   return res.data as { success: boolean; levels: InventoryLevelDTO[] };

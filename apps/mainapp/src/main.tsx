@@ -10,8 +10,8 @@ const queryClient = new QueryClient({
     queries: {
       staleTime: 5 * 60 * 1000,
       gcTime: 30 * 60 * 1000,
-      refetchOnWindowFocus: true,
-      retry: 1,
+      refetchOnWindowFocus: false,
+      retry: false,
     },
     mutations: {
       retry: 0,

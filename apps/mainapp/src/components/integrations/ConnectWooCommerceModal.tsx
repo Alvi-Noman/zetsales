@@ -5,6 +5,9 @@ import { connectWooKeys, startWooAuth, wooAuthStatus } from '../../lib/commerceA
 import { useToast } from '../ui/ToastProvider';
 import type { StoreDTO } from '@zetsales/shared';
 
+const WOO_AUTH_POLL_MS = 2500;
+const WOO_AUTH_MAX_POLLS = 120;
+
 interface ConnectWooCommerceModalProps {
   open: boolean;
   onClose: () => void;
@@ -54,11 +57,21 @@ export function ConnectWooCommerceModal({ open, onClose, onConnected }: ConnectW
       window.open(authorizeUrl, '_blank', 'noopener,noreferrer');
       setWaitingForApproval(true);
 
+      let pollCount = 0;
       pollRef.current = setInterval(async () => {
+        pollCount += 1;
+        if (pollCount > WOO_AUTH_MAX_POLLS) {
+          if (pollRef.current) clearInterval(pollRef.current);
+          pollRef.current = null;
+          setWaitingForApproval(false);
+          setError('WooCommerce authorization timed out. Start the connection again when you are ready.');
+          return;
+        }
         try {
           const status = await wooAuthStatus(sessionId);
           if (status.status === 'connected' && status.store) {
             if (pollRef.current) clearInterval(pollRef.current);
+            pollRef.current = null;
             setWaitingForApproval(false);
             toast.push(`Connected ${status.store.displayName}.`);
             onConnected(status.store);
@@ -67,7 +80,7 @@ export function ConnectWooCommerceModal({ open, onClose, onConnected }: ConnectW
         } catch {
           // keep polling until the session naturally expires
         }
-      }, 2500);
+      }, WOO_AUTH_POLL_MS);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not start the one-click connection.');
     } finally {

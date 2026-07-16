@@ -27,6 +27,7 @@ import oauthRoutes from './routes/oauthRoutes.js';
 import webhooksRoutes from './routes/webhooksRoutes.js';
 import logger from './utils/logger.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { wrapAsyncRouter } from './middleware/asyncHandler.js';
 import { UPLOAD_DIR } from './middleware/upload.js';
 
 const app: Application = express();
@@ -61,7 +62,7 @@ app.use('/api/v1/commerce/uploads', express.static(UPLOAD_DIR, { maxAge: '30d' }
 
 // Webhook routes need the raw body for HMAC verification, so they're mounted before the global
 // JSON body parser (which would otherwise consume the stream).
-app.use('/api/v1/commerce', webhooksRoutes);
+app.use('/api/v1/commerce', wrapAsyncRouter(webhooksRoutes));
 
 app.use(express.json());
 app.use(cookieParser());
@@ -77,26 +78,31 @@ const apiLimiter = rateLimit({
 });
 
 app.use('/api/v1/commerce', apiLimiter);
-app.use('/api/v1/commerce', storesRoutes);
-app.use('/api/v1/commerce', courierRoutes);
-app.use('/api/v1/commerce', productsRoutes);
-app.use('/api/v1/commerce', inventoryRoutes);
-app.use('/api/v1/commerce', preOrdersRoutes);
-app.use('/api/v1/commerce', printTemplatesRoutes);
-app.use('/api/v1/commerce', warehousesRoutes);
-app.use('/api/v1/commerce', deliveryZonesRoutes);
-app.use('/api/v1/commerce', accountingRoutes);
-app.use('/api/v1/commerce', suppliersRoutes);
-app.use('/api/v1/commerce', purchaseOrdersRoutes);
-app.use('/api/v1/commerce', customerRoutes);
-app.use('/api/v1/commerce', ordersRoutes);
-app.use('/api/v1/commerce', analyticsRoutes);
-app.use('/api/v1/commerce', callCenterRoutes);
-app.use('/api/v1/commerce', adPerformanceRoutes);
-app.use('/api/v1/commerce', adAccountsRoutes);
-app.use('/api/v1/commerce', adCampaignsRoutes);
-app.use('/api/v1/commerce', appsRoutes);
-app.use('/api/v1/oauth', oauthRoutes);
+const commerceRouters = [
+  storesRoutes,
+  courierRoutes,
+  productsRoutes,
+  inventoryRoutes,
+  preOrdersRoutes,
+  printTemplatesRoutes,
+  warehousesRoutes,
+  deliveryZonesRoutes,
+  accountingRoutes,
+  suppliersRoutes,
+  purchaseOrdersRoutes,
+  customerRoutes,
+  ordersRoutes,
+  analyticsRoutes,
+  callCenterRoutes,
+  adPerformanceRoutes,
+  adAccountsRoutes,
+  adCampaignsRoutes,
+  appsRoutes,
+];
+for (const router of commerceRouters) {
+  app.use('/api/v1/commerce', wrapAsyncRouter(router));
+}
+app.use('/api/v1/oauth', wrapAsyncRouter(oauthRoutes));
 
 if (!isProd) {
   app.use('/', (req: Request, res: Response) => {
