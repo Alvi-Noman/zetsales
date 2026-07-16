@@ -136,7 +136,6 @@ const COURIER_PROVIDER_LABEL = {
   pathao: "Pathao",
 } as const;
 
-const NEW_ORDERS_POLL_MS = 25_000;
 // COD-workflow statuses first (COD Pending -> Advance Paid -> Collected, the path almost every
 // order actually takes) — Paid/Refunded/Failed are real statuses (driven by non-COD/online-paid
 // orders) but rare for a COD-heavy seller, so they trail behind rather than interrupting the ones
@@ -347,7 +346,6 @@ export function OrdersPage() {
   useEffect(() => {
     void loadStores();
     void loadCouriers();
-    void loadStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -379,26 +377,6 @@ export function OrdersPage() {
   useEffect(() => {
     void loadStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storeFilter, dateRange, statsCustomRange, tab]);
-
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      try {
-        const { from, to } = getRangeBounds(dateRange, statsCustomRange);
-        const data = await getOrderStats({
-          storeId: storeFilter !== "all" ? storeFilter : undefined,
-          dateFrom: from ?? undefined,
-          dateTo: to ?? undefined,
-        });
-        const known = knownTabCountRef.current;
-        if (known !== null && data.tabCounts[tab] > known) {
-          setNewOrdersCount(data.tabCounts[tab] - known);
-        }
-      } catch {
-        // Silent background nudge.
-      }
-    }, NEW_ORDERS_POLL_MS);
-    return () => clearInterval(interval);
   }, [storeFilter, dateRange, statsCustomRange, tab]);
 
   useEffect(() => {
