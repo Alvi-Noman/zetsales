@@ -1,4 +1,5 @@
-import { Routes, Route, Navigate } from "react-router-dom";
+import { useEffect } from "react";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { AppShell } from "./layouts/AppShell";
 import { OrdersPage } from "./pages/orders/OrdersPage";
 import { DispatchPage } from "./pages/dispatch/DispatchPage";
@@ -71,8 +72,24 @@ function FullScreenLoader() {
 
 function AppRoutes() {
   const { user, loading } = useAuth();
+  const location = useLocation();
+
+  useEffect(() => {
+    if (loading || !user?.isOnboarded || !user.businessUrl) return;
+    if (window.location.origin === user.businessUrl) return;
+
+    const authEntryPaths = new Set(["/", "/login", "/signup", "/onboarding"]);
+    const nextPath = authEntryPaths.has(location.pathname)
+      ? "/home"
+      : `${location.pathname}${location.search}${location.hash}`;
+    window.location.assign(`${user.businessUrl}${nextPath}`);
+  }, [loading, location.hash, location.pathname, location.search, user]);
 
   if (loading) return <FullScreenLoader />;
+
+  if (user?.isOnboarded && user.businessUrl && window.location.origin !== user.businessUrl) {
+    return <FullScreenLoader />;
+  }
 
   if (!user) {
     return (
