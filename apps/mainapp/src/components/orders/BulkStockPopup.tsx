@@ -56,7 +56,14 @@ export function BulkStockPopup({ open, mode, mixedOrders, fullyShortOrders, read
   const totalSkipped = skippedMixedCount + skippedFullyShortCount;
 
   const actionVerb = mode === 'confirm' ? 'confirmed' : 'sent to packing';
-  const actionLabel = mode === 'confirm' ? 'Confirm selected' : 'Split & send to packing';
+  const actionLabel =
+    mode === 'confirm'
+      ? 'Confirm selected'
+      : totalProceeding === 0
+        ? 'Nothing to send'
+        : splitCount > 0
+          ? 'Split & send to packing'
+          : 'Send to packing';
 
   return (
     <Modal
