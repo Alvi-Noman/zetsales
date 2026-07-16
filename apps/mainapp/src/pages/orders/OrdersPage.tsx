@@ -40,7 +40,6 @@ import {
   bulkUpdateOrders,
   getOrderStats,
   getOrderInventorySnapshot,
-  listAllInventoryLevels,
   listCouriers,
   listOrders,
   listStores,
@@ -895,8 +894,24 @@ export function OrdersPage() {
   // Resolved per-order against each order's own fulfillmentWarehouseId (see binLookup.ts).
   const loadBinLookup = async () => {
     try {
-      const levels = await listAllInventoryLevels();
-      setBinLookup(buildBinLookup(levels));
+      const selectedForPrint = orders.filter((o) => selected.has(o.id));
+      const missing = selectedForPrint.filter((o) => !stockSnapshots[o.id]);
+      const entries = await Promise.all(
+        missing.map(async (order) => {
+          const { levels } = await getOrderInventorySnapshot(order.id);
+          return [order.id, levels] as const;
+        }),
+      );
+      const nextSnapshots = {
+        ...stockSnapshots,
+        ...Object.fromEntries(entries),
+      };
+      setStockSnapshots(nextSnapshots);
+      setBinLookup(
+        buildBinLookup(
+          selectedForPrint.flatMap((o) => nextSnapshots[o.id] ?? []),
+        ),
+      );
     } catch {
       // Bin numbers are a nice-to-have on the packing slip; staff can still work without them.
     }
