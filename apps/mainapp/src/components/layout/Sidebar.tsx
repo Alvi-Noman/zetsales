@@ -116,7 +116,6 @@ export function Sidebar() {
   const allowedModules = useMemo(() => (user?.role ? ROLE_DEFINITIONS[user.role].modules : ROLE_DEFINITIONS.owner.modules), [user?.role]);
   const isVisible = (item: NavItem) => {
     if (!ALWAYS_VISIBLE_MODULES.includes(item.module) && !allowedModules.includes(item.module)) return false;
-    if (item.businessTypes && (!user?.businessType || !item.businessTypes.includes(user.businessType))) return false;
     // Plugin modules need the tenant to have installed them, on top of the role check above —
     // Settings → Plugins is where an owner/admin turns them on.
     if (PLUGIN_MODULES.includes(item.module) && !user?.installedPlugins?.includes(item.module)) return false;

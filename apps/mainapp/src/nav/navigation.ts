@@ -20,7 +20,7 @@ import {
   Rocket,
   type LucideIcon,
 } from 'lucide-react';
-import type { BusinessType, ModuleKey } from '@zetsales/shared';
+import type { ModuleKey } from '@zetsales/shared';
 
 export interface NavChild {
   label: string;
@@ -34,10 +34,6 @@ export interface NavItem {
   module: ModuleKey;
   badge?: string;
   children?: NavChild[];
-  // Restricts visibility to tenants whose onboarding businessType matches — used for nav items
-  // that only make sense for a specific sourcing model (e.g. Pre-Orders only fits Importers and
-  // Local Wholesale Buyers, not Manufacturers or Dropshippers).
-  businessTypes?: BusinessType[];
 }
 
 export const NAV_ITEMS: NavItem[] = [
@@ -82,7 +78,6 @@ export const NAV_ITEMS: NavItem[] = [
     path: '/pre-orders',
     icon: CalendarClock,
     module: 'preOrders',
-    businessTypes: ['I import my products', 'I buy from local wholesalers'],
   },
   { label: 'Returns', path: '/returns', icon: Undo2, module: 'inventory' },
   { label: 'Suppliers', path: '/suppliers', icon: Handshake, module: 'supplyChain' },

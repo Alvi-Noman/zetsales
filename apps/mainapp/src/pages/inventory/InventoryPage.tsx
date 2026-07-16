@@ -72,7 +72,7 @@ import {
   type SupplierDTO,
   type WarehouseDTO,
 } from "../../lib/commerceApi";
-import type { OrderStage } from "@zetsales/shared";
+import { ROLE_DEFINITIONS, type OrderStage } from "@zetsales/shared";
 import { STAGE_LABEL } from "../../components/orders/orderTone";
 import { Modal } from "../../components/ui/Modal";
 import { Popover } from "../../components/ui/Popover";
@@ -3440,21 +3440,14 @@ export function IncomingCell({
   );
 }
 
-// Mirrors the businessTypes gating on the Pre-Orders nav item (nav/navigation.ts) — those tenants
-// now have shortfalls as their own top-level page, so showing it again here would just be the same
-// list in two places.
-const PRE_ORDERS_PAGE_BUSINESS_TYPES: string[] = [
-  "I import my products",
-  "I buy from local wholesalers",
-];
-
 export function InventoryPage() {
   const toast = useToast();
   const { user } = useAuth();
   const navigate = useNavigate();
-  const hasDedicatedPreOrdersPage =
-    !!user?.businessType &&
-    PRE_ORDERS_PAGE_BUSINESS_TYPES.includes(user.businessType);
+  const allowedModules = user?.role
+    ? ROLE_DEFINITIONS[user.role].modules
+    : ROLE_DEFINITIONS.owner.modules;
+  const hasDedicatedPreOrdersPage = allowedModules.includes("preOrders");
   const [view, setView] = useState<PageView>("stock");
   // The current page's rows, full detail — the actual table content. Counts, the summary tiles,
   // the velocity map, and multi-location detection all come from the server already computed
