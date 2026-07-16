@@ -1159,6 +1159,7 @@ export function OrdersPage() {
                     handleTabChange("confirmed");
                     setStockStatusFilter("ready");
                     setRestockedOnly(true);
+                    setDateRange("all");
                   }}
                 />
               )}

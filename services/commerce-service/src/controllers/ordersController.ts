@@ -940,7 +940,7 @@ export async function getOrderStats(req: AuthenticatedRequest, res: Response) {
   // disagrees with what "Restocked only" actually lists.
   const restockedCandidates = await db
     .collection('orders')
-    .find({ ...scopedMatch, stage: 'Confirmed', ...restockedCandidateExpr() }, { projection: { lineItems: 1 } })
+    .find({ ...baseMatch, stage: 'Confirmed', ...restockedCandidateExpr() }, { projection: { lineItems: 1 } })
     .toArray();
   let restockedReadyCount = 0;
   if (restockedCandidates.length > 0) {
@@ -1281,15 +1281,14 @@ export async function getOrder(req: AuthenticatedRequest, res: Response) {
   // able to tell them apart when something's actually wrong.
   let courierUnavailable = false;
   if (req.query.riskScope === 'courier') {
-    // Serves each courier's cached background check if one already landed; otherwise (or when
-    // ?forceRecheck=true, from the drawer's "Recheck risk" button) fetches live so the drawer
-    // either shows something for an order that predates this feature, or gets genuinely fresh
-    // numbers instead of re-serving what's cached. The two couriers are independent — one being
-    // unavailable doesn't block showing the other's real data.
+    // Serves each courier's cached background check if one already landed. Live courier dashboard
+    // calls only run on an explicit ?forceRecheck=true request; opening the drawer must stay fast
+    // so order details and stock status are not hidden behind slow third-party fraud checks.
     let steadfastCheck = doc.steadfastFraudCheck ?? null;
     let pathaoCheck = doc.pathaoFraudCheck ?? null;
-    const needsSteadfast = !steadfastCheck || req.query.forceRecheck === 'true';
-    const needsPathao = !pathaoCheck || req.query.forceRecheck === 'true';
+    const forceCourierRecheck = req.query.forceRecheck === 'true';
+    const needsSteadfast = forceCourierRecheck;
+    const needsPathao = forceCourierRecheck;
     if (needsSteadfast || needsPathao) {
       const [steadfastLive, pathaoLive] = await Promise.all([
         needsSteadfast ? getSteadfastFraudCheck(doc.customerPhone) : Promise.resolve(undefined),
