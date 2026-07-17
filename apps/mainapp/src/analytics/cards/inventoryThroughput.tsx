@@ -30,7 +30,7 @@ function Card({ query }: AnalyticsCardComponentProps) {
             <p className="font-semibold tabular-nums text-slate-700">{formatCount(data.totalReceived)}</p>
           </div>
           <div>
-            <p className="text-slate-400">Shipped</p>
+            <p className="text-slate-400">Ready for pickup</p>
             <p className="font-semibold tabular-nums text-slate-700">{formatCount(data.totalShipped)}</p>
           </div>
         </div>
@@ -45,7 +45,7 @@ function Detail({ query }: AnalyticsCardComponentProps) {
   const tiles = [
     { label: 'Units ordered', value: formatCount(data.totalOrdered) },
     { label: 'Units received', value: formatCount(data.totalReceived) },
-    { label: 'Units shipped', value: formatCount(data.totalShipped) },
+    { label: 'Units ready for pickup', value: formatCount(data.totalShipped) },
     { label: 'Unique SKUs in catalog', value: formatCount(data.uniqueSkus) },
     { label: 'Current inventory value', value: formatMoney(data.totalInventoryValue) },
   ];

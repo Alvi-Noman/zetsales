@@ -4,7 +4,7 @@ import type { OrderStage } from '@zetsales/shared';
 // The "normal path" a COD order walks through, left to right, for the stepper visual. Exception
 // stages (Flagged, On Hold, Returned, Partial Delivered, Cancelled) aren't steps on this line —
 // they're handled as banners/overrides on top of wherever the order actually is.
-export const STAGE_ORDER: OrderStage[] = ['Pending', 'Confirmed', 'Processing', 'Shipped', 'Out for Delivery', 'Delivered'];
+export const STAGE_ORDER: OrderStage[] = ['Pending', 'Confirmed', 'Processing', 'Ready for Pickup', 'Shipped', 'Out for Delivery', 'Delivered'];
 
 export interface StageAction {
   label: string;
@@ -18,12 +18,14 @@ export interface StageAction {
 // Pending deliberately have no order-team action here — moving a package out of those two stages
 // is inventory's job (see the Inventory page's Returns queue), not order management's, and once a
 // courier integration is live those two transitions are driven automatically by webhook anyway.
+// Shipped -> Out for Delivery likewise has no manual action here on purpose: that transition is
+// reported by the courier's own webhook once it's actually moving the parcel, not clicked by staff.
 export const NEXT_ACTION: Partial<Record<OrderStage, StageAction>> = {
   Pending: { label: 'Confirm order', icon: PhoneCall, nextStage: 'Confirmed' },
   Flagged: { label: 'Clear flag & confirm', icon: PhoneCall, nextStage: 'Confirmed' },
   Confirmed: { label: 'Send to packing', icon: Package, nextStage: 'Processing' },
-  Processing: { label: 'Mark ready for pickup', icon: Truck, nextStage: 'Shipped' },
-  Shipped: { label: 'Hand over to courier', icon: Truck, nextStage: 'Out for Delivery' },
+  Processing: { label: 'Mark ready for pickup', icon: Truck, nextStage: 'Ready for Pickup' },
+  'Ready for Pickup': { label: 'Hand over to courier', icon: Truck, nextStage: 'Shipped' },
   'Out for Delivery': { label: 'Mark delivered', icon: PackageCheck, nextStage: 'Delivered' },
 };
 

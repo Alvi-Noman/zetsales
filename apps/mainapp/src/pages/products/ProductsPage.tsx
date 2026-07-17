@@ -21,10 +21,11 @@ import {
   UploadCloud,
 } from "lucide-react";
 import clsx from "clsx";
-import type {
-  ProductListItemDTO,
-  StoreDTO,
-  SupplierProductDraftDTO,
+import {
+  canWriteModule,
+  type ProductListItemDTO,
+  type StoreDTO,
+  type SupplierProductDraftDTO,
 } from "@zetsales/shared";
 import {
   listProducts,
@@ -44,6 +45,7 @@ import { FilterMenu } from "../../components/orders/FilterMenu";
 import { Popover } from "../../components/ui/Popover";
 import { useToast } from "../../components/ui/ToastProvider";
 import { AppBlock } from "../../components/apps/AppBlock";
+import { useAuth } from "../../context/AuthContext";
 
 const PLATFORM_META = {
   shopify: { label: "Shopify", logo: ShopifyLogo },
@@ -179,6 +181,7 @@ function MetricCard({
 export function ProductsPage() {
   const toast = useToast();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [products, setProducts] = useState<ProductListItemDTO[]>([]);
   const [total, setTotal] = useState(0);
@@ -297,6 +300,7 @@ export function ProductsPage() {
     [stores],
   );
   const visibleProducts = products;
+  const canWriteProducts = canWriteModule(user?.role, "products");
 
   const summary = useMemo(() => {
     const multiChannel = products.filter((p) => p.storeIds.length > 1).length;
@@ -373,19 +377,23 @@ export function ProductsPage() {
             />{" "}
             Refresh
           </button>
-          <button
-            onClick={() => setAlibabaImportOpen(true)}
-            disabled={storesLoading || stores.length === 0}
-            className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <UploadCloud size={14} /> Import from Alibaba
-          </button>
-          <button
-            onClick={() => navigate("/products/new")}
-            className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-slate-800"
-          >
-            <Plus size={14} /> Add product
-          </button>
+          {canWriteProducts && (
+            <>
+              <button
+                onClick={() => setAlibabaImportOpen(true)}
+                disabled={storesLoading || stores.length === 0}
+                className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <UploadCloud size={14} /> Import from Alibaba
+              </button>
+              <button
+                onClick={() => navigate("/products/new")}
+                className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+              >
+                <Plus size={14} /> Add product
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -732,30 +740,32 @@ export function ProductsPage() {
                               className="py-4 pl-3 pr-6 text-right whitespace-nowrap"
                               onClick={(e) => e.stopPropagation()}
                             >
-                              <div className="flex items-center justify-end gap-1.5">
-                                <button
-                                  onClick={() =>
-                                    navigate(`/products/${product.id}/edit`)
-                                  }
-                                  className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                                  title="Edit product"
-                                >
-                                  <Pencil size={14} />
-                                </button>
-                                <button
-                                  onClick={() =>
-                                    setDeleteTarget({
-                                      id: product.id,
-                                      title: product.title,
-                                      image: product.image,
-                                    })
-                                  }
-                                  className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-                                  title="Delete product"
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                              </div>
+                              {canWriteProducts && (
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    onClick={() =>
+                                      navigate(`/products/${product.id}/edit`)
+                                    }
+                                    className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                                    title="Edit product"
+                                  >
+                                    <Pencil size={14} />
+                                  </button>
+                                  <button
+                                    onClick={() =>
+                                      setDeleteTarget({
+                                        id: product.id,
+                                        title: product.title,
+                                        image: product.image,
+                                      })
+                                    }
+                                    className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                                    title="Delete product"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </div>
+                              )}
                             </td>
                           </tr>
                         );
@@ -827,21 +837,25 @@ export function ProductsPage() {
         }}
         onImported={handleImported}
       />
-      <DeleteProductModal
-        product={deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        onDeleted={handleImported}
-      />
-      <AlibabaImportModal
-        open={alibabaImportOpen}
-        stores={stores}
-        initialDraft={extensionDraft}
-        onClose={() => {
-          setAlibabaImportOpen(false);
-          setExtensionDraft(null);
-        }}
-        onImported={handleImported}
-      />
+      {canWriteProducts && (
+        <>
+          <DeleteProductModal
+            product={deleteTarget}
+            onClose={() => setDeleteTarget(null)}
+            onDeleted={handleImported}
+          />
+          <AlibabaImportModal
+            open={alibabaImportOpen}
+            stores={stores}
+            initialDraft={extensionDraft}
+            onClose={() => {
+              setAlibabaImportOpen(false);
+              setExtensionDraft(null);
+            }}
+            onImported={handleImported}
+          />
+        </>
+      )}
     </div>
   );
 }

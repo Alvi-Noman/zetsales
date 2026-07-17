@@ -8,6 +8,7 @@ import logger from '../utils/logger.js';
 import type { AuthenticatedRequest } from '../middleware/authMiddleware.js';
 import type {
   CourierAccountDTO,
+  CourierSummaryDTO,
   CourierProvider,
   CourierSettlementDTO,
   CourierHandoverDTO,
@@ -71,6 +72,17 @@ function toCourierDto(doc: any): CourierAccountDTO {
 
 // Resolves the actual charge to snapshot onto an order at dispatch time — falls back through the
 // zone/speed matrix cell, then the legacy flat rate, then 0 (never blocks dispatch on a missing rate).
+function toCourierSummaryDto(doc: any): CourierSummaryDTO {
+  return {
+    id: doc._id.toString(),
+    provider: doc.provider,
+    displayName: doc.displayName,
+    status: doc.status,
+    lastUsedAt: doc.lastUsedAt ? new Date(doc.lastUsedAt).toISOString() : null,
+    createdAt: new Date(doc.createdAt).toISOString(),
+  };
+}
+
 export function resolveCourierCharge(doc: any, zoneTier: CourierZoneTier, speed: CourierSpeed): number {
   const cell = doc.deliveryRates?.[speed]?.[zoneTier];
   if (typeof cell === 'number') return cell;
@@ -87,6 +99,12 @@ export async function listCouriers(req: AuthenticatedRequest, res: Response) {
   const db = getDb();
   const couriers = await db.collection('couriers').find({ tenantId: req.user!.tenantId }).sort({ createdAt: -1 }).toArray();
   res.json({ success: true, couriers: couriers.map(toCourierDto) });
+}
+
+export async function listCourierSummaries(req: AuthenticatedRequest, res: Response) {
+  const db = getDb();
+  const couriers = await db.collection('couriers').find({ tenantId: req.user!.tenantId }).sort({ createdAt: -1 }).toArray();
+  res.json({ success: true, couriers: couriers.map(toCourierSummaryDto) });
 }
 
 // One connected account per provider per tenant — reconnecting (e.g. rotated API keys) updates the
@@ -311,8 +329,9 @@ export async function deleteSettlement(req: AuthenticatedRequest, res: Response)
 
 // --- Handovers: the physical "I just gave the courier office N bagged-up parcels" moment. Bulk
 // operations elsewhere (dispatchCourierConsignment) create the digital consignment the instant an
-// order is marked Shipped; this is the separate, later event of physically handing those parcels
-// over, which a merchant does in batches (once or twice a day), not one order at a time. ---
+// order is marked Ready for Pickup; this is the separate, later event of physically handing those
+// parcels over (which moves them to Shipped), which a merchant does in batches (once or twice a
+// day), not one order at a time. ---
 
 function toHandoverDto(doc: any): CourierHandoverDTO {
   return {
@@ -332,9 +351,10 @@ function toHandoverDto(doc: any): CourierHandoverDTO {
   };
 }
 
-// Orders eligible to go into a NEW handover for this courier: shipped (a consignment exists to hand
-// over), matching this courier's partner, and not already sitting in an earlier handover batch
-// (handoverId is set the moment an order is added to one — see createHandover below).
+// Orders eligible to go into a NEW handover for this courier: ready for pickup (a consignment
+// exists to hand over, but the parcel hasn't physically left yet), matching this courier's partner,
+// and not already sitting in an earlier handover batch (handoverId is set the moment an order is
+// added to one — see createHandover below).
 export async function listEligibleHandoverOrders(req: AuthenticatedRequest, res: Response) {
   const db = getDb();
   const tenantId = req.user!.tenantId!;
@@ -346,7 +366,7 @@ export async function listEligibleHandoverOrders(req: AuthenticatedRequest, res:
   const partner = courier.provider === 'steadfast' ? 'Steadfast' : 'Pathao';
   const orders = await db
     .collection('orders')
-    .find({ tenantId, stage: 'Shipped', courierPartner: partner, handoverId: null })
+    .find({ tenantId, stage: 'Ready for Pickup', courierPartner: partner, handoverId: null })
     .sort({ createdAt: 1 })
     .limit(500)
     .toArray();
@@ -395,12 +415,12 @@ export async function createHandover(req: AuthenticatedRequest, res: Response) {
   }
   const partner = courier.provider === 'steadfast' ? 'Steadfast' : 'Pathao';
 
-  // Only pick up orders that are STILL eligible right now (shipped, this courier, not already
-  // handed over) — guards against a stale client-side selection racing a concurrent handover.
+  // Only pick up orders that are STILL eligible right now (ready for pickup, this courier, not
+  // already handed over) — guards against a stale client-side selection racing a concurrent handover.
   const objectIds = parsed.data.orderIds.map((id) => new ObjectId(id));
   const orders = await db
     .collection('orders')
-    .find({ _id: { $in: objectIds }, tenantId, stage: 'Shipped', courierPartner: partner, handoverId: null })
+    .find({ _id: { $in: objectIds }, tenantId, stage: 'Ready for Pickup', courierPartner: partner, handoverId: null })
     .toArray();
   if (orders.length === 0) {
     res.status(400).json({ success: false, message: 'None of the selected orders are still eligible for handover.' });
@@ -502,11 +522,14 @@ export async function confirmHandover(req: AuthenticatedRequest, res: Response) 
     res.status(404).json({ success: false, message: 'Handover not found or already confirmed.' });
     return;
   }
+  // Confirming the manifest means the courier has physically taken these parcels — that's the
+  // Shipped stage. Out for Delivery is left for the courier's own webhook to set once it reports
+  // the parcel is actually moving, same as every other hand-over path.
   const acceptedUpdate = {
-    $set: { stage: 'Out for Delivery', updatedAt: now },
+    $set: { stage: 'Shipped', updatedAt: now },
     $push: {
       history: {
-        label: 'Out for Delivery',
+        label: 'Shipped',
         detail: 'Accepted by courier via pickup manifest',
         at: now,
         by: req.user!.email,
@@ -514,7 +537,7 @@ export async function confirmHandover(req: AuthenticatedRequest, res: Response) 
     },
   } as any;
   await db.collection('orders').updateMany(
-    { _id: { $in: result.orderIds }, tenantId, stage: 'Shipped' },
+    { _id: { $in: result.orderIds }, tenantId, stage: 'Ready for Pickup' },
     acceptedUpdate
   );
   res.json({ success: true, handover: toHandoverDto(result) });

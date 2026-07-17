@@ -12,7 +12,7 @@ export interface UserDTO {
     installedPlugins: ModuleKey[];
 }
 export type TeamRole = 'owner' | 'admin' | 'manager' | 'agent' | 'viewer';
-export declare const MODULE_KEYS: readonly ["home", "orders", "products", "inventory", "preOrders", "printOut", "customers", "adPerformance", "customerService", "callCenter", "fraudChecker", "zetSalesAds", "supplyChain", "accounting", "analytics", "integrations", "team", "settings"];
+export declare const MODULE_KEYS: readonly ["home", "orders", "dispatch", "products", "inventory", "returns", "preOrders", "printOut", "customers", "adPerformance", "customerService", "callCenter", "fraudChecker", "zetSalesAds", "supplyChain", "accounting", "analytics", "integrations", "team", "settings"];
 export type ModuleKey = (typeof MODULE_KEYS)[number];
 export declare const PLUGIN_MODULES: ModuleKey[];
 export declare const APP_EXTENSION_TARGETS: readonly ["admin.order-details.block", "admin.order-details.action", "admin.orders.index.row-badge", "admin.orders.index.bulk-action", "admin.products.index.row-badge", "admin.product-details.block", "admin.customers.index.row-badge", "admin.customer-details.block", "admin.home.block", "admin.analytics.block", "admin.topbar.block"];
@@ -46,8 +46,10 @@ export interface RoleDefinition {
     modules: ModuleKey[];
     canManageTeam: boolean;
     canWrite: boolean;
+    writableModules?: ModuleKey[];
 }
 export declare const ROLE_DEFINITIONS: Record<TeamRole, RoleDefinition>;
+export declare function canWriteModule(role: TeamRole | null | undefined, module: ModuleKey): boolean;
 export type TeamMemberStatus = 'active' | 'invited' | 'suspended';
 export interface TeamMemberDTO {
     id: string;
@@ -106,6 +108,12 @@ export interface InvoiceTemplateDTO {
     createdAt: string;
     updatedAt: string;
 }
+export declare const INVOICE_FONT_OPTIONS: readonly ["Helvetica", "Times New Roman", "Georgia", "Arial", "Courier New"];
+export type InvoiceFont = (typeof INVOICE_FONT_OPTIONS)[number];
+export interface BrandingSettingsDTO {
+    logoUrl: string | null;
+    invoiceFont: InvoiceFont | null;
+}
 export interface OnboardingPayload {
     businessName: string;
     businessType: BusinessType;
@@ -153,6 +161,14 @@ export interface CourierAccountDTO {
     webhookSecret: string;
     deliveryRates: Record<CourierSpeed, Record<CourierZoneTier, number | null>>;
     returnRates: Record<CourierZoneTier, number | null>;
+    lastUsedAt: string | null;
+    createdAt: string;
+}
+export interface CourierSummaryDTO {
+    id: string;
+    provider: CourierProvider;
+    displayName: string;
+    status: CourierStatus;
     lastUsedAt: string | null;
     createdAt: string;
 }
@@ -310,7 +326,7 @@ export interface ProductPushResultDTO {
     error?: string;
     productId?: string;
 }
-export type OrderStage = 'Pending' | 'Flagged' | 'Confirmed' | 'Processing' | 'Shipped' | 'Out for Delivery' | 'RTO Initiated' | 'QC Pending' | 'Delivered' | 'Partial Delivered' | 'Returned' | 'Cancelled' | 'On Hold';
+export type OrderStage = 'Pending' | 'Flagged' | 'Confirmed' | 'Processing' | 'Ready for Pickup' | 'Shipped' | 'Out for Delivery' | 'RTO Initiated' | 'QC Pending' | 'Delivered' | 'Partial Delivered' | 'Returned' | 'Cancelled' | 'On Hold';
 export type OrderPaymentStatus = 'COD Pending' | 'Advance Paid' | 'Paid' | 'Collected' | 'Refunded' | 'Failed';
 export type CallOutcome = 'Confirmed' | 'Rescheduled' | 'Customer Cancelled' | 'No Answer' | 'Wrong Number' | 'Switched Off' | 'Busy';
 export type HoldReason = 'Payment verification pending' | 'Address needs confirmation' | 'Stock check needed' | 'Customer requested reschedule' | 'Awaiting customer response' | 'Stock shortfall found' | 'Customer unreachable for delivery' | 'Address unclear to courier' | 'Courier delay' | 'Attempting redelivery' | 'Courier dispute' | 'Customer says they never refused it' | 'Other';

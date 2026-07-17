@@ -75,7 +75,7 @@ export async function toUserDto(user: {
     businessUrl,
     businessType,
     role: user.role ?? null,
-    installedPlugins,
+    installedPlugins,
   };
 }
 
@@ -126,7 +126,7 @@ export async function signup(req: Request, res: Response) {
       businessUrl: null,
       businessType: null,
       role: null,
-      installedPlugins: [],
+      installedPlugins: [],
     };
 
     res.status(201).json({ success: true, user: userDto, token });
@@ -218,6 +218,43 @@ export async function getMe(req: AuthenticatedRequest, res: Response) {
   }
 }
 
+const updateBusinessSchema = z.object({
+  name: z.string().trim().min(2, 'Store name is required').max(80),
+});
+
+export async function updateBusiness(req: AuthenticatedRequest, res: Response) {
+  try {
+    const authUser = req.user;
+    if (!authUser?.tenantId) {
+      res.status(401).json({ success: false, message: 'Unauthorized' });
+      return;
+    }
+
+    const parsed = updateBusinessSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ success: false, message: parsed.error.issues[0]?.message ?? 'Invalid store name' });
+      return;
+    }
+
+    const db = getDb();
+    await db.collection('businesses').updateOne(
+      { _id: new ObjectId(authUser.tenantId) },
+      { $set: { name: parsed.data.name, updatedAt: new Date() } }
+    );
+
+    const user = await db.collection('users').findOne({ _id: new ObjectId(authUser.id) });
+    if (!user) {
+      res.status(401).json({ success: false, message: 'Unauthorized' });
+      return;
+    }
+
+    const userDto = await toUserDto(user as any);
+    res.status(200).json({ success: true, user: userDto });
+  } catch (error) {
+    res.status(500).json({ success: false, message: (error as Error).message });
+  }
+}
+
 const onboardingSchema = z.object({
   businessName: z.string().trim().min(2, 'Business name is required'),
   businessType: z.enum(['I manufacture my own products', 'I import my products', 'I buy from local wholesalers', 'I dropship — I never hold stock']),
@@ -296,7 +333,7 @@ export async function completeOnboarding(req: AuthenticatedRequest, res: Respons
       businessUrl: workspaceUrlForSlug(slug),
       businessType: payload.businessType,
       role: 'owner',
-      installedPlugins: [],
+      installedPlugins: [],
     };
 
     res.status(200).json({ success: true, user: userDto, token });

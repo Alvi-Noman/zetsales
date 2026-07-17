@@ -6,7 +6,7 @@ import {
   ShoppingBag,
   Store as StoreIcon,
 } from "lucide-react";
-import type { ProductPushResultDTO } from "@zetsales/shared";
+import { canWriteModule, type ProductPushResultDTO } from "@zetsales/shared";
 import {
   getProduct,
   updateProduct,
@@ -24,6 +24,7 @@ import {
   type PushProgressItem,
 } from "../../components/products/ProductPushProgress";
 import { useToast } from "../../components/ui/ToastProvider";
+import { useAuth } from "../../context/AuthContext";
 
 const PLATFORM_META = {
   shopify: { label: "Shopify", color: "bg-[#95BF47]", icon: ShoppingBag },
@@ -34,6 +35,8 @@ export function EditProductPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const toast = useToast();
+  const { user } = useAuth();
+  const canWriteProducts = canWriteModule(user?.role, "products");
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [form, setForm] = useState<ProductFormState>(EMPTY_PRODUCT_FORM);
@@ -46,6 +49,10 @@ export function EditProductPage() {
   const [pushItems, setPushItems] = useState<PushProgressItem[] | null>(null);
 
   useEffect(() => {
+    if (!canWriteProducts) {
+      navigate("/products", { replace: true });
+      return;
+    }
     if (!id) return;
     (async () => {
       try {
@@ -83,7 +90,7 @@ export function EditProductPage() {
         setLoading(false);
       }
     })();
-  }, [id]);
+  }, [id, canWriteProducts, navigate]);
 
   const isDirty = JSON.stringify(form) !== JSON.stringify(initialForm);
   const canSubmit =

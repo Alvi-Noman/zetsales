@@ -19,7 +19,6 @@ import { WarehousesPage } from "./pages/warehouses/WarehousesPage";
 import { PreOrderListPage } from "./pages/preOrders/PreOrderListPage";
 import { ReturnsPage } from "./pages/returns/ReturnsPage";
 import { PrintOutPage } from "./pages/printOut/PrintOutPage";
-import { InvoiceTemplatesPage } from "./pages/printOut/InvoiceTemplatesPage";
 import { HomePage } from "./pages/home/HomePage";
 import { AccountingPage } from "./pages/accounting/AccountingPage";
 import { SuppliersPage } from "./pages/supplyChain/SuppliersPage";
@@ -36,8 +35,11 @@ import { CallCenterPage } from "./pages/callCenter/CallCenterPage";
 import { AppHostPage } from "./pages/apps/AppHostPage";
 import { AppsPage } from "./pages/settings/AppsPage";
 import { AppDetailPage } from "./pages/settings/AppDetailPage";
+import { GeneralSettingsPage } from "./pages/settings/GeneralSettingsPage";
+import { BrandingSettingsPage } from "./pages/settings/BrandingSettingsPage";
 import { ZetSalesAdsPage } from "./pages/zetsalesAds/ZetSalesAdsPage";
 import { NAV_ITEMS, NAV_FOOTER_ITEMS } from "./nav/navigation";
+import { ROLE_DEFINITIONS, type ModuleKey } from "@zetsales/shared";
 
 const routeEntries = new Map<string, string>();
 [...NAV_ITEMS, ...NAV_FOOTER_ITEMS].forEach((item) => {
@@ -60,6 +62,8 @@ routeEntries.delete("/ad-performance");
 routeEntries.delete("/call-center");
 routeEntries.delete("/delivery-partners");
 routeEntries.delete("/settings/apps");
+routeEntries.delete("/settings/general");
+routeEntries.delete("/settings/branding");
 routeEntries.delete("/zetsales-ads");
 
 function FullScreenLoader() {
@@ -70,11 +74,20 @@ function FullScreenLoader() {
   );
 }
 
+// Dev-only: skips the canonical-subdomain redirect below for localhost/127.0.0.1, so a locally
+// running dev server can be used to test an onboarded account's real session without being
+// bounced to that business's deployed subdomain (which never reflects local, unbuilt changes).
+// Never true for anything users actually visit in production.
+const isLocalDevHost =
+  window.location.hostname === "localhost" ||
+  window.location.hostname === "127.0.0.1";
+
 function AppRoutes() {
   const { user, loading } = useAuth();
   const location = useLocation();
 
   useEffect(() => {
+    if (isLocalDevHost) return;
     if (loading || !user?.isOnboarded || !user.businessUrl) return;
     if (window.location.origin === user.businessUrl) return;
 
@@ -87,7 +100,12 @@ function AppRoutes() {
 
   if (loading) return <FullScreenLoader />;
 
-  if (user?.isOnboarded && user.businessUrl && window.location.origin !== user.businessUrl) {
+  if (
+    !isLocalDevHost &&
+    user?.isOnboarded &&
+    user.businessUrl &&
+    window.location.origin !== user.businessUrl
+  ) {
     return <FullScreenLoader />;
   }
 
@@ -119,7 +137,14 @@ function AppRoutes() {
         <Route path="/" element={<Navigate to="/home" replace />} />
         <Route path="/home" element={<HomePage />} />
         <Route path="/orders" element={<OrdersPage />} />
-        <Route path="/dispatch" element={<DispatchPage />} />
+        <Route
+          path="/dispatch"
+          element={
+            <ModuleRoute module="dispatch">
+              <DispatchPage />
+            </ModuleRoute>
+          }
+        />
         <Route path="/integrations" element={<IntegrationsPage />} />
         <Route path="/messages" element={<CustomerServicePage />} />
         <Route
@@ -133,9 +158,15 @@ function AppRoutes() {
         <Route path="/inventory" element={<InventoryPage />} />
         <Route path="/inventory/warehouses" element={<WarehousesPage />} />
         <Route path="/pre-orders" element={<PreOrderListPage />} />
-        <Route path="/returns" element={<ReturnsPage />} />
+        <Route
+          path="/returns"
+          element={
+            <ModuleRoute module="returns">
+              <ReturnsPage />
+            </ModuleRoute>
+          }
+        />
         <Route path="/print-out" element={<PrintOutPage />} />
-        <Route path="/print-out/templates" element={<InvoiceTemplatesPage />} />
         <Route path="/accounting" element={<AccountingPage />} />
         <Route path="/suppliers" element={<SuppliersPage />} />
         <Route path="/suppliers/:id" element={<SupplierDetailPage />} />
@@ -147,6 +178,8 @@ function AppRoutes() {
         <Route path="/ad-performance" element={<AdPerformancePage />} />
         <Route path="/call-center" element={<CallCenterPage />} />
         <Route path="/zetsales-ads" element={<ZetSalesAdsPage />} />
+        <Route path="/settings/general" element={<GeneralSettingsPage />} />
+        <Route path="/settings/branding" element={<BrandingSettingsPage />} />
         <Route path="/settings/apps" element={<AppsPage />} />
         <Route path="/settings/apps/:appKey" element={<AppDetailPage />} />
         <Route path="/apps/:appKey" element={<AppHostPage />} />
@@ -160,6 +193,24 @@ function AppRoutes() {
         <Route path="*" element={<Navigate to="/home" replace />} />
       </Route>
     </Routes>
+  );
+}
+
+function ModuleRoute({
+  module,
+  children,
+}: {
+  module: ModuleKey;
+  children: JSX.Element;
+}) {
+  const { user } = useAuth();
+  const allowedModules = user?.role
+    ? ROLE_DEFINITIONS[user.role].modules
+    : ROLE_DEFINITIONS.owner.modules;
+  return allowedModules.includes(module) ? (
+    children
+  ) : (
+    <Navigate to="/home" replace />
   );
 }
 

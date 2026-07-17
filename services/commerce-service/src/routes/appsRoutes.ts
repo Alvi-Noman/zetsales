@@ -7,7 +7,7 @@ import { listApps, installApp, uninstallApp, registerWebhook, createSessionToken
 const router: Router = Router();
 const guard = [requireAuth, requireTenant, requireModule('settings')] as const;
 
-router.get('/apps', ...guard, asyncHandler(listApps));
+router.get('/apps', requireAuth, requireTenant, asyncHandler(listApps));
 router.post('/apps/:appKey/install', ...guard, asyncHandler(installApp));
 router.delete('/apps/:appKey/install', ...guard, asyncHandler(uninstallApp));
 router.post('/apps/:appKey/session-token', requireAuth, requireTenant, asyncHandler(createSessionToken));

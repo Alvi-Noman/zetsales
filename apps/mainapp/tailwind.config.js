@@ -24,11 +24,16 @@ export default {
           '0%': { opacity: '0' },
           '100%': { opacity: '1' },
         },
+        'dialog-in': {
+          '0%': { opacity: '0', transform: 'scale(0.97) translateY(4px)' },
+          '100%': { opacity: '1', transform: 'scale(1) translateY(0)' },
+        },
       },
       animation: {
         'pop-in': 'pop-in 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both',
         'slide-in-right': 'slide-in-right 0.28s cubic-bezier(0.16, 1, 0.3, 1) both',
         'fade-in': 'fade-in 0.2s ease-out both',
+        'dialog-in': 'dialog-in 0.18s cubic-bezier(0.16, 1, 0.3, 1) both',
       },
     },
   },

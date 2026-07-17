@@ -23,7 +23,7 @@ import {
 import clsx from "clsx";
 import type {
   CancelReason,
-  CourierAccountDTO,
+  CourierSummaryDTO,
   HoldReason,
   OrderDTO,
   OrderPaymentStatus,
@@ -40,7 +40,7 @@ import {
   bulkUpdateOrders,
   getOrderStats,
   getOrderInventorySnapshot,
-  listCouriers,
+  listCourierSummaries,
   listOrders,
   listStores,
   splitOrder,
@@ -195,7 +195,7 @@ export function OrdersPage() {
   const [pageSize, setPageSize] = useState(25);
   const [stores, setStores] = useState<StoreDTO[]>([]);
   const [storesLoading, setStoresLoading] = useState(true);
-  const [couriers, setCouriers] = useState<CourierAccountDTO[]>([]);
+  const [couriers, setCouriers] = useState<CourierSummaryDTO[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(true);
   const [stats, setStats] = useState<OrderStatsDTO | null>(null);
   const [tab, setTab] = useState<OrderTabKey>("all");
@@ -274,7 +274,7 @@ export function OrdersPage() {
 
   const loadCouriers = async () => {
     try {
-      const { couriers: list } = await listCouriers();
+      const { couriers: list } = await listCourierSummaries();
       setCouriers(list);
     } catch {
       // Non-fatal — the courier dropdown just falls back to showing no connected options.
@@ -677,8 +677,8 @@ export function OrdersPage() {
       const res = await bulkUpdateOrders(
         targetIds,
         isHandover
-          ? { stage: "Out for Delivery", note: "Handed over to courier" }
-          : { stage: "Shipped" },
+          ? { stage: "Shipped", note: "Handed over to courier" }
+          : { stage: "Ready for Pickup" },
       );
       const successCount = res.results.filter((r) => r.success).length;
       const failed = res.results.find((r) => !r.success);
@@ -961,9 +961,9 @@ export function OrdersPage() {
   const cancellableSelectedIds = selectedOrders
     .filter((o) => canCancel(o.stage))
     .map((o) => o.id);
-  // Only orders actually in Processing can be marked Shipped — the fulfillment stock gate itself
-  // is still enforced per-order by bulkUpdateOrders regardless, this just keeps the button from
-  // offering itself at all when nothing selected is even at the right stage for it.
+  // Only orders actually in Processing can be marked Ready for Pickup — the fulfillment stock gate
+  // itself is still enforced per-order by bulkUpdateOrders regardless, this just keeps the button
+  // from offering itself at all when nothing selected is even at the right stage for it.
   const shippableSelectedOrders = selectedOrders.filter(
     (o) => o.stage === "Processing",
   );
@@ -989,7 +989,7 @@ export function OrdersPage() {
       .join(", ");
   })();
   const handoverReadySelectedOrders = selectedOrders.filter(
-    (o) => o.stage === "Shipped",
+    (o) => o.stage === "Ready for Pickup",
   );
   const handoverReadySelectedIds = handoverReadySelectedOrders.map((o) => o.id);
   const handoverMissingCourierOrders = handoverReadySelectedOrders.filter(
@@ -1889,7 +1889,7 @@ export function OrdersPage() {
         }
         subtitle={
           bulkShipMode === "handover"
-            ? "Moves ready-for-pickup parcels into delivery after the courier takes them."
+            ? "Marks these parcels as physically handed over to the courier."
             : undefined
         }
         submitLabel={

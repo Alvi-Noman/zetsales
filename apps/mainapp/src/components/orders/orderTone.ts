@@ -9,6 +9,7 @@ export const STAGE_TONE: Record<OrderStage, string> = {
   Flagged: 'bg-rose-50 text-rose-700 ring-rose-600/20',
   Confirmed: 'bg-sky-50 text-sky-700 ring-sky-600/20',
   Processing: 'bg-violet-50 text-violet-700 ring-violet-600/20',
+  'Ready for Pickup': 'bg-teal-50 text-teal-700 ring-teal-600/20',
   Shipped: 'bg-indigo-50 text-indigo-700 ring-indigo-600/20',
   'Out for Delivery': 'bg-indigo-50 text-indigo-700 ring-indigo-600/20',
   'RTO Initiated': 'bg-orange-50 text-orange-700 ring-orange-600/20',
@@ -24,12 +25,16 @@ export const STAGE_TONE: Record<OrderStage, string> = {
 // stage comparisons, the fulfillment gate, history entries already logged) so this is a pure
 // relabel with no data migration. "Packing" is what that stage actually means in practice: a
 // packing slip has been printed and the order is with a packer, not some generic "processing."
+// 'Ready for Pickup' and 'Shipped' are real, distinct stage values now (not a relabel of one
+// another) — Ready for Pickup means packed and awaiting courier collection; Shipped means the
+// courier has actually taken the parcel.
 export const STAGE_LABEL: Record<OrderStage, string> = {
   Pending: 'Pending',
   Flagged: 'Flagged',
   Confirmed: 'Confirmed',
   Processing: 'Packing',
-  Shipped: 'Ready for pickup',
+  'Ready for Pickup': 'Ready for pickup',
+  Shipped: 'Shipped',
   'Out for Delivery': 'Out for Delivery',
   'RTO Initiated': 'RTO Initiated',
   'QC Pending': 'QC Pending',
@@ -45,6 +50,7 @@ export const STAGE_ICON: Record<OrderStage, typeof Clock> = {
   Flagged: Flag,
   Confirmed: PhoneCall,
   Processing: Package,
+  'Ready for Pickup': PackageCheck,
   Shipped: Truck,
   'Out for Delivery': Navigation,
   'RTO Initiated': RotateCcw,

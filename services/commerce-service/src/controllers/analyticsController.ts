@@ -244,7 +244,7 @@ function rankExpr(field: string): Record<string, unknown> {
       branches: [
         { case: { $eq: [field, 'Confirmed'] }, then: 1 },
         { case: { $eq: [field, 'Processing'] }, then: 2 },
-        { case: { $in: [field, ['Shipped', 'Out for Delivery', 'RTO Initiated', 'QC Pending', 'Returned']] }, then: 3 },
+        { case: { $in: [field, ['Ready for Pickup', 'Shipped', 'Out for Delivery', 'RTO Initiated', 'QC Pending', 'Returned']] }, then: 3 },
         { case: { $in: [field, ['Delivered', 'Partial Delivered']] }, then: 4 },
       ],
       default: 0,
@@ -314,7 +314,7 @@ export async function getAnalyticsSummary(req: AuthenticatedRequest, res: Respon
             // maxRankField instead asks "does this order's history ever contain a 'Confirmed' label",
             // the same definition getOrderFunnel/getConfirmationPerformance already use.
             confirmedOrBeyond: { $sum: { $cond: [{ $gte: ['$maxRank', 1] }, 1, 0] } },
-            shippedOrBeyond: { $sum: { $cond: [{ $in: ['$stage', ['Shipped', 'Out for Delivery', 'RTO Initiated', 'QC Pending', 'Delivered', 'Partial Delivered', 'Returned']] }, 1, 0] } },
+            shippedOrBeyond: { $sum: { $cond: [{ $in: ['$stage', ['Ready for Pickup', 'Shipped', 'Out for Delivery', 'RTO Initiated', 'QC Pending', 'Delivered', 'Partial Delivered', 'Returned']] }, 1, 0] } },
             delivered: { $sum: { $cond: [{ $in: ['$stage', ['Delivered', 'Partial Delivered']] }, 1, 0] } },
             rto: { $sum: { $cond: [{ $in: ['$stage', ['RTO Initiated', 'QC Pending', 'Returned']] }, 1, 0] } },
             codOutstanding: { $sum: { $cond: [{ $and: [{ $eq: ['$paymentStatus', 'COD Pending'] }, { $not: [{ $in: ['$stage', ['Cancelled', 'Returned']] }] }] }, '$total', 0] } },
@@ -603,7 +603,9 @@ export async function getFulfillmentTime(req: AuthenticatedRequest, res: Respons
         $project: {
           createdAt: 1,
           confirmedAt: { $arrayElemAt: [{ $filter: { input: { $ifNull: ['$history', []] }, as: 'h', cond: { $eq: ['$$h.label', 'Confirmed'] } } }, 0] },
-          shippedAt: { $arrayElemAt: [{ $filter: { input: { $ifNull: ['$history', []] }, as: 'h', cond: { $eq: ['$$h.label', 'Shipped'] } } }, 0] },
+          // Label is 'Ready for Pickup', not 'Shipped' — this metric measures how fast staff pack
+          // and stage an order for courier collection, not when the courier physically takes it.
+          shippedAt: { $arrayElemAt: [{ $filter: { input: { $ifNull: ['$history', []] }, as: 'h', cond: { $eq: ['$$h.label', 'Ready for Pickup'] } } }, 0] },
           deliveredAt: { $arrayElemAt: [{ $filter: { input: { $ifNull: ['$history', []] }, as: 'h', cond: { $in: ['$$h.label', ['Delivered', 'Partial Delivered']] } } }, 0] },
         },
       },
@@ -635,8 +637,8 @@ export async function getFulfillmentTime(req: AuthenticatedRequest, res: Respons
   const dto: FulfillmentTimeDTO = {
     stages: [
       { fromStage: 'Pending', toStage: 'Confirmed', ...stat(diffs('createdAt', 'confirmedAt')) },
-      { fromStage: 'Confirmed', toStage: 'Shipped', ...stat(diffs('confirmedAt', 'shippedAt')) },
-      { fromStage: 'Shipped', toStage: 'Delivered', ...stat(diffs('shippedAt', 'deliveredAt')) },
+      { fromStage: 'Confirmed', toStage: 'Ready for Pickup', ...stat(diffs('confirmedAt', 'shippedAt')) },
+      { fromStage: 'Ready for Pickup', toStage: 'Delivered', ...stat(diffs('shippedAt', 'deliveredAt')) },
       { fromStage: 'Pending', toStage: 'Delivered', ...stat(diffs('createdAt', 'deliveredAt')) },
     ],
   };
@@ -660,7 +662,7 @@ export async function getCourierPerformance(req: AuthenticatedRequest, res: Resp
       { $match: match },
       {
         $addFields: {
-          shippedEvt: { $arrayElemAt: [{ $filter: { input: { $ifNull: ['$history', []] }, as: 'h', cond: { $eq: ['$$h.label', 'Shipped'] } } }, 0] },
+          shippedEvt: { $arrayElemAt: [{ $filter: { input: { $ifNull: ['$history', []] }, as: 'h', cond: { $eq: ['$$h.label', 'Ready for Pickup'] } } }, 0] },
           deliveredEvt: { $arrayElemAt: [{ $filter: { input: { $ifNull: ['$history', []] }, as: 'h', cond: { $in: ['$$h.label', ['Delivered', 'Partial Delivered']] } } }, 0] },
         },
       },
@@ -1586,7 +1588,7 @@ export async function getReturnedProducts(req: AuthenticatedRequest, res: Respon
     db
       .collection('orders')
       .aggregate([
-        { $match: { ...baseMatch(tenantId, q.storeId), createdAt: { $gte: current.from, $lt: current.to }, stage: { $in: ['Shipped', 'Out for Delivery', 'RTO Initiated', 'QC Pending', 'Delivered', 'Partial Delivered', 'Returned'] } } },
+        { $match: { ...baseMatch(tenantId, q.storeId), createdAt: { $gte: current.from, $lt: current.to }, stage: { $in: ['Ready for Pickup', 'Shipped', 'Out for Delivery', 'RTO Initiated', 'QC Pending', 'Delivered', 'Partial Delivered', 'Returned'] } } },
         { $unwind: '$lineItems' },
         { $group: { _id: { $ifNull: ['$lineItems.sku', '$lineItems.title'] }, unitsShipped: { $sum: '$lineItems.quantity' } } },
       ])
@@ -1755,7 +1757,7 @@ export async function getInventoryThroughput(req: AuthenticatedRequest, res: Res
     db
       .collection('orders')
       .aggregate([
-        { $match: { ...baseMatch(tenantId, q.storeId), history: { $elemMatch: { label: 'Shipped', at: { $gte: current.from, $lt: current.to } } } } },
+        { $match: { ...baseMatch(tenantId, q.storeId), history: { $elemMatch: { label: 'Ready for Pickup', at: { $gte: current.from, $lt: current.to } } } } },
         { $unwind: '$lineItems' },
         { $group: { _id: null, units: { $sum: '$lineItems.quantity' } } },
       ])
@@ -1782,7 +1784,7 @@ export async function getShippingAndTracking(req: AuthenticatedRequest, res: Res
   const series = await runAnalyticsSeries(match, q, { $sum: '$shippingFee' });
 
   const { current } = resolveRange(q.range, q.from, q.to);
-  const shippedMatch = { ...match, createdAt: { $gte: current.from, $lt: current.to }, stage: { $in: ['Shipped', 'Out for Delivery', 'RTO Initiated', 'QC Pending', 'Delivered', 'Partial Delivered', 'Returned'] } };
+  const shippedMatch = { ...match, createdAt: { $gte: current.from, $lt: current.to }, stage: { $in: ['Ready for Pickup', 'Shipped', 'Out for Delivery', 'RTO Initiated', 'QC Pending', 'Delivered', 'Partial Delivered', 'Returned'] } };
   const [agg] = await db
     .collection('orders')
     .aggregate([{ $match: shippedMatch }, { $group: { _id: null, total: { $sum: 1 }, withTracking: { $sum: { $cond: [{ $ne: ['$courierTrackingId', null] }, 1, 0] } } } }])
@@ -2189,8 +2191,8 @@ export async function getAddressQuality(req: AuthenticatedRequest, res: Response
 // reasonable COD-industry targets: confirm same-day, ship the next day, deliver within a work week.
 const SLA_THRESHOLDS: { stage: string; fromLabel: string | null; toLabel: string; thresholdHours: number }[] = [
   { stage: 'Confirm within 6h', fromLabel: null, toLabel: 'Confirmed', thresholdHours: 6 },
-  { stage: 'Ship within 24h of confirming', fromLabel: 'Confirmed', toLabel: 'Shipped', thresholdHours: 24 },
-  { stage: 'Deliver within 120h of shipping', fromLabel: 'Shipped', toLabel: 'Delivered', thresholdHours: 120 },
+  { stage: 'Ship within 24h of confirming', fromLabel: 'Confirmed', toLabel: 'Ready for Pickup', thresholdHours: 24 },
+  { stage: 'Deliver within 120h of shipping', fromLabel: 'Ready for Pickup', toLabel: 'Delivered', thresholdHours: 120 },
 ];
 
 export async function getSlaBreach(req: AuthenticatedRequest, res: Response) {
@@ -2209,14 +2211,14 @@ export async function getSlaBreach(req: AuthenticatedRequest, res: Response) {
         $project: {
           createdAt: 1,
           confirmedAt: { $arrayElemAt: [{ $filter: { input: { $ifNull: ['$history', []] }, as: 'h', cond: { $eq: ['$$h.label', 'Confirmed'] } } }, 0] },
-          shippedAt: { $arrayElemAt: [{ $filter: { input: { $ifNull: ['$history', []] }, as: 'h', cond: { $eq: ['$$h.label', 'Shipped'] } } }, 0] },
+          shippedAt: { $arrayElemAt: [{ $filter: { input: { $ifNull: ['$history', []] }, as: 'h', cond: { $eq: ['$$h.label', 'Ready for Pickup'] } } }, 0] },
           deliveredAt: { $arrayElemAt: [{ $filter: { input: { $ifNull: ['$history', []] }, as: 'h', cond: { $in: ['$$h.label', ['Delivered', 'Partial Delivered']] } } }, 0] },
         },
       },
     ])
     .toArray();
 
-  const fieldFor = (label: string | null) => (label === 'Confirmed' ? 'confirmedAt' : label === 'Shipped' ? 'shippedAt' : label === 'Delivered' ? 'deliveredAt' : 'createdAt');
+  const fieldFor = (label: string | null) => (label === 'Confirmed' ? 'confirmedAt' : label === 'Ready for Pickup' ? 'shippedAt' : label === 'Delivered' ? 'deliveredAt' : 'createdAt');
 
   const rows = SLA_THRESHOLDS.map((t) => {
     const fromField = fieldFor(t.fromLabel);
@@ -2672,7 +2674,7 @@ export async function getEmployeeActivity(req: AuthenticatedRequest, res: Respon
           _id: '$history.by',
           totalActions: { $sum: 1 },
           confirmed: { $sum: { $cond: [{ $eq: ['$history.label', 'Confirmed'] }, 1, 0] } },
-          shipped: { $sum: { $cond: [{ $eq: ['$history.label', 'Shipped'] }, 1, 0] } },
+          shipped: { $sum: { $cond: [{ $eq: ['$history.label', 'Ready for Pickup'] }, 1, 0] } },
           delivered: { $sum: { $cond: [{ $in: ['$history.label', ['Delivered', 'Partial Delivered']] }, 1, 0] } },
           cancelled: { $sum: { $cond: [{ $eq: ['$history.label', 'Cancelled'] }, 1, 0] } },
           // Matches both the current wording and the older "Resumed from hold" text still sitting

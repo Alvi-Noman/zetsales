@@ -65,7 +65,7 @@ export const ALL_HOLD_REASONS: HoldReason[] = [
   'Other',
 ];
 
-const PACKING_STAGES: OrderStage[] = ['Confirmed', 'Processing'];
+const PACKING_STAGES: OrderStage[] = ['Confirmed', 'Processing', 'Ready for Pickup'];
 const IN_TRANSIT_STAGES: OrderStage[] = ['Shipped', 'Out for Delivery'];
 const RETURN_LEG_STAGES: OrderStage[] = ['RTO Initiated', 'QC Pending'];
 

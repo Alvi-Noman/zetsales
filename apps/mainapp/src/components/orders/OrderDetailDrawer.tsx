@@ -33,7 +33,7 @@ import {
 import clsx from "clsx";
 import type {
   CallOutcome,
-  CourierAccountDTO,
+  CourierSummaryDTO,
   CourierProvider,
   OrderDTO,
   OrderRiskDTO,
@@ -113,7 +113,7 @@ const PROVIDER_LABEL: Record<CourierProvider, "Steadfast" | "Pathao"> = {
 interface OrderDetailDrawerProps {
   order: OrderDTO | null;
   store: StoreDTO | null;
-  couriers: CourierAccountDTO[];
+  couriers: CourierSummaryDTO[];
   onClose: () => void;
   onUpdated: () => void;
 }
@@ -160,11 +160,13 @@ function canMarkPriorityCall(stage: OrderStage): boolean {
 // slow/dropped beats don't bounce the claim to someone else while this tab is still active.
 const HEARTBEAT_INTERVAL_MS = 20_000;
 
-// Stages an order only reaches after it's physically left the warehouse. Used to decide whether a
-// missing tracking code is actually a problem yet — an order can have a courier partner picked
-// early (Processing) with no code, and that's normal; the same gap once the parcel is Shipped means
-// either auto-dispatch failed or this courier isn't API-connected and staff need to key it in by hand.
+// Stages an order only reaches once it's been marked ready and the courier consignment should
+// exist. Used to decide whether a missing tracking code is actually a problem yet — an order can
+// have a courier partner picked early (Processing) with no code, and that's normal; the same gap
+// once the order is Ready for Pickup means either auto-dispatch failed or this courier isn't
+// API-connected and staff need to key it in by hand.
 const SHIPPED_OR_LATER: OrderStage[] = [
+  "Ready for Pickup",
   "Shipped",
   "Out for Delivery",
   "Delivered",
@@ -799,8 +801,8 @@ export function OrderDetailDrawer({
   // Once a real consignment exists, the courier already has the parcel — changing "Partner" at that
   // point wouldn't cancel or re-route anything, it would just make the order say one courier while
   // the physical package (and its tracking/consignment id) belongs to another. Lock on dispatch, not
-  // on stage, since an order can sit in Shipped without ever actually having dispatched (see the
-  // "Ship anyway" no-courier path) and that case should still be freely editable.
+  // on stage, since an order can sit in Ready for Pickup without ever actually having dispatched (see
+  // the "Ship anyway" no-courier path) and that case should still be freely editable.
   const courierLocked = detail ? Boolean(detail.courierConsignmentId) : false;
   // No consignment id means auto-dispatch never ran (courier not API-connected, or it soft-failed
   // server-side) — once the parcel is actually shipped, that's the signal staff need to type in
@@ -832,15 +834,16 @@ export function OrderDetailDrawer({
     (detail!.stage === "Pending" || detail!.stage === "Flagged") &&
     summarizeOrderStock(detail!.lineItems, stockLookup).shortCount > 0;
   // The only two manual actions that actually require physical stock to be on hand — "Process
-  // order" (about to start picking) and "Mark shipped" (about to hand off what was picked). Every
-  // other stage's forward action (confirming, marking delivered, etc.) isn't gated by this at all.
+  // order" (about to start picking) and "Mark ready for pickup" (about to finish picking what's
+  // being handed off). Every other stage's forward action (confirming, marking delivered, etc.)
+  // isn't gated by this at all.
   const fulfillmentBlocked =
     Boolean(detail) &&
     (detail!.stage === "Confirmed" || detail!.stage === "Processing") &&
     fulfillmentStatus != null &&
     !fulfillmentStatus.ready;
   const courierRequiredForNextStep =
-    (detail?.stage === "Processing" || detail?.stage === "Shipped") &&
+    (detail?.stage === "Processing" || detail?.stage === "Ready for Pickup") &&
     !detail.courierPartner;
 
   return (
@@ -1962,7 +1965,7 @@ export function OrderDetailDrawer({
                       }
                       if (
                         (detail.stage === "Processing" ||
-                          detail.stage === "Shipped") &&
+                          detail.stage === "Ready for Pickup") &&
                         !detail.courierPartner
                       ) {
                         setConfirmShipNoCourier(true);

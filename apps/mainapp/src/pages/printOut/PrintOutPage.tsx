@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import clsx from "clsx";
 import {
+  Check,
   FileText,
   Package,
   Printer,
@@ -11,11 +13,11 @@ import {
   Truck,
   X,
 } from "lucide-react";
-import type { InvoiceTemplateDTO, OrderDTO } from "@zetsales/shared";
+import type { OrderDTO } from "@zetsales/shared";
 import {
+  getBrandingSettings,
   getOrderInventorySnapshot,
   listOrders,
-  listPrintTemplates,
   listPurchaseOrders,
   listReadyToPrintOrders,
   listWarehouses,
@@ -26,7 +28,9 @@ import {
 } from "../../lib/commerceApi";
 import { CourierLabelModal } from "../../components/orders/CourierLabelModal";
 import {
+  DocumentPage,
   PrintOrderModal,
+  type InvoiceFormat,
   type PrintDocType,
 } from "../../components/orders/PrintOrderModal";
 import { STAGE_LABEL, STAGE_TONE } from "../../components/orders/orderTone";
@@ -110,6 +114,40 @@ const PACKING_SOURCE_OPTIONS: { value: PackingPrintSource; label: string }[] = [
   { value: "both", label: "Source: Packing + Ready" },
 ];
 
+const INVOICE_FORMATS: {
+  value: InvoiceFormat;
+  detail: string;
+}[] = [
+  {
+    value: "Classic",
+    detail: "Traditional invoice with familiar totals and line-item spacing.",
+  },
+  {
+    value: "Modern",
+    detail: "Sharper header, stronger hierarchy, and cleaner sections.",
+  },
+  {
+    value: "Minimal",
+    detail: "Quiet layout with only the essentials brought forward.",
+  },
+  {
+    value: "Compact",
+    detail: "Dense spacing for batch printing and shorter paper trails.",
+  },
+  {
+    value: "Bold",
+    detail: "High-contrast headings and prominent payable amount.",
+  },
+  {
+    value: "Retail",
+    detail: "Receipt-like emphasis for customer-facing parcels.",
+  },
+  {
+    value: "Statement",
+    detail: "Balanced invoice with a strong filled table heading.",
+  },
+];
+
 const PO_STATUS_LABEL: Record<PurchaseOrderStatus, string> = {
   draft: "Draft",
   sent: "Sent",
@@ -142,20 +180,35 @@ function printCode(order: OrderDTO) {
   return order.invoiceNo ?? order.number;
 }
 
+// No backend exists for a saved default invoice format (that's the separate, backend-persisted
+// InvoiceTemplateDTO/print-templates system) — persisting to localStorage is the cheapest way to
+// survive a page refresh without inventing that infrastructure. Guarded against a stale/renamed
+// value ever getting stuck in a user's browser.
+const INVOICE_FORMAT_STORAGE_KEY = "zs:printOut:invoiceFormat";
+
+function readStoredInvoiceFormat(): InvoiceFormat {
+  const stored = localStorage.getItem(INVOICE_FORMAT_STORAGE_KEY);
+  return INVOICE_FORMATS.some((format) => format.value === stored)
+    ? (stored as InvoiceFormat)
+    : "Classic";
+}
+
 export function PrintOutPage() {
   const toast = useToast();
   const [task, setTask] = useState<PrintTask>("packingSlip");
   const [orders, setOrders] = useState<OrderDTO[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrderDTO[]>([]);
   const [loading, setLoading] = useState(true);
-  const [templates, setTemplates] = useState<InvoiceTemplateDTO[]>([]);
-  const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [binLookup, setBinLookup] = useState<BinLookup | undefined>(undefined);
   const [orderModalOpen, setOrderModalOpen] = useState(false);
   const [labelModalOpen, setLabelModalOpen] = useState(false);
+  const [invoiceFormatModalOpen, setInvoiceFormatModalOpen] = useState(false);
   const [preparingPrint, setPreparingPrint] = useState(false);
   const [printingPo, setPrintingPo] = useState<PurchaseOrderDTO | null>(null);
+  const [invoiceFormat, setInvoiceFormat] = useState<InvoiceFormat>(
+    readStoredInvoiceFormat,
+  );
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -167,15 +220,7 @@ export function PrintOutPage() {
 
   const loadSupportData = async () => {
     try {
-      const [templatesRes, warehouseRes] = await Promise.all([
-        listPrintTemplates(),
-        listWarehouses(),
-      ]);
-      setTemplates(templatesRes.templates);
-      const defaultTemplate = templatesRes.templates.find(
-        (template) => template.isDefault,
-      );
-      if (defaultTemplate) setSelectedTemplateId(defaultTemplate.id);
+      const warehouseRes = await listWarehouses();
       setWarehouses(warehouseRes.warehouses);
     } catch {
       toast.push("Could not load print settings.", "info");
@@ -232,11 +277,10 @@ export function PrintOutPage() {
   }, [task, poStatus, packingSource]);
 
   const activeTask = PRINT_TASKS.find((item) => item.key === task)!;
-  const selectedTemplate =
-    templates.find((template) => template.id === selectedTemplateId) ?? null;
   const isPurchaseTask = task === "purchaseOrder";
   const isCourierLabelTask = task === "courierLabel";
   const isPackingPrintTask = task === "packingSlip" || task === "combined";
+  const isInvoiceTask = task === "invoice";
 
   const toggleSelected = (id: string) => {
     setSelectedIds((current) => {
@@ -457,19 +501,14 @@ export function PrintOutPage() {
                 options={PACKING_SOURCE_OPTIONS}
               />
             )}
-            {!isCourierLabelTask && !isPurchaseTask && (
-              <Select
-                value={selectedTemplateId}
-                onChange={setSelectedTemplateId}
-                options={
-                  templates.length === 0
-                    ? [{ value: "", label: "Default layout" }]
-                    : templates.map((template) => ({
-                        value: template.id,
-                        label: `${template.name}${template.isDefault ? " (default)" : ""}`,
-                      }))
-                }
-              />
+            {isInvoiceTask && (
+              <button
+                type="button"
+                onClick={() => setInvoiceFormatModalOpen(true)}
+                className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+              >
+                <FileText size={14} /> Invoice Format: {invoiceFormat}
+              </button>
             )}
             {isPurchaseTask && (
               <Select
@@ -747,7 +786,19 @@ export function PrintOutPage() {
         orders={selectedOrders}
         docType={docType}
         binLookup={binLookup}
-        template={selectedTemplate}
+        template={null}
+        invoiceStyle={invoiceFormat}
+        paperSize="A4"
+      />
+      <InvoiceFormatModal
+        open={invoiceFormatModalOpen}
+        selected={invoiceFormat}
+        onSave={(format) => {
+          setInvoiceFormat(format);
+          localStorage.setItem(INVOICE_FORMAT_STORAGE_KEY, format);
+          setInvoiceFormatModalOpen(false);
+        }}
+        onClose={() => setInvoiceFormatModalOpen(false)}
       />
       <CourierLabelModal
         open={labelModalOpen}
@@ -796,6 +847,515 @@ async function listPackingPrintableOrders(
     .forEach((order) => byId.set(order.id, order));
 
   return { orders: [...byId.values()] };
+}
+
+// Fed straight into the same DocumentPage/InvoiceBody that a real print run uses, so the format
+// picker's live preview is byte-for-byte what a business actually gets — not an illustration that
+// merely resembles it. Numbers are chosen to foot correctly (subtotal + shipping = total).
+const PREVIEW_ORDER: OrderDTO = {
+  id: "preview-order",
+  storeId: "preview-store",
+  platform: "shopify",
+  externalId: "preview-external",
+  number: "PRV-1048",
+  invoiceNo: "INV-1048",
+  invoiceIssuedAt: "2026-07-17T00:00:00.000Z",
+  stage: "Processing",
+  heldFromStage: null,
+  paymentStatus: "COD Pending",
+  paymentMethod: "Cash on Delivery",
+  subtotal: 1290,
+  shippingFee: 80,
+  discount: 0,
+  advanceAmount: 0,
+  total: 1370,
+  currency: "BDT",
+  tags: [],
+  customerName: "Farzana Akter",
+  customerPhone: "+8801711000101",
+  customerAltPhone: null,
+  customerEmail: null,
+  address: "Mirpur 10, Dhaka",
+  lineItems: [
+    {
+      title: "Premium Cotton Kurti",
+      variant: "Sky Blue / M",
+      quantity: 1,
+      price: 1290,
+      sku: "PCK-SKY-M",
+      image: null,
+    },
+  ],
+  holdReason: null,
+  cancelReason: null,
+  flagReason: null,
+  wasShortOfStock: false,
+  splitFromOrderId: null,
+  splitFromOrderNumber: null,
+  splitIntoOrderId: null,
+  splitIntoOrderNumber: null,
+  note: null,
+  rescheduledFor: null,
+  isPriorityCall: false,
+  priorityNote: null,
+  isCustomerBlocked: false,
+  isReturningCustomer: false,
+  riskLabel: null,
+  riskSuccessRate: null,
+  steadfastFraudCheck: null,
+  pathaoFraudCheck: null,
+  courierPartner: null,
+  courierTrackingId: null,
+  courierConsignmentId: null,
+  courierStatus: null,
+  courierSyncedAt: null,
+  courierCharge: null,
+  courierReturnCharge: null,
+  courierZoneTier: null,
+  courierSpeed: null,
+  deliveryZone: null,
+  callAttempts: 0,
+  history: [],
+  returnLocation: null,
+  fulfillmentWarehouseId: null,
+  fulfillmentWarehouseName: null,
+  cogsTotal: null,
+  createdAt: "2026-07-17T00:00:00.000Z",
+  updatedAt: "2026-07-17T00:00:00.000Z",
+  claimedBy: null,
+  claimedAt: null,
+  printedAt: null,
+};
+
+function InvoiceFormatModal({
+  open,
+  selected,
+  onSave,
+  onClose,
+}: {
+  open: boolean;
+  selected: InvoiceFormat;
+  onSave: (format: InvoiceFormat) => void;
+  onClose: () => void;
+}) {
+  const [draftFormat, setDraftFormat] = useState<InvoiceFormat>(selected);
+  // TEMPORARY — per-card print button so every format can be printed/saved-as-PDF straight from
+  // this picker for a one-off export. Safe to delete this state + the effect below + the portal
+  // render + each card's print button once that's done; nothing else in the app depends on it.
+  // Rendered through a portal straight to document.body (mirroring PrintOrderModal.tsx) because
+  // the global `@media print { #root { display: none; } }` rule hides this modal's entire subtree
+  // otherwise — a plain "hide everything except this element" CSS trick can't win against an
+  // ancestor that's already display:none.
+  const [printQueued, setPrintQueued] = useState<InvoiceFormat | null>(null);
+  // The tenant's real Settings/Branding logo, so this preview/export flow shows exactly what a
+  // real invoice would carry rather than a logo-less approximation.
+  const [brandingLogoUrl, setBrandingLogoUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setDraftFormat(selected);
+  }, [open, selected]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void getBrandingSettings()
+      .then(({ branding }) => {
+        if (!cancelled) setBrandingLogoUrl(branding.logoUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setBrandingLogoUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!printQueued) return;
+    const raf = requestAnimationFrame(() => window.print());
+    return () => cancelAnimationFrame(raf);
+  }, [printQueued]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+      <div
+        className="absolute inset-0 animate-fade-in bg-slate-900/50 backdrop-blur-[2px]"
+        onClick={onClose}
+      />
+      <div className="relative flex h-[85vh] w-full max-w-[1360px] animate-dialog-in flex-col overflow-hidden rounded-2xl bg-white shadow-2xl shadow-slate-900/25">
+        {/* TEMPORARY — the actual print output for the per-card print buttons. Portaled to
+            document.body (outside #root) so it survives the global `@media print { #root {
+            display: none; } }` rule instead of getting hidden along with the rest of this modal.
+            Delete alongside the rest of the temporary print wiring. */}
+        {printQueued &&
+          createPortal(
+            <div className="hidden print:block">
+              <style>{`@media print { @page { size: A4; } }`}</style>
+              <DocumentPage
+                order={PREVIEW_ORDER}
+                docType="invoice"
+                businessName="Brown Bazar"
+                template={null}
+                invoiceStyle={printQueued}
+                logoUrl={brandingLogoUrl}
+              />
+            </div>,
+            document.body,
+          )}
+        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-slate-100 px-7 py-4">
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
+              <FileText size={18} />
+            </span>
+            <div>
+              <h2 className="text-base font-bold text-slate-900">
+                Invoice format
+              </h2>
+              <p className="mt-0.5 text-sm text-slate-500">
+                Choose the invoice design to use for this print run.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onClose}
+              className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+
+        <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1.15fr)_minmax(440px,0.85fr)]">
+          <div className="h-full min-h-0 overflow-y-auto px-7 py-5 lg:border-r lg:border-slate-100">
+            <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">
+              {INVOICE_FORMATS.length} designs available
+            </p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {INVOICE_FORMATS.map((format) => {
+                const active = draftFormat === format.value;
+                return (
+                  <div key={format.value} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setDraftFormat(format.value)}
+                      className={clsx(
+                        "group relative w-full rounded-xl border bg-white p-3.5 text-left transition-all duration-150",
+                        active
+                          ? "border-indigo-500 bg-indigo-50/40 shadow-md shadow-indigo-500/10 ring-1 ring-indigo-500"
+                          : "border-slate-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md",
+                      )}
+                    >
+                      <div className="mb-3 flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">
+                            {format.value}
+                          </p>
+                          <p className="mt-1 text-xs leading-5 text-slate-500">
+                            {format.detail}
+                          </p>
+                        </div>
+                        <span
+                          className={clsx(
+                            "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition",
+                            active
+                              ? "border-indigo-500 bg-indigo-500 text-white"
+                              : "border-slate-200 bg-white text-transparent group-hover:border-slate-300 group-hover:text-slate-300",
+                          )}
+                        >
+                          <Check size={13} />
+                        </span>
+                      </div>
+                      <InvoiceFormatPreview format={format.value} />
+                    </button>
+                    {/* TEMPORARY — see the print portal above; remove together. */}
+                    <button
+                      type="button"
+                      title={`Print ${format.value}`}
+                      onClick={() => {
+                        setDraftFormat(format.value);
+                        setPrintQueued(format.value);
+                      }}
+                      className="absolute bottom-3 right-3 flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-indigo-300 hover:text-indigo-600"
+                    >
+                      <Printer size={13} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div className="flex h-full min-h-0 flex-col bg-slate-50/70">
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 px-6 py-4">
+              <div>
+                <p className="flex items-center gap-2 text-sm font-bold text-slate-900">
+                  Actual invoice preview
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    Live
+                  </span>
+                </p>
+                <p className="text-xs text-slate-500">
+                  The exact invoice this format prints — sample order, real
+                  barcode.
+                </p>
+              </div>
+              <span className="shrink-0 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-bold text-slate-600">
+                A4
+              </span>
+            </div>
+            <div
+              className="min-h-0 flex-1 overflow-y-auto px-6 py-6"
+              style={{
+                backgroundImage:
+                  "radial-gradient(circle, rgba(15,23,42,0.06) 1px, transparent 1px)",
+                backgroundSize: "16px 16px",
+              }}
+            >
+              <div className="mx-auto w-full max-w-[595px] overflow-hidden rounded-md border border-slate-200 bg-white shadow-md">
+                <DocumentPage
+                  order={PREVIEW_ORDER}
+                  docType="invoice"
+                  businessName="Brown Bazar"
+                  template={null}
+                  invoiceStyle={draftFormat}
+                  logoUrl={brandingLogoUrl}
+                />
+              </div>
+            </div>
+            <div className="flex shrink-0 justify-end gap-2 border-t border-slate-100 bg-white px-6 py-4">
+              <button
+                type="button"
+                onClick={onClose}
+                className="h-9 rounded-lg px-4 text-sm font-semibold text-slate-500 transition hover:bg-slate-100"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => onSave(draftFormat)}
+                className="flex h-9 items-center gap-1.5 rounded-lg bg-slate-900 px-4 text-sm font-semibold text-white transition hover:bg-slate-800"
+              >
+                <Check size={14} /> Save format
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InvoiceFormatPreview({ format }: { format: InvoiceFormat }) {
+  // Only A4 is offered now, so the skeleton always uses the full-page proportions.
+  const fullPage = true;
+  const retailLike = format === "Retail" || format === "Statement";
+  const dense = format === "Compact" || retailLike;
+  const framed =
+    format === "Classic" || format === "Bold" || format === "Statement";
+  const split = format === "Modern";
+  const soft = format === "Minimal";
+  const logoSide =
+    format === "Modern" || retailLike ? "right" : "left";
+  const titleSide =
+    format === "Modern" || retailLike ? "left" : "right";
+  const barcodeSlot =
+    format === "Compact" || retailLike ? "top" : "bottom";
+  const logoShape = format === "Bold" ? "square" : "circle";
+  return (
+    <div className="flex min-h-[170px] items-center justify-center rounded-md border border-white/80 bg-white p-3 shadow-sm">
+      <div
+        className={clsx(
+          "flex overflow-hidden rounded-md border bg-slate-50/60 p-2 shadow-sm",
+          fullPage
+            ? "h-44 w-32 flex-col gap-1.5"
+            : barcodeSlot === "bottom"
+              ? "h-28 w-36 flex-col gap-0.5"
+              : "h-28 w-36 flex-col gap-1",
+          format === "Bold"
+            ? "border-slate-900 text-slate-900"
+            : "border-slate-400 text-slate-600",
+        )}
+      >
+        <div className="flex shrink-0 items-start justify-between gap-2">
+          {logoSide === "left" ? (
+            <LogoSkeleton shape={logoShape} />
+          ) : (
+            <InvoiceLabelSkeleton align="left" />
+          )}
+          {titleSide === "right" ? (
+            <InvoiceLabelSkeleton align="right" />
+          ) : (
+            <LogoSkeleton shape={logoShape} />
+          )}
+        </div>
+
+        {barcodeSlot === "top" && (
+          <div className="flex shrink-0 justify-end">
+            <BarcodeSkeleton compact />
+          </div>
+        )}
+
+        {!soft && (
+          <div className="h-0.5 shrink-0 rounded bg-current opacity-60" />
+        )}
+
+        <InvoiceMetaSkeleton dense={dense} split={split} />
+
+        <div
+          className={clsx(
+            barcodeSlot === "bottom"
+              ? fullPage
+                ? "h-16 shrink-0"
+                : "h-9 shrink-0"
+              : "min-h-0 flex-1",
+          )}
+        >
+          <InvoiceTableSkeleton fullPage={fullPage} framed={framed} />
+        </div>
+
+        {barcodeSlot === "bottom" && (
+          <div className="flex h-5 shrink-0 items-start justify-center border-t border-current/20 pt-2">
+            <BarcodeSkeleton compact className="mx-auto" />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LogoSkeleton({ shape }: { shape: "circle" | "square" }) {
+  return (
+    <div
+      className={clsx(
+        "h-4 w-4 shrink-0 border border-current opacity-80",
+        shape === "circle" ? "rounded-full" : "rounded-sm",
+      )}
+    />
+  );
+}
+
+function InvoiceLabelSkeleton({ align }: { align: "left" | "right" }) {
+  return (
+    <div className={clsx("space-y-1", align === "right" && "text-right")}>
+      <p className="text-[7px] font-bold uppercase leading-none tracking-wide">
+        Inv
+      </p>
+      <div
+        className={clsx(
+          "h-0.5 rounded bg-current opacity-45",
+          align === "right" ? "ml-auto w-5" : "w-5",
+        )}
+      />
+      <div
+        className={clsx(
+          "h-0.5 rounded bg-current opacity-25",
+          align === "right" ? "ml-auto w-3" : "w-3",
+        )}
+      />
+    </div>
+  );
+}
+
+function InvoiceMetaSkeleton({
+  dense,
+  split,
+}: {
+  dense: boolean;
+  split: boolean;
+}) {
+  return (
+    <div
+      className={clsx(
+        "grid shrink-0 gap-1",
+        split ? "grid-cols-2" : "grid-cols-[1.2fr_0.8fr]",
+      )}
+    >
+      <div className="space-y-1">
+        <div className="h-0.5 w-7 rounded bg-current opacity-30" />
+        {!dense && <div className="h-0.5 w-5 rounded bg-current opacity-20" />}
+      </div>
+      <div className="space-y-1 justify-self-end">
+        <div className="h-0.5 w-6 rounded bg-current opacity-50" />
+        <div className="h-0.5 w-4 rounded bg-current opacity-25" />
+      </div>
+    </div>
+  );
+}
+
+function InvoiceTableSkeleton({
+  fullPage,
+  framed,
+}: {
+  fullPage: boolean;
+  framed: boolean;
+}) {
+  return (
+    <div className="relative h-full min-h-[42px] overflow-hidden rounded border border-current bg-white/70">
+      <div
+        className={clsx(
+          "h-2.5 border-b border-current",
+          framed ? "bg-current" : "bg-transparent",
+        )}
+      />
+      {Array.from({ length: fullPage ? 5 : 3 }).map((_, index) => (
+        <div
+          key={index}
+          className="mx-2 mt-1.5 h-0.5 rounded bg-current opacity-25"
+        />
+      ))}
+    </div>
+  );
+}
+
+function BarcodeSkeleton({
+  compact,
+  className,
+}: {
+  compact?: boolean;
+  className?: string;
+}) {
+  const bars = compact
+    ? ["w-0.5", "w-px", "w-1", "w-px", "w-0.5", "w-1", "w-px"]
+    : [
+        "w-px",
+        "w-0.5",
+        "w-1",
+        "w-px",
+        "w-0.5",
+        "w-1",
+        "w-px",
+        "w-0.5",
+        "w-px",
+      ];
+  return (
+    <div
+      className={clsx(
+        "flex items-stretch justify-center gap-0.5 rounded-sm bg-white/90 px-1 py-0.5",
+        compact ? "h-3 w-12" : "h-4 w-16",
+        className,
+      )}
+    >
+      {bars.map((width, index) => (
+        <span
+          key={index}
+          className={clsx("block bg-current opacity-75", width)}
+        />
+      ))}
+    </div>
+  );
 }
 
 function SelectionBar({

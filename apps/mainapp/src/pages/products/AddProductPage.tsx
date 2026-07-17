@@ -8,7 +8,7 @@ import {
   Store as StoreIcon,
 } from "lucide-react";
 import clsx from "clsx";
-import type { StoreDTO } from "@zetsales/shared";
+import { canWriteModule, type StoreDTO } from "@zetsales/shared";
 import {
   createProduct,
   listStores,
@@ -28,6 +28,7 @@ import {
 import { Select } from "../../components/ui/Select";
 import { useToast } from "../../components/ui/ToastProvider";
 import { BinPicker, hasRealBins } from "../inventory/InventoryPage";
+import { useAuth } from "../../context/AuthContext";
 
 const PLATFORM_META = {
   shopify: { label: "Shopify", color: "bg-[#95BF47]", icon: ShoppingBag },
@@ -37,6 +38,8 @@ const PLATFORM_META = {
 export function AddProductPage() {
   const navigate = useNavigate();
   const toast = useToast();
+  const { user } = useAuth();
+  const canWriteProducts = canWriteModule(user?.role, "products");
   const [stores, setStores] = useState<StoreDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState<ProductFormState>(EMPTY_PRODUCT_FORM);
@@ -48,6 +51,10 @@ export function AddProductPage() {
   const [bin, setBin] = useState("");
 
   useEffect(() => {
+    if (!canWriteProducts) {
+      navigate("/products", { replace: true });
+      return;
+    }
     (async () => {
       try {
         const [list, warehouseRes] = await Promise.all([
@@ -65,7 +72,7 @@ export function AddProductPage() {
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [canWriteProducts]);
 
   // The warehouse/bin picker is only relevant once a starting quantity is actually entered for
   // some variant — no point asking where to put stock nobody said exists yet.

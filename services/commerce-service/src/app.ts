@@ -23,6 +23,7 @@ import adPerformanceRoutes from './routes/adPerformanceRoutes.js';
 import adAccountsRoutes from './routes/adAccountsRoutes.js';
 import adCampaignsRoutes from './routes/adCampaignsRoutes.js';
 import appsRoutes from './routes/appsRoutes.js';
+import brandingRoutes from './routes/brandingRoutes.js';
 import oauthRoutes from './routes/oauthRoutes.js';
 import webhooksRoutes from './routes/webhooksRoutes.js';
 import logger from './utils/logger.js';
@@ -112,6 +113,7 @@ const commerceRouters = [
   adAccountsRoutes,
   adCampaignsRoutes,
   appsRoutes,
+  brandingRoutes,
 ];
 for (const router of commerceRouters) {
   app.use('/api/v1/commerce', wrapAsyncRouter(router));

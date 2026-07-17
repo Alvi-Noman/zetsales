@@ -1,4 +1,4 @@
-import type { AdAccountDTO, AdCampaignDTO, AdCreativeAssetDTO, CreateAdCampaignPayload, AdChannel, AdCostEntryDTO, AdPerformanceReportDTO, AppExtensionTarget, AppManifestDTO, BulkOrderResultDTO, CallOutcome, CancelReason, CourierAccountDTO, CourierSettlementDTO, CourierHandoverDTO, CourierHandoverDetailDTO, EligibleHandoverOrderDTO, CourierShipmentStatsDTO, CustomerListDTO, CustomerDetailDTO, CustomerOrderRowDTO, HoldReason, InstalledAppDTO, InvoiceTemplateDTO, ModuleKey, OrderDTO, OrderRiskDTO, OrderStage, OrderStatsDTO, OrderTabKey, OrderTrendsDTO, PaymentMethod, PreOrderTargetDTO, PrintPaperSize, ProductCollectionDTO, ProductDTO, ProductListItemDTO, ProductPublishTargetDTO, ProductPushResultDTO, ProductWritePayload, StoreDTO, SupplierProductDraftDTO } from '@zetsales/shared';
+import type { AdAccountDTO, AdCampaignDTO, AdCreativeAssetDTO, CreateAdCampaignPayload, AdChannel, AdCostEntryDTO, AdPerformanceReportDTO, AppExtensionTarget, AppManifestDTO, BrandingSettingsDTO, BulkOrderResultDTO, CallOutcome, CancelReason, CourierAccountDTO, CourierSummaryDTO, CourierSettlementDTO, CourierHandoverDTO, CourierHandoverDetailDTO, EligibleHandoverOrderDTO, CourierShipmentStatsDTO, CustomerListDTO, CustomerDetailDTO, CustomerOrderRowDTO, HoldReason, InstalledAppDTO, InvoiceFont, InvoiceTemplateDTO, ModuleKey, OrderDTO, OrderRiskDTO, OrderStage, OrderStatsDTO, OrderTabKey, OrderTrendsDTO, PaymentMethod, PreOrderTargetDTO, PrintPaperSize, ProductCollectionDTO, ProductDTO, ProductListItemDTO, ProductPublishTargetDTO, ProductPushResultDTO, ProductWritePayload, StoreDTO, SupplierProductDraftDTO } from '@zetsales/shared';
 import { api } from './api';
 
 export async function getCapabilities() {
@@ -53,6 +53,11 @@ export async function wooAuthStatus(sessionId: string) {
 export async function listCouriers() {
   const res = await api.get('/commerce/couriers');
   return res.data as { success: boolean; couriers: CourierAccountDTO[] };
+}
+
+export async function listCourierSummaries() {
+  const res = await api.get('/commerce/couriers/summaries');
+  return res.data as { success: boolean; couriers: CourierSummaryDTO[] };
 }
 
 export async function connectSteadfast(payload: { apiKey: string; secretKey: string; displayName?: string }) {
@@ -988,6 +993,23 @@ export async function uploadPrintTemplateLogo(file: File) {
   const form = new FormData();
   form.append('logo', file);
   const res = await api.post('/commerce/print-templates/logo', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+  return res.data as { success: boolean; url: string };
+}
+
+export async function getBrandingSettings() {
+  const res = await api.get('/commerce/settings/branding');
+  return res.data as { success: boolean; branding: BrandingSettingsDTO };
+}
+
+export async function updateInvoiceFont(invoiceFont: InvoiceFont) {
+  const res = await api.put('/commerce/settings/branding', { invoiceFont });
+  return res.data as { success: boolean };
+}
+
+export async function uploadBrandingLogo(file: File) {
+  const form = new FormData();
+  form.append('logo', file);
+  const res = await api.post('/commerce/settings/branding/logo', form, { headers: { 'Content-Type': 'multipart/form-data' } });
   return res.data as { success: boolean; url: string };
 }
 

@@ -454,9 +454,12 @@ function tabMatch(tab: string | undefined): Record<string, unknown> {
     case 'processing':
       return { stage: 'Processing' };
     case 'courierBooked':
-      return { stage: 'Shipped', handoverId: null };
+      return { stage: 'Ready for Pickup', handoverId: null };
     case 'shipped':
-      return { stage: 'Out for Delivery' };
+      // "In transit" — handed to the courier already (Shipped) or moving per the courier's own
+      // webhook (Out for Delivery). Ready for Pickup orders haven't left the warehouse yet, so
+      // they stay out of this tab and show under courierBooked instead.
+      return { stage: { $in: ['Shipped', 'Out for Delivery'] } };
     case 'returning':
       return { stage: { $in: ['RTO Initiated', 'QC Pending'] } };
     case 'delivered':
@@ -1615,7 +1618,7 @@ export async function createOrder(req: AuthenticatedRequest, res: Response) {
 }
 
 const ORDER_STAGES = [
-  'Pending', 'Flagged', 'Confirmed', 'Processing', 'Shipped', 'Out for Delivery',
+  'Pending', 'Flagged', 'Confirmed', 'Processing', 'Ready for Pickup', 'Shipped', 'Out for Delivery',
   'RTO Initiated', 'QC Pending', 'Delivered', 'Partial Delivered', 'Returned', 'Cancelled', 'On Hold',
 ] as const;
 const HOLD_REASONS = [
@@ -1832,13 +1835,13 @@ async function applyOutOfStockPolicy(tenantId: string, current: any, patch: Upda
 }
 
 // The two manual transitions where staff are actually about to physically handle stock — picking
-// it for packing (Confirmed -> Processing) and handing the packed parcel to a courier
-// (Processing -> Shipped). Unlike the fresh-reservation policy above, this is a hard gate with no
-// oversell exception: an order already sitting in Processing with nothing on the shelf shouldn't be
-// something staff discover only once they've opened the pick/pack checklist.
+// it for packing (Confirmed -> Processing) and marking the packed parcel ready for the courier to
+// collect (Processing -> Ready for Pickup). Unlike the fresh-reservation policy above, this is a
+// hard gate with no oversell exception: an order already sitting in Processing with nothing on the
+// shelf shouldn't be something staff discover only once they've opened the pick/pack checklist.
 const FULFILLMENT_GATED_TRANSITIONS: [OrderStage, OrderStage][] = [
   ['Confirmed', 'Processing'],
-  ['Processing', 'Shipped'],
+  ['Processing', 'Ready for Pickup'],
 ];
 
 async function checkFulfillmentGate(tenantId: string, current: any, patch: UpdateOrderPatch): Promise<string | null> {
@@ -1853,8 +1856,8 @@ async function checkFulfillmentGate(tenantId: string, current: any, patch: Updat
 function checkCourierAssignmentGate(current: object, patch: UpdateOrderPatch): string | null {
   const currentStage = 'stage' in current ? current.stage : undefined;
   const requiresCourier =
-    (currentStage === 'Processing' && patch.stage === 'Shipped') ||
-    (currentStage === 'Shipped' && patch.stage === 'Out for Delivery');
+    (currentStage === 'Processing' && patch.stage === 'Ready for Pickup') ||
+    (currentStage === 'Ready for Pickup' && patch.stage === 'Shipped');
   if (!requiresCourier) return null;
   const currentCourierPartner = 'courierPartner' in current ? current.courierPartner : undefined;
   const courierPartner = patch.courierPartner === undefined ? currentCourierPartner : patch.courierPartner;
@@ -1943,7 +1946,7 @@ export async function updateOrder(req: AuthenticatedRequest, res: Response) {
       result.fulfillmentWarehouseName = warehouse.warehouseName;
     }
   }
-  if (result.stage === 'Shipped' && current.stage !== 'Shipped') {
+  if (result.stage === 'Ready for Pickup' && current.stage !== 'Ready for Pickup') {
     const issued = await ensureInvoiceNumbers(tenantId, [result._id], req.user!.email, 'readyForPickup');
     const invoiceNo = issued.get(result._id.toString());
     if (invoiceNo) {
@@ -2618,11 +2621,11 @@ export async function dispatchScanHandover(req: AuthenticatedRequest, res: Respo
     res.status(404).json({ success: false, message: 'No parcel matches that barcode.' });
     return;
   }
-  if (order.stage !== 'Shipped') {
+  if (order.stage !== 'Ready for Pickup') {
     res.status(409).json({
       success: false,
       message:
-        order.stage === 'Out for Delivery'
+        order.stage === 'Shipped' || order.stage === 'Out for Delivery'
           ? 'This parcel was already handed over.'
           : `This order is ${order.stage}, not Ready for pickup.`,
       order: toOrderDto(order),
@@ -2632,10 +2635,10 @@ export async function dispatchScanHandover(req: AuthenticatedRequest, res: Respo
 
   const now = new Date();
   const update = {
-    $set: { stage: 'Out for Delivery', stageSource: 'manual', updatedAt: now },
-    $push: { history: { label: 'Out for Delivery', detail: 'Handed over to courier by barcode scan', at: now, by: req.user!.email } },
+    $set: { stage: 'Shipped', stageSource: 'manual', updatedAt: now },
+    $push: { history: { label: 'Shipped', detail: 'Handed over to courier by barcode scan', at: now, by: req.user!.email } },
   } as any;
-  const result = await db.collection('orders').findOneAndUpdate({ _id: order._id, tenantId, stage: 'Shipped' }, update, { returnDocument: 'after' });
+  const result = await db.collection('orders').findOneAndUpdate({ _id: order._id, tenantId, stage: 'Ready for Pickup' }, update, { returnDocument: 'after' });
   if (!result) {
     res.status(409).json({ success: false, message: 'This parcel changed state before the scan completed.' });
     return;
@@ -2691,7 +2694,7 @@ export async function bulkUpdateOrders(req: AuthenticatedRequest, res: Response)
         if (cogsDelta !== 0) await db.collection('orders').updateOne({ _id: result._id }, { $inc: { cogsTotal: cogsDelta } });
         await recordFulfillmentWarehouse({ _id: result._id, tenantId }, fromState, warehouse);
       }
-      if (result && result.stage === 'Shipped' && current.stage !== 'Shipped') {
+      if (result && result.stage === 'Ready for Pickup' && current.stage !== 'Ready for Pickup') {
         const issued = await ensureInvoiceNumbers(tenantId, [result._id], req.user!.email, 'readyForPickup');
         const invoiceNo = issued.get(result._id.toString());
         if (invoiceNo) {
@@ -2715,14 +2718,15 @@ export async function bulkUpdateOrders(req: AuthenticatedRequest, res: Response)
   res.json({ success: successCount > 0, results });
 }
 
-// Fires once per order the moment it's marked Shipped — hands the parcel to whichever courier is
-// set on the order. Soft-fails on purpose: a missing credential or a courier-side error shouldn't
-// block the order from shipping locally, it just means that particular order falls back to manual
+// Fires once per order the moment it's marked Ready for Pickup — creates the consignment (and
+// tracking code/label) with whichever courier is set on the order, before the parcel has actually
+// left the warehouse. Soft-fails on purpose: a missing credential or a courier-side error shouldn't
+// block the order from being packed locally, it just means that particular order falls back to manual
 // courier tracking (the courierPartner/courierTrackingId fields staff can still edit by hand).
 // Returns the fields it wrote (or null if it didn't dispatch) so callers can merge them into the
 // response they already built — the DB write here happens after that response's source document
-// was read, so without merging, the reply to "mark shipped" would show stale (pre-dispatch) data
-// even though a follow-up fetch is correct.
+// was read, so without merging, the reply to "mark ready for pickup" would show stale (pre-dispatch)
+// data even though a follow-up fetch is correct.
 async function dispatchCourierConsignment(tenantId: string, order: any): Promise<Record<string, unknown> | null> {
   if (!order.courierPartner || order.courierConsignmentId) return null;
 
@@ -2813,7 +2817,7 @@ async function applyCourierReturnCharge(tenantId: string, order: any): Promise<R
 // journey — a stale or out-of-order webhook can't reach into stages it has no business touching
 // (Cancelled, On Hold, QC Pending, Returned, etc.), the same way upsertShopifyOrder/upsertWooOrder
 // refuse to clobber a manually-set stage.
-const COURIER_ELIGIBLE_STAGES: OrderStage[] = ['Shipped', 'Out for Delivery', 'RTO Initiated'];
+const COURIER_ELIGIBLE_STAGES: OrderStage[] = ['Ready for Pickup', 'Shipped', 'Out for Delivery', 'RTO Initiated'];
 
 // Called by the Steadfast/Pathao webhook handlers once a raw status has been mapped to an
 // OrderStage — looks the order up by the consignment id the courier returned when it was created,

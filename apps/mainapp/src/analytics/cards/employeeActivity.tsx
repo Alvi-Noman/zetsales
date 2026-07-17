@@ -52,7 +52,7 @@ function Detail({ query }: AnalyticsCardComponentProps) {
           { key: 'agent', header: 'Staff member', render: (r) => <span className="font-medium text-slate-700">{r.agent}</span> },
           { key: 'total', header: 'Total actions', align: 'right', render: (r) => <span className="font-semibold text-slate-900">{formatCount(r.totalActions)}</span> },
           { key: 'confirmed', header: 'Confirmed', align: 'right', render: (r) => formatCount(r.confirmed) },
-          { key: 'shipped', header: 'Shipped', align: 'right', render: (r) => formatCount(r.shipped) },
+          { key: 'shipped', header: 'Ready for pickup', align: 'right', render: (r) => formatCount(r.shipped) },
           { key: 'delivered', header: 'Delivered', align: 'right', render: (r) => formatCount(r.delivered) },
           { key: 'cancelled', header: 'Cancelled', align: 'right', render: (r) => formatCount(r.cancelled) },
           { key: 'holdResolved', header: 'Holds resolved', align: 'right', render: (r) => formatCount(r.holdResolved) },

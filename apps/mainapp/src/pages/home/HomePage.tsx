@@ -69,7 +69,7 @@ const PIPELINE_STAGES: {
     tab: "courierBooked",
     label: "Ready for pickup",
     icon: Truck,
-    tone: STAGE_TONE.Shipped,
+    tone: STAGE_TONE["Ready for Pickup"],
   },
   {
     tab: "delivered",

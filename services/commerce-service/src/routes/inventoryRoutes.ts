@@ -34,6 +34,7 @@ import {
 
 const router: Router = Router();
 const requireInventory = requireModule('inventory');
+const requireReturns = requireModule('returns');
 
 router.get('/inventory', requireAuth, requireTenant, requireInventory, listInventory);
 router.get('/inventory/stock-shortfalls', requireAuth, requireTenant, requireInventory, listStockShortfalls);
@@ -54,14 +55,14 @@ router.get('/inventory/count-context', requireAuth, requireTenant, requireInvent
 router.post('/inventory/levels/:id/receive-inbound', requireAuth, requireTenant, requireInventory, receiveInboundStock);
 router.post('/inventory/levels/:id/write-off-inbound', requireAuth, requireTenant, requireInventory, writeOffInboundStock);
 router.post('/inventory/transfer', requireAuth, requireTenant, requireInventory, transferStock);
-router.get('/inventory/returns-queue', requireAuth, requireTenant, requireInventory, getReturnsQueue);
-router.post('/inventory/returns/:orderId/receive', requireAuth, requireTenant, requireInventory, receiveReturnPackage);
-router.post('/inventory/returns/:orderId/confirm-qc', requireAuth, requireTenant, requireInventory, confirmReturnPackageQc);
-router.post('/inventory/returns/:orderId/receive-and-confirm', requireAuth, requireTenant, requireInventory, receiveAndConfirmReturnPackage);
-router.get('/inventory/returns/search', requireAuth, requireTenant, requireInventory, searchDeliveredOrders);
-router.post('/inventory/returns/:orderId/manual-return', requireAuth, requireTenant, requireInventory, processManualReturn);
-router.get('/inventory/settings', requireAuth, requireTenant, requireInventory, getInventorySettings);
-router.patch('/inventory/settings', requireAuth, requireTenant, requireInventory, updateInventorySettings);
+router.get('/inventory/returns-queue', requireAuth, requireTenant, requireReturns, getReturnsQueue);
+router.post('/inventory/returns/:orderId/receive', requireAuth, requireTenant, requireReturns, receiveReturnPackage);
+router.post('/inventory/returns/:orderId/confirm-qc', requireAuth, requireTenant, requireReturns, confirmReturnPackageQc);
+router.post('/inventory/returns/:orderId/receive-and-confirm', requireAuth, requireTenant, requireReturns, receiveAndConfirmReturnPackage);
+router.get('/inventory/returns/search', requireAuth, requireTenant, requireReturns, searchDeliveredOrders);
+router.post('/inventory/returns/:orderId/manual-return', requireAuth, requireTenant, requireReturns, processManualReturn);
+router.get('/inventory/settings', requireAuth, requireTenant, requireReturns, getInventorySettings);
+router.patch('/inventory/settings', requireAuth, requireTenant, requireReturns, updateInventorySettings);
 router.get('/suppliers', requireAuth, requireTenant, requireInventory, listSuppliers);
 router.post('/suppliers', requireAuth, requireTenant, requireInventory, createSupplier);
 

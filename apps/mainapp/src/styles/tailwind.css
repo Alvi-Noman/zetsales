@@ -143,4 +143,24 @@ html {
   .print-page-break + .print-page-break {
     break-before: page;
   }
+  /* Zero @page margin is what actually suppresses Chrome/Edge's own header/footer chrome
+     (timestamp, page title, URL, page count) — leaving no reserved margin for them to draw
+     into. Without this, the printed invoice/label carries browser furniture that never
+     appeared in the in-app preview, so what a business ends up holding doesn't match what
+     they reviewed on screen. Each print-page already carries its own p-8 padding, so content
+     doesn't sit flush against the physical page edge. */
+  @page {
+    margin: 0;
+  }
+  /* Browsers drop CSS background colors from print by default (unless the user manually checks
+     "Background graphics" in the print dialog's "More settings" — off by default). Without this,
+     every filled element that reads as important on screen — invoice/packing-slip badges, the
+     highlighted total, framed table headers, courier-label bin/zone strips — comes out as plain
+     white on the actual printed page, silently losing the visual hierarchy the on-screen preview
+     promised. Forcing it here means what prints always matches what was reviewed on screen,
+     without depending on a setting most people never open. */
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
 }

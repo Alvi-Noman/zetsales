@@ -9,6 +9,7 @@ interface AuthContextValue {
   signup: (email: string, password: string) => Promise<UserDTO>;
   logout: () => Promise<void>;
   completeOnboarding: (payload: OnboardingPayload) => Promise<UserDTO>;
+  updateBusinessName: (name: string) => Promise<UserDTO>;
   refresh: () => Promise<void>;
 }
 
@@ -60,8 +61,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return res.data.user as UserDTO;
   };
 
+  const updateBusinessName = async (name: string) => {
+    const res = await api.patch('/auth/business', { name });
+    setUser(res.data.user);
+    return res.data.user as UserDTO;
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, signup, logout, completeOnboarding, refresh }}>
+    <AuthContext.Provider
+      value={{ user, loading, login, signup, logout, completeOnboarding, updateBusinessName, refresh }}
+    >
       {children}
     </AuthContext.Provider>
   );

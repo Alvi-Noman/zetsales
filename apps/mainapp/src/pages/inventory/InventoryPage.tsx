@@ -72,7 +72,11 @@ import {
   type SupplierDTO,
   type WarehouseDTO,
 } from "../../lib/commerceApi";
-import { ROLE_DEFINITIONS, type OrderStage } from "@zetsales/shared";
+import {
+  ROLE_DEFINITIONS,
+  canWriteModule,
+  type OrderStage,
+} from "@zetsales/shared";
 import { STAGE_LABEL } from "../../components/orders/orderTone";
 import { Modal } from "../../components/ui/Modal";
 import { Popover } from "../../components/ui/Popover";
@@ -2875,10 +2879,12 @@ function ReorderPointCell({
   level,
   unitsPerDay,
   onSaved,
+  canEdit = true,
 }: {
   level: InventoryLevelDTO;
   unitsPerDay: number | undefined;
   onSaved: (level: InventoryLevelDTO) => void;
+  canEdit?: boolean;
 }) {
   const toast = useToast();
   const [editing, setEditing] = useState(false);
@@ -2926,15 +2932,19 @@ function ReorderPointCell({
   return (
     <button
       type="button"
-      onClick={() => setEditing(true)}
-      className="group inline-flex items-center justify-center gap-1.5"
+      onClick={() => canEdit && setEditing(true)}
+      disabled={!canEdit}
+      className="group inline-flex items-center justify-center gap-1.5 disabled:cursor-default"
     >
       <span className="font-medium tabular-nums text-slate-700">
         {level.reorderPoint ?? "—"}
       </span>
       <Pencil
         size={11}
-        className="text-slate-300 opacity-0 group-hover:opacity-100"
+        className={clsx(
+          "text-slate-300 opacity-0",
+          canEdit && "group-hover:opacity-100",
+        )}
       />
       {level.reorderPoint == null && suggested != null && (
         <span className="text-xs text-indigo-500">Suggested: {suggested}</span>
@@ -3070,12 +3080,14 @@ export function IncomingCell({
   overdueDays,
   shipments,
   variant = "table",
+  canReceive = true,
 }: {
   level: InventoryLevelDTO;
   onReceived: (level: InventoryLevelDTO) => void;
   overdueDays: number | null;
   shipments: OpenShipmentDTO[];
   variant?: "table" | "shortfall";
+  canReceive?: boolean;
 }) {
   const toast = useToast();
   const [modalOpen, setModalOpen] = useState(false);
@@ -3214,6 +3226,34 @@ export function IncomingCell({
           : receivedQty > 0
             ? `Receive ${receivedQty} and write off ${remainderQty}`
             : `Write off ${remainderLabel}`;
+
+  if (!canReceive) {
+    if (variant === "shortfall") {
+      return (
+        <span className="inline-flex items-center gap-1.5">
+          <span className="font-bold tabular-nums text-indigo-600">
+            {level.inbound}
+          </span>
+          <span className="text-slate-400">{statusLabel}</span>
+        </span>
+      );
+    }
+
+    return (
+      <div className="text-left">
+        <p className="font-semibold tabular-nums text-emerald-700">
+          {level.inbound}
+        </p>
+        <p
+          className={
+            overdueDays != null ? "font-semibold text-rose-600" : "text-slate-400"
+          }
+        >
+          {statusLabel}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -3448,6 +3488,7 @@ export function InventoryPage() {
     ? ROLE_DEFINITIONS[user.role].modules
     : ROLE_DEFINITIONS.owner.modules;
   const hasDedicatedPreOrdersPage = allowedModules.includes("preOrders");
+  const canWriteInventory = canWriteModule(user?.role, "inventory");
   const [view, setView] = useState<PageView>("stock");
   // The current page's rows, full detail — the actual table content. Counts, the summary tiles,
   // the velocity map, and multi-location detection all come from the server already computed
@@ -3954,22 +3995,26 @@ export function InventoryPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => setCountModalOpen(true)}
-            className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-slate-800"
-          >
-            <Plus size={14} /> New count
-          </button>
-          <button
-            onClick={() => {
-              setInboundPrefill(null);
-              setInboundModalOpen(true);
-            }}
-            className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
-          >
-            <Truck size={14} /> Incoming Stock
-          </button>
-          {canTransferBetweenLocations(warehouses) && (
+          {canWriteInventory && (
+            <>
+              <button
+                onClick={() => setCountModalOpen(true)}
+                className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+              >
+                <Plus size={14} /> New count
+              </button>
+              <button
+                onClick={() => {
+                  setInboundPrefill(null);
+                  setInboundModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+              >
+                <Truck size={14} /> Incoming Stock
+              </button>
+            </>
+          )}
+          {canWriteInventory && canTransferBetweenLocations(warehouses) && (
             <button
               onClick={() => setTransferModalOpen(true)}
               className="flex items-center gap-1.5 rounded-lg bg-violet-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-violet-700"
@@ -4078,7 +4123,7 @@ export function InventoryPage() {
                       )}
                     </div>
                   )}
-                  {selectedShortfallKeys.size > 0 && (
+                  {canWriteInventory && selectedShortfallKeys.size > 0 && (
                     <button
                       onClick={() => setBulkInboundModalOpen(true)}
                       className="flex h-9 items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 text-sm font-semibold text-white hover:bg-indigo-700"
@@ -4180,7 +4225,7 @@ export function InventoryPage() {
                                       Incoming covers
                                     </span>
                                   )}
-                                  {suggestion && (
+                                  {canWriteInventory && suggestion && (
                                     <button
                                       onClick={() => {
                                         setInboundPrefill({
@@ -4242,6 +4287,7 @@ export function InventoryPage() {
                                           ) ?? []
                                         }
                                         variant="shortfall"
+                                        canReceive={canWriteInventory}
                                       />
                                     ) : (
                                       <p className="font-bold tabular-nums text-indigo-600">
@@ -4319,6 +4365,7 @@ export function InventoryPage() {
                                               ) ?? []
                                             }
                                             variant="shortfall"
+                                            canReceive={canWriteInventory}
                                           />
                                         ) : location.inbound > 0 ? (
                                           <span>
@@ -4834,12 +4881,14 @@ export function InventoryPage() {
           <p className="max-w-sm text-sm text-slate-400">
             Log your first opening count to start tracking real stock, per SKU.
           </p>
-          <button
-            onClick={() => setCountModalOpen(true)}
-            className="mt-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
-          >
-            New count
-          </button>
+          {canWriteInventory && (
+            <button
+              onClick={() => setCountModalOpen(true)}
+              className="mt-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+            >
+              New count
+            </button>
+          )}
         </div>
       ) : (
         <>
@@ -5148,6 +5197,7 @@ export function InventoryPage() {
                               <IncomingCell
                                 level={level}
                                 onReceived={applyLevelUpdate}
+                                canReceive={canWriteInventory}
                                 overdueDays={
                                   overdueDaysByLevelKey.get(levelKey(level)) ??
                                   null
@@ -5169,6 +5219,7 @@ export function InventoryPage() {
                                   : undefined
                               }
                               onSaved={applyLevelUpdate}
+                              canEdit={canWriteInventory}
                             />
                           </td>
                           <td className="px-5 py-4">
@@ -5335,78 +5386,82 @@ export function InventoryPage() {
           </div>
         </>
       )}
-      <NewCountModal
-        open={countModalOpen}
-        warehouses={warehouses}
-        suppliers={suppliers}
-        onClose={() => setCountModalOpen(false)}
-        onSaved={() => {
-          void load();
-          refreshShrinkageIfLoaded();
-        }}
-        onManageWarehouses={() => navigate("/inventory/warehouses")}
-      />
-      <NewInboundModal
-        open={inboundModalOpen}
-        suppliers={suppliers}
-        warehouses={warehouses}
-        onClose={() => {
-          setInboundModalOpen(false);
-          setInboundPrefill(null);
-        }}
-        onSaved={() => {
-          void load();
-          refreshShortfallsIfLoaded();
-        }}
-        onManageWarehouses={() => navigate("/inventory/warehouses")}
-        initialSku={inboundPrefill?.sku ?? null}
-        initialQuantity={inboundPrefill?.quantity}
-        initialWarehouseId={inboundPrefill?.warehouseId}
-      />
-      <BulkInboundModal
-        open={bulkInboundModalOpen}
-        items={shortfalls
-          .filter(
-            (row) =>
-              selectedShortfallKeys.has(shortfallRowKey(row)) &&
-              row.productId &&
-              row.variantId,
-          )
-          .map((row) => {
-            const suggestion = shortfallSuggestion(row);
-            return {
-              key: shortfallRowKey(row),
-              sku: {
-                productId: row.productId!,
-                variantId: row.variantId!,
-                sku: row.sku,
-                productTitle: row.productTitle ?? row.sku,
-                productImage: row.productImage,
-                variantLabel: row.variantLabel ?? "",
-              },
-              quantity: suggestion.quantity,
-              warehouseId: suggestion.warehouseId,
-            };
-          })}
-        suppliers={suppliers}
-        warehouses={warehouses}
-        onClose={() => setBulkInboundModalOpen(false)}
-        onSaved={() => {
-          void load();
-          refreshShortfallsIfLoaded();
-          setSelectedShortfallKeys(new Set());
-        }}
-        onManageWarehouses={() => navigate("/inventory/warehouses")}
-      />
-      <TransferStockModal
-        open={transferModalOpen}
-        warehouses={warehouses}
-        onClose={() => setTransferModalOpen(false)}
-        onSaved={() => {
-          void load();
-        }}
-        onManageWarehouses={() => navigate("/inventory/warehouses")}
-      />
+      {canWriteInventory && (
+        <>
+          <NewCountModal
+            open={countModalOpen}
+            warehouses={warehouses}
+            suppliers={suppliers}
+            onClose={() => setCountModalOpen(false)}
+            onSaved={() => {
+              void load();
+              refreshShrinkageIfLoaded();
+            }}
+            onManageWarehouses={() => navigate("/inventory/warehouses")}
+          />
+          <NewInboundModal
+            open={inboundModalOpen}
+            suppliers={suppliers}
+            warehouses={warehouses}
+            onClose={() => {
+              setInboundModalOpen(false);
+              setInboundPrefill(null);
+            }}
+            onSaved={() => {
+              void load();
+              refreshShortfallsIfLoaded();
+            }}
+            onManageWarehouses={() => navigate("/inventory/warehouses")}
+            initialSku={inboundPrefill?.sku ?? null}
+            initialQuantity={inboundPrefill?.quantity}
+            initialWarehouseId={inboundPrefill?.warehouseId}
+          />
+          <BulkInboundModal
+            open={bulkInboundModalOpen}
+            items={shortfalls
+              .filter(
+                (row) =>
+                  selectedShortfallKeys.has(shortfallRowKey(row)) &&
+                  row.productId &&
+                  row.variantId,
+              )
+              .map((row) => {
+                const suggestion = shortfallSuggestion(row);
+                return {
+                  key: shortfallRowKey(row),
+                  sku: {
+                    productId: row.productId!,
+                    variantId: row.variantId!,
+                    sku: row.sku,
+                    productTitle: row.productTitle ?? row.sku,
+                    productImage: row.productImage,
+                    variantLabel: row.variantLabel ?? "",
+                  },
+                  quantity: suggestion.quantity,
+                  warehouseId: suggestion.warehouseId,
+                };
+              })}
+            suppliers={suppliers}
+            warehouses={warehouses}
+            onClose={() => setBulkInboundModalOpen(false)}
+            onSaved={() => {
+              void load();
+              refreshShortfallsIfLoaded();
+              setSelectedShortfallKeys(new Set());
+            }}
+            onManageWarehouses={() => navigate("/inventory/warehouses")}
+          />
+          <TransferStockModal
+            open={transferModalOpen}
+            warehouses={warehouses}
+            onClose={() => setTransferModalOpen(false)}
+            onSaved={() => {
+              void load();
+            }}
+            onManageWarehouses={() => navigate("/inventory/warehouses")}
+          />
+        </>
+      )}
     </div>
   );
 }

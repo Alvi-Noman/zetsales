@@ -143,7 +143,7 @@ export function DispatchPage() {
       for (const order of ordersToHandOver) {
         try {
           const res = await updateOrder(order.id, {
-            stage: "Out for Delivery",
+            stage: "Shipped",
             note: "Handed over to courier",
           });
           handed.push(res.order);
@@ -221,7 +221,7 @@ export function DispatchPage() {
       }
 
       const { order } = await updateOrder(match.id, {
-        stage: "Out for Delivery",
+        stage: "Shipped",
         note: "Handed over to courier",
       });
       setReadyOrders((current) =>
@@ -265,7 +265,7 @@ export function DispatchPage() {
     setScanning(true);
     try {
       const { order } = await updateOrder(last.id, {
-        stage: "Shipped",
+        stage: "Ready for Pickup",
         note: "Dispatch scan undone",
       });
       setRecent((current) => current.slice(1));

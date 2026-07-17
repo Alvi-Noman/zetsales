@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import clsx from "clsx";
 import { Printer, Scissors, X, Package } from "lucide-react";
 import type {
   InvoiceTemplateDTO,
   OrderDTO,
   OrderLineItemDTO,
+  PrintPaperSize,
 } from "@zetsales/shared";
 import { useAuth } from "../../context/AuthContext";
-import { ensureOrderInvoices } from "../../lib/commerceApi";
+import { ensureOrderInvoices, getBrandingSettings } from "../../lib/commerceApi";
 import { useToast } from "../ui/ToastProvider";
 import { formatAbsoluteDateTime } from "./time";
 import { resolveBin, type BinLookup } from "./binLookup";
@@ -16,17 +18,52 @@ import { canPrintPackingSlip } from "./stageFlow";
 
 export type PrintDocType = "invoice" | "packingSlip" | "combined";
 
+// The 7 named invoice layouts offered by the "Invoice format" picker (PrintOutPage.tsx). Purely a
+// client-side visual-style axis — orthogonal to InvoiceTemplateDTO's backend-persisted branding/
+// toggle overrides below. Every trait combination mirrors INVOICE_FORMATS' own skeleton-preview
+// logic exactly, so the picker's thumbnails stay a truthful spec of what actually renders.
+export type InvoiceFormat =
+  | "Classic"
+  | "Modern"
+  | "Minimal"
+  | "Compact"
+  | "Bold"
+  | "Retail"
+  | "Statement";
+
+// Classic's filled table header is now the default appearance app-wide, not just within the
+// Invoice Format picker's own preview/export flow — "Classic" is also what every caller that never
+// passes invoiceStyle at all (Orders' bulk print, the order detail drawer) resolves to, so this
+// changes what every real customer invoice looks like unless a different format is chosen.
+function invoiceStyleTraits(style: InvoiceFormat) {
+  const retailLike = style === "Retail" || style === "Statement";
+  return {
+    framed: style === "Classic" || style === "Bold" || style === "Statement",
+    split: style === "Modern" || style === "Minimal",
+    soft: style === "Minimal",
+    dense: style === "Compact" || retailLike,
+    logoRight: style === "Modern" || retailLike,
+    barcodeTop: style === "Compact" || retailLike,
+  };
+}
+
 interface PrintOrderModalProps {
   open: boolean;
   onClose: () => void;
   orders: OrderDTO[];
   docType: PrintDocType;
   binLookup?: BinLookup;
-  // Branding/layout overrides from a saved template (Print Out → Invoice Design). Omitted or null
-  // means the original hardcoded layout — every field below reads as "on"/default when template is
+  // Branding/layout overrides from a saved template. Omitted or null means the original hardcoded
+  // layout — every field below reads as "on"/default when template is
   // absent, so existing callers (Orders' bulk print, the order detail drawer) keep working exactly
   // as before without needing to fetch or pass anything.
   template?: InvoiceTemplateDTO | null;
+  // Visual layout for the invoice half only (packing slips always render "Classic" regardless —
+  // see PackingSlipBody). Omitted defaults to "Classic", today's exact original look.
+  invoiceStyle?: InvoiceFormat;
+  // Independent of template.paperSize (which only exists once a real saved template is wired up) —
+  // lets the format picker's own A5/A4 choice reach the actual printed page size.
+  paperSize?: PrintPaperSize;
 }
 
 const DOC_LABEL: Record<PrintDocType, string> = {
@@ -44,35 +81,38 @@ function DocHeader({
   order,
   compact,
   template,
+  style,
+  logoUrl,
 }: {
   businessName: string;
   label: string;
   order: OrderDTO;
   compact?: boolean;
   template?: InvoiceTemplateDTO | null;
+  style: InvoiceFormat;
+  // A saved print template's own logo (if one's ever wired up) wins over the tenant's general
+  // Settings/Branding logo — the template is a deliberate per-document override, branding is just
+  // the fallback every document gets for free.
+  logoUrl?: string | null;
 }) {
+  const { logoRight, soft } = invoiceStyleTraits(style);
   const displayName = template?.businessNameOverride || businessName;
   const primaryNo = order.invoiceNo ?? order.number;
-  return (
-    <div
-      className={
-        compact
-          ? "mb-4 flex items-start justify-between"
-          : "mb-6 flex items-start justify-between"
-      }
-    >
-      <div className="flex items-center gap-2.5">
-        {template?.logoUrl && (
-          <img
-            src={template.logoUrl}
-            alt=""
-            className={
-              compact
-                ? "h-7 w-7 rounded object-contain"
-                : "h-10 w-10 rounded object-contain"
-            }
-          />
-        )}
+  const effectiveLogoUrl = template?.logoUrl || logoUrl;
+
+  const brandBlock = (
+    <div className={clsx("flex items-center gap-2.5", logoRight && "flex-row-reverse")}>
+      {effectiveLogoUrl ? (
+        <img
+          src={effectiveLogoUrl}
+          alt={displayName}
+          className={clsx(
+            compact ? "h-14 w-14" : "h-24 w-24",
+            "object-contain",
+            style === "Bold" ? "rounded-none" : "rounded",
+          )}
+        />
+      ) : (
         <h1
           className={
             compact
@@ -82,21 +122,114 @@ function DocHeader({
         >
           {displayName}
         </h1>
-        <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-indigo-700">
-          {label}
-        </span>
-      </div>
-      <div className="text-right text-sm">
-        <p className="font-semibold text-slate-900">{primaryNo}</p>
-        {order.invoiceNo && (
-          <p className="text-xs text-slate-400">Order {order.number}</p>
+      )}
+      <span
+        className={clsx(
+          "text-[10px] font-bold uppercase tracking-wider",
+          soft
+            ? "text-slate-400"
+            : "rounded-full bg-indigo-50 px-2.5 py-1 text-indigo-700",
         )}
-        <p className="text-slate-400">
-          {compact
-            ? order.customerName || "No name"
-            : formatAbsoluteDateTime(order.createdAt)}
+      >
+        {label}
+      </span>
+    </div>
+  );
+
+  const titleBlock = (
+    <div className={clsx("text-sm", logoRight ? "text-left" : "text-right")}>
+      <p className="font-semibold text-slate-900">{primaryNo}</p>
+      {order.invoiceNo && (
+        <p className="text-xs text-slate-400">Order {order.number}</p>
+      )}
+      <p className="text-slate-400">
+        {compact
+          ? order.customerName || "No name"
+          : formatAbsoluteDateTime(order.createdAt)}
+      </p>
+    </div>
+  );
+
+  return (
+    <div
+      className={clsx(
+        compact ? "mb-4" : "mb-6",
+        "flex items-start justify-between",
+        logoRight && "flex-row-reverse",
+      )}
+    >
+      {brandBlock}
+      {titleBlock}
+    </div>
+  );
+}
+
+// Split out of DocMeta so Retail can put the Customer/Payment grid beside its barcode instead of
+// stacking everything full-width — every other format still just renders DocMeta, which composes
+// these two pieces exactly as before.
+function DocMetaGrid({
+  order,
+  template,
+  dense,
+}: {
+  order: OrderDTO;
+  template?: InvoiceTemplateDTO | null;
+  dense: boolean;
+}) {
+  const showPayment = template?.showPaymentBox !== false;
+  const showAddress = template?.showCustomerAddress !== false;
+  const boxPad = dense ? "p-3" : "p-4";
+  const boxFill = "rounded-lg bg-slate-50";
+  return (
+    <div className="grid grid-cols-2 gap-4 text-sm">
+      <div className={clsx(boxFill, boxPad)}>
+        <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+          Customer
         </p>
+        <p className="font-semibold text-slate-800">
+          {order.customerName || "No name"}
+        </p>
+        {order.customerPhone && (
+          <p className="text-slate-600">{order.customerPhone}</p>
+        )}
+        {showAddress && order.address && (
+          <p className="text-slate-600">{order.address}</p>
+        )}
       </div>
+      {showPayment && (
+        <div className={clsx(boxFill, boxPad)}>
+          <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Payment
+          </p>
+          <p className="font-semibold text-slate-800">{order.paymentMethod}</p>
+          <p className="text-slate-600">{order.paymentStatus}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DocMetaDelivery({
+  order,
+  template,
+  dense,
+}: {
+  order: OrderDTO;
+  template?: InvoiceTemplateDTO | null;
+  dense: boolean;
+}) {
+  const showDelivery = template?.showDeliveryBox !== false;
+  if (!showDelivery || !order.courierPartner) return null;
+  const boxPad = dense ? "p-3" : "p-4";
+  return (
+    <div className={clsx("rounded-lg bg-slate-50", boxPad, "text-sm")}>
+      <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+        Delivery
+      </p>
+      <p className="font-semibold text-slate-800">{order.courierPartner}</p>
+      {order.courierTrackingId && (
+        <p className="text-slate-600">Tracking: {order.courierTrackingId}</p>
+      )}
     </div>
   );
 }
@@ -104,55 +237,17 @@ function DocHeader({
 function DocMeta({
   order,
   template,
+  style,
 }: {
   order: OrderDTO;
   template?: InvoiceTemplateDTO | null;
+  style: InvoiceFormat;
 }) {
-  const showPayment = template?.showPaymentBox !== false;
-  const showDelivery = template?.showDeliveryBox !== false;
-  const showAddress = template?.showCustomerAddress !== false;
+  const { dense } = invoiceStyleTraits(style);
   return (
     <div className="mb-6 space-y-4">
-      <div className="grid grid-cols-2 gap-4 text-sm">
-        <div className="rounded-lg bg-slate-50 p-4">
-          <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-            Customer
-          </p>
-          <p className="font-semibold text-slate-800">
-            {order.customerName || "No name"}
-          </p>
-          {order.customerPhone && (
-            <p className="text-slate-600">{order.customerPhone}</p>
-          )}
-          {showAddress && order.address && (
-            <p className="text-slate-600">{order.address}</p>
-          )}
-        </div>
-        {showPayment && (
-          <div className="rounded-lg bg-slate-50 p-4">
-            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-              Payment
-            </p>
-            <p className="font-semibold text-slate-800">
-              {order.paymentMethod}
-            </p>
-            <p className="text-slate-600">{order.paymentStatus}</p>
-          </div>
-        )}
-      </div>
-      {showDelivery && order.courierPartner && (
-        <div className="rounded-lg bg-slate-50 p-4 text-sm">
-          <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-            Delivery
-          </p>
-          <p className="font-semibold text-slate-800">{order.courierPartner}</p>
-          {order.courierTrackingId && (
-            <p className="text-slate-600">
-              Tracking: {order.courierTrackingId}
-            </p>
-          )}
-        </div>
-      )}
+      <DocMetaGrid order={order} template={template} dense={dense} />
+      <DocMetaDelivery order={order} template={template} dense={dense} />
     </div>
   );
 }
@@ -182,21 +277,40 @@ function ItemsTable({
   mode,
   binLookup,
   template,
+  style,
 }: {
   order: OrderDTO;
   mode: "price" | "bin";
   binLookup?: BinLookup;
   template?: InvoiceTemplateDTO | null;
+  style: InvoiceFormat;
 }) {
+  const { framed, dense } = invoiceStyleTraits(style);
   const showImages = template?.showItemImages !== false;
   const showSkuVariant = template?.showSkuVariant !== false;
+  const rowPad = dense ? "py-1.5" : "py-2.5";
   return (
     <table className="w-full border-collapse text-sm">
       <thead>
-        <tr className="border-b border-slate-200 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">
-          <th className="pb-2">Item</th>
-          <th className="pb-2 text-center">Qty</th>
-          <th className={mode === "price" ? "pb-2 text-right" : "pb-2"}>
+        <tr
+          className={clsx(
+            "text-left text-[10px] font-bold uppercase tracking-wider",
+            framed
+              ? "bg-slate-800 text-white/80"
+              : "border-b border-slate-200 text-slate-400",
+          )}
+        >
+          <th className={clsx("pb-2", framed && "px-3 pt-2")}>Item</th>
+          <th className={clsx("pb-2 text-center", framed && "px-3 pt-2")}>
+            Qty
+          </th>
+          <th
+            className={clsx(
+              "pb-2",
+              mode === "price" && "text-right",
+              framed && "px-3 pt-2",
+            )}
+          >
             {mode === "price" ? "Price" : "Shelf/Bin"}
           </th>
         </tr>
@@ -204,7 +318,7 @@ function ItemsTable({
       <tbody>
         {order.lineItems.map((li, i) => (
           <tr key={i} className="border-b border-slate-100 even:bg-slate-50/60">
-            <td className="py-2.5">
+            <td className={rowPad}>
               <div className="flex items-center gap-3">
                 {showImages && <ItemThumb item={li} />}
                 <div className="min-w-0">
@@ -218,18 +332,89 @@ function ItemsTable({
                 </div>
               </div>
             </td>
-            <td className="py-2.5 text-center tabular-nums text-slate-600">
+            <td className={clsx(rowPad, "text-center tabular-nums text-slate-600")}>
               {li.quantity}
             </td>
             {mode === "price" ? (
-              <td className="py-2.5 text-right tabular-nums font-medium text-slate-800">
+              <td
+                className={clsx(
+                  rowPad,
+                  "text-right tabular-nums font-medium text-slate-800",
+                )}
+              >
                 {order.currency} {(li.price * li.quantity).toLocaleString()}
               </td>
             ) : (
-              <td className="py-2.5 text-slate-600">
+              <td className={clsx(rowPad, "text-slate-600")}>
                 {resolveBin(binLookup, li.sku, order.fulfillmentWarehouseId)}
               </td>
             )}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+// Modern-only: two separately bordered boxes side by side (item details on the left, qty/price on
+// the right) with a real gap between them, instead of one continuous table — what "split" means
+// for the item table specifically (DocMeta's two info boxes already look like Classic's regardless
+// of style; this is the one place Modern still visibly diverges from it).
+// Modern-only: the exact same plain table look as Minimal/Retail (no outer border, no filled
+// header, same row dividers/zebra striping) — the one difference is a bare spacer column between
+// the item details and the qty/price columns, parting the table down the middle without adding
+// any border or outside padding.
+function SplitItemsTable({
+  order,
+  template,
+  dense,
+}: {
+  order: OrderDTO;
+  template?: InvoiceTemplateDTO | null;
+  dense: boolean;
+}) {
+  const showImages = template?.showItemImages !== false;
+  const showSkuVariant = template?.showSkuVariant !== false;
+  const rowPad = dense ? "py-1.5" : "py-2.5";
+  return (
+    <table className="w-full border-collapse text-sm">
+      <thead>
+        <tr className="border-b border-slate-200 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">
+          <th className="pb-2">Item</th>
+          <th className="w-6" />
+          <th className="pb-2 text-center">Qty</th>
+          <th className="pb-2 text-right">Price</th>
+        </tr>
+      </thead>
+      <tbody>
+        {order.lineItems.map((li, i) => (
+          <tr key={i} className="border-b border-slate-100 even:bg-slate-50/60">
+            <td className={rowPad}>
+              <div className="flex items-center gap-3">
+                {showImages && <ItemThumb item={li} />}
+                <div className="min-w-0">
+                  <p className="font-medium text-slate-800">{li.title}</p>
+                  {showSkuVariant && (
+                    <p className="truncate text-xs text-slate-400">
+                      {li.variant ? `${li.variant} · ` : ""}
+                      {li.sku ?? "No SKU"}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </td>
+            <td />
+            <td className={clsx(rowPad, "text-center tabular-nums text-slate-600")}>
+              {li.quantity}
+            </td>
+            <td
+              className={clsx(
+                rowPad,
+                "text-right tabular-nums font-medium text-slate-800",
+              )}
+            >
+              {order.currency} {(li.price * li.quantity).toLocaleString()}
+            </td>
           </tr>
         ))}
       </tbody>
@@ -308,14 +493,21 @@ function CodCallout({ order }: { order: OrderDTO }) {
 function InvoiceBarcode({
   order,
   template,
+  top,
 }: {
   order: OrderDTO;
   template?: InvoiceTemplateDTO | null;
+  top?: boolean;
 }) {
   const showBarcode = template?.showBarcode !== false;
   const barcodeValue = order.invoiceNo ?? order.number;
   return (
-    <div className="mt-6 flex flex-col items-center border-t border-dashed border-slate-200 pt-4">
+    <div
+      className={clsx(
+        "flex flex-col items-center border-dashed border-slate-200",
+        top ? "mb-4 border-b pb-4" : "mt-6 border-t pt-4",
+      )}
+    >
       {showBarcode && (
         <>
           <div className="w-48">
@@ -333,28 +525,117 @@ function InvoiceBarcode({
   );
 }
 
+// Retail-only: the barcode graphic on its own, no footer note attached — it sits beside DocMeta at
+// the top instead of anchoring the bottom of the page the way InvoiceBarcode does everywhere else.
+function BarcodeGraphic({
+  order,
+  template,
+  align,
+}: {
+  order: OrderDTO;
+  template?: InvoiceTemplateDTO | null;
+  align: "center" | "right";
+}) {
+  if (template?.showBarcode === false) return null;
+  const barcodeValue = order.invoiceNo ?? order.number;
+  return (
+    <div
+      className={clsx(
+        "flex shrink-0 flex-col",
+        align === "right" ? "items-end" : "items-center",
+      )}
+    >
+      <div className="w-40">
+        <Barcode value={barcodeValue} height={32} />
+      </div>
+      <p className="mt-1 text-center text-[11px] font-medium tracking-wider text-slate-500">
+        {barcodeValue}
+      </p>
+    </div>
+  );
+}
+
+// Retail-only: just the footer note, anchored to the very bottom of the page (after totals)
+// instead of riding along with the barcode.
+function FooterNote({ template }: { template?: InvoiceTemplateDTO | null }) {
+  return (
+    <p className="mt-6 border-t border-dashed border-slate-200 pt-4 text-center text-xs text-slate-400">
+      {template?.footerNote || "Thank you for your order."}
+    </p>
+  );
+}
+
 function InvoiceBody({
   order,
   businessName,
   template,
+  style,
+  logoUrl,
 }: {
   order: OrderDTO;
   businessName: string;
   template?: InvoiceTemplateDTO | null;
+  style: InvoiceFormat;
+  logoUrl?: string | null;
 }) {
-  return (
+  const { barcodeTop, split, dense } = invoiceStyleTraits(style);
+  const itemsTable = split ? (
+    <SplitItemsTable order={order} template={template} dense={dense} />
+  ) : (
+    <ItemsTable order={order} mode="price" template={template} style={style} />
+  );
+
+  // Retail: barcode rides beside DocMeta's Customer/Payment grid at the top instead of anchoring
+  // the bottom, and the footer note stands alone at the very bottom instead of tagging along with
+  // the barcode — a distinct enough layout from the shared barcodeTop treatment (Compact/Statement)
+  // that it's its own composition rather than another boolean on invoiceStyleTraits.
+  if (style === "Retail") {
+    return (
+      <>
+        <DocHeader
+          businessName={businessName}
+          label="Invoice"
+          order={order}
+          template={template}
+          style={style}
+          logoUrl={logoUrl}
+        />
+        <div className="mb-6 space-y-4">
+          <div className="flex items-start justify-between gap-6">
+            <div className="min-w-0 flex-1">
+              <DocMetaGrid order={order} template={template} dense={dense} />
+            </div>
+            <BarcodeGraphic order={order} template={template} align="right" />
+          </div>
+          <DocMetaDelivery order={order} template={template} dense={dense} />
+        </div>
+        {itemsTable}
+        <InvoiceTotals order={order} />
+        <FooterNote template={template} />
+      </>
+    );
+  }
+
+  const content = (
     <>
       <DocHeader
         businessName={businessName}
         label="Invoice"
         order={order}
         template={template}
+        style={style}
+        logoUrl={logoUrl}
       />
-      <DocMeta order={order} template={template} />
-      <ItemsTable order={order} mode="price" template={template} />
+      {barcodeTop && <InvoiceBarcode order={order} template={template} top />}
+      <DocMeta order={order} template={template} style={style} />
+      {itemsTable}
       <InvoiceTotals order={order} />
-      <InvoiceBarcode order={order} template={template} />
+      {!barcodeTop && <InvoiceBarcode order={order} template={template} />}
     </>
+  );
+  if (style !== "Bold") return content;
+  return (
+    <div className="rounded-lg border-2 border-slate-900 p-3">{content}</div>
   );
 }
 
@@ -379,13 +660,17 @@ function PackingSlipBody({
         order={order}
         compact={compact}
         template={template}
+        style="Classic"
       />
-      {!compact && <DocMeta order={order} template={template} />}
+      {!compact && (
+        <DocMeta order={order} template={template} style="Classic" />
+      )}
       <ItemsTable
         order={order}
         mode="bin"
         binLookup={binLookup}
         template={template}
+        style="Classic"
       />
       {(order.paymentStatus === "COD Pending" ||
         order.paymentStatus === "Advance Paid") &&
@@ -404,12 +689,16 @@ export function DocumentPage({
   binLookup,
   businessName,
   template,
+  invoiceStyle,
+  logoUrl,
 }: {
   order: OrderDTO;
   docType: PrintDocType;
   binLookup?: BinLookup;
   businessName: string;
   template?: InvoiceTemplateDTO | null;
+  invoiceStyle?: InvoiceFormat;
+  logoUrl?: string | null;
 }) {
   return (
     <div className="print-page-break border-b border-slate-200 bg-white p-8 text-slate-900 last:border-b-0">
@@ -418,6 +707,8 @@ export function DocumentPage({
           order={order}
           businessName={businessName}
           template={template}
+          style={invoiceStyle ?? "Classic"}
+          logoUrl={logoUrl}
         />
       ) : (
         <PackingSlipBody
@@ -453,11 +744,15 @@ export function CombinedDocumentPage({
   binLookup,
   businessName,
   template,
+  invoiceStyle,
+  logoUrl,
 }: {
   order: OrderDTO;
   binLookup?: BinLookup;
   businessName: string;
   template?: InvoiceTemplateDTO | null;
+  invoiceStyle?: InvoiceFormat;
+  logoUrl?: string | null;
 }) {
   return (
     <div className="print-page-break border-b border-slate-200 bg-white p-8 text-slate-900 last:border-b-0">
@@ -465,6 +760,8 @@ export function CombinedDocumentPage({
         order={order}
         businessName={businessName}
         template={template}
+        style={invoiceStyle ?? "Classic"}
+        logoUrl={logoUrl}
       />
       <CutLine note="Cut here — packing slip below" />
       <PackingSlipBody
@@ -575,12 +872,18 @@ export function PrintOrderModal({
   docType,
   binLookup,
   template,
+  invoiceStyle,
+  paperSize,
 }: PrintOrderModalProps) {
   const { user } = useAuth();
   const toast = useToast();
   const [printing, setPrinting] = useState(false);
   const [issuingBills, setIssuingBills] = useState(false);
   const ensureKeyRef = useRef<string | null>(null);
+  // The tenant's own Settings/Branding logo — same one shown at /settings/branding, not the
+  // (currently always-null) per-template logo override. Fetched fresh each time the modal opens
+  // so a logo uploaded moments ago shows up without needing a full page reload.
+  const [brandingLogoUrl, setBrandingLogoUrl] = useState<string | null>(null);
 
   // Freezes the order list the instant this modal opens, instead of reading the live `orders`
   // prop on every render, so a print session looks the same from open to close regardless of
@@ -592,6 +895,21 @@ export function PrintOrderModal({
     if (!open) ensureKeyRef.current = null;
     wasOpenRef.current = open;
   }, [open, liveOrders]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void getBrandingSettings()
+      .then(({ branding }) => {
+        if (!cancelled) setBrandingLogoUrl(branding.logoUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setBrandingLogoUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open || (docType !== "invoice" && docType !== "combined")) return;
@@ -694,8 +1012,8 @@ export function PrintOrderModal({
               </button>
             </div>
           </div>
-          {template?.paperSize && (
-            <style>{`@media print { @page { size: ${template.paperSize}; } }`}</style>
+          {(paperSize ?? template?.paperSize) && (
+            <style>{`@media print { @page { size: ${paperSize ?? template?.paperSize}; } }`}</style>
           )}
           <div className="print-area overflow-y-auto bg-slate-50 print:overflow-visible print:bg-white">
             {printableOrders.length === 0 ? (
@@ -712,6 +1030,8 @@ export function PrintOrderModal({
                   binLookup={binLookup}
                   businessName={user?.businessName || "Your Business"}
                   template={template}
+                  invoiceStyle={invoiceStyle}
+                  logoUrl={brandingLogoUrl}
                 />
               ))
             ) : docType === "packingSlip" && printableOrders.length > 1 ? (
@@ -729,6 +1049,8 @@ export function PrintOrderModal({
                   binLookup={binLookup}
                   businessName={user?.businessName || "Your Business"}
                   template={template}
+                  invoiceStyle={invoiceStyle}
+                  logoUrl={brandingLogoUrl}
                 />
               ))
             )}
