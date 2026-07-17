@@ -7,6 +7,9 @@ const HOST = '127.0.0.1';
 
 export default defineConfig({
   plugins: [react()],
+  // Vite's built-in asset-type list doesn't include PDFs — without this, importing a .pdf file
+  // gets processed as a JS module instead of resolving to a static asset URL.
+  assetsInclude: ['**/*.pdf'],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
