@@ -22,6 +22,7 @@ import {
   Wrench,
 } from "lucide-react";
 import clsx from "clsx";
+import { canWriteModule } from "@zetsales/shared";
 import {
   createExpense,
   deleteExpense,
@@ -36,6 +37,7 @@ import {
 import { Modal } from "../../components/ui/Modal";
 import { Popover } from "../../components/ui/Popover";
 import { useToast } from "../../components/ui/ToastProvider";
+import { useAuth } from "../../context/AuthContext";
 
 function money(value: number) {
   const sign = value < 0 ? "-" : "";
@@ -521,6 +523,8 @@ function TrendChart({ trend }: { trend: ProfitAndLossDTO["trend"] }) {
 
 export function AccountingPage() {
   const toast = useToast();
+  const { user } = useAuth();
+  const canWriteAccounting = canWriteModule(user?.role, "accounting");
   const [preset, setPreset] = useState<RangePreset>("thisMonth");
   const [customFrom, setCustomFrom] = useState(() =>
     new Date(new Date().getFullYear(), new Date().getMonth(), 1)
@@ -645,12 +649,14 @@ export function AccountingPage() {
               setCustomTo(t);
             }}
           />
-          <button
-            onClick={() => setAddExpenseOpen(true)}
-            className="flex h-9 items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 text-sm font-semibold text-white hover:bg-indigo-700"
-          >
-            <Plus size={14} /> Add expense
-          </button>
+          {canWriteAccounting && (
+            <button
+              onClick={() => setAddExpenseOpen(true)}
+              className="flex h-9 items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 text-sm font-semibold text-white hover:bg-indigo-700"
+            >
+              <Plus size={14} /> Add expense
+            </button>
+          )}
         </div>
       </div>
 
@@ -941,12 +947,14 @@ export function AccountingPage() {
                         <span className="font-bold tabular-nums text-slate-800">
                           {money(e.amount)}
                         </span>
-                        <button
-                          onClick={() => void removeExpense(e.id)}
-                          className="rounded-md p-1.5 text-slate-300 hover:bg-rose-50 hover:text-rose-500"
-                        >
-                          <Trash2 size={14} />
-                        </button>
+                        {canWriteAccounting && (
+                          <button
+                            onClick={() => void removeExpense(e.id)}
+                            className="rounded-md p-1.5 text-slate-300 hover:bg-rose-50 hover:text-rose-500"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -957,11 +965,13 @@ export function AccountingPage() {
         ) : null}
       </div>
 
-      <AddExpenseModal
-        open={addExpenseOpen}
-        onClose={() => setAddExpenseOpen(false)}
-        onSaved={() => void load()}
-      />
+      {canWriteAccounting && (
+        <AddExpenseModal
+          open={addExpenseOpen}
+          onClose={() => setAddExpenseOpen(false)}
+          onSaved={() => void load()}
+        />
+      )}
     </div>
   );
 }

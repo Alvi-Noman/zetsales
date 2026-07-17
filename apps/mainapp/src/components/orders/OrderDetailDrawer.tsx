@@ -33,7 +33,7 @@ import {
 import clsx from "clsx";
 import type {
   CallOutcome,
-  CourierAccountDTO,
+  CourierSummaryDTO,
   CourierProvider,
   OrderDTO,
   OrderRiskDTO,
@@ -113,7 +113,7 @@ const PROVIDER_LABEL: Record<CourierProvider, "Steadfast" | "Pathao"> = {
 interface OrderDetailDrawerProps {
   order: OrderDTO | null;
   store: StoreDTO | null;
-  couriers: CourierAccountDTO[];
+  couriers: CourierSummaryDTO[];
   onClose: () => void;
   onUpdated: () => void;
 }

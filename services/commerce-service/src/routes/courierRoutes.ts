@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAuth, requireTenant, requireModule } from '../middleware/authMiddleware.js';
 import {
   listCouriers,
+  listCourierSummaries,
   connectSteadfast,
   connectPathao,
   removeCourier,
@@ -20,8 +21,10 @@ import {
 
 const router: Router = Router();
 const requireIntegrations = requireModule('integrations');
+const requireOrders = requireModule('orders');
 
 router.get('/couriers', requireAuth, requireTenant, requireIntegrations, listCouriers);
+router.get('/couriers/summaries', requireAuth, requireTenant, requireOrders, listCourierSummaries);
 router.post('/couriers/steadfast', requireAuth, requireTenant, requireIntegrations, connectSteadfast);
 router.post('/couriers/pathao', requireAuth, requireTenant, requireIntegrations, connectPathao);
 router.delete('/couriers/:courierId', requireAuth, requireTenant, requireIntegrations, removeCourier);

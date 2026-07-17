@@ -1,8 +1,10 @@
 export const MODULE_KEYS = [
     'home',
     'orders',
+    'dispatch',
     'products',
     'inventory',
+    'returns',
     'preOrders',
     'printOut',
     'customers',
@@ -76,14 +78,16 @@ export const ROLE_DEFINITIONS = {
     manager: {
         role: 'manager',
         label: 'Manager',
-        description: 'Runs day-to-day operations across orders, catalog, and stock.',
+        description: 'Runs day-to-day operations, with finance visibility but no workspace administration.',
         modules: [
             'home',
             'orders',
+            'dispatch',
+            'printOut',
             'products',
             'inventory',
+            'returns',
             'preOrders',
-            'printOut',
             'customers',
             'adPerformance',
             'customerService',
@@ -91,28 +95,64 @@ export const ROLE_DEFINITIONS = {
             'fraudChecker',
             'zetSalesAds',
             'supplyChain',
+            'accounting',
             'analytics',
         ],
         canManageTeam: false,
         canWrite: true,
+        writableModules: [
+            'orders',
+            'dispatch',
+            'printOut',
+            'products',
+            'inventory',
+            'returns',
+            'preOrders',
+            'customers',
+            'adPerformance',
+            'customerService',
+            'callCenter',
+            'fraudChecker',
+            'zetSalesAds',
+            'supplyChain',
+        ],
     },
     agent: {
         role: 'agent',
         label: 'Order Agent',
-        description: 'Confirms orders and handles customer conversations.',
-        modules: ['home', 'orders', 'customerService', 'callCenter', 'customers'],
+        description: 'Works orders and calls, with read-only catalog and inventory access.',
+        modules: ['home', 'orders', 'callCenter', 'printOut', 'products', 'inventory', 'customers'],
         canManageTeam: false,
         canWrite: true,
+        writableModules: ['orders', 'callCenter', 'printOut', 'customers'],
     },
     viewer: {
         role: 'viewer',
         label: 'Viewer',
-        description: 'Read-only access for reporting and oversight.',
-        modules: ['home', 'orders', 'products', 'inventory', 'preOrders', 'customers', 'analytics'],
+        description: 'Read-only access for operational oversight and reporting.',
+        modules: [
+            'home',
+            'orders',
+            'printOut',
+            'products',
+            'inventory',
+            'returns',
+            'preOrders',
+            'customers',
+            'supplyChain',
+            'accounting',
+            'analytics',
+        ],
         canManageTeam: false,
         canWrite: false,
     },
 };
+export function canWriteModule(role, module) {
+    const definition = role ? ROLE_DEFINITIONS[role] : ROLE_DEFINITIONS.owner;
+    if (!definition.canWrite)
+        return false;
+    return definition.writableModules ? definition.writableModules.includes(module) : true;
+}
 // Cosmetic bucketing of order.courierStatus (raw courier webhook text) for the Delivery Partners
 // dashboard only. Deliberately separate from courierStatusMapper.ts on the backend, which maps the
 // same raw text into OrderStage to drive order pipeline restaging — that mapping is lossy (several

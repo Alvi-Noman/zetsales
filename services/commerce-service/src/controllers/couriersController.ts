@@ -8,6 +8,7 @@ import logger from '../utils/logger.js';
 import type { AuthenticatedRequest } from '../middleware/authMiddleware.js';
 import type {
   CourierAccountDTO,
+  CourierSummaryDTO,
   CourierProvider,
   CourierSettlementDTO,
   CourierHandoverDTO,
@@ -71,6 +72,17 @@ function toCourierDto(doc: any): CourierAccountDTO {
 
 // Resolves the actual charge to snapshot onto an order at dispatch time — falls back through the
 // zone/speed matrix cell, then the legacy flat rate, then 0 (never blocks dispatch on a missing rate).
+function toCourierSummaryDto(doc: any): CourierSummaryDTO {
+  return {
+    id: doc._id.toString(),
+    provider: doc.provider,
+    displayName: doc.displayName,
+    status: doc.status,
+    lastUsedAt: doc.lastUsedAt ? new Date(doc.lastUsedAt).toISOString() : null,
+    createdAt: new Date(doc.createdAt).toISOString(),
+  };
+}
+
 export function resolveCourierCharge(doc: any, zoneTier: CourierZoneTier, speed: CourierSpeed): number {
   const cell = doc.deliveryRates?.[speed]?.[zoneTier];
   if (typeof cell === 'number') return cell;
@@ -87,6 +99,12 @@ export async function listCouriers(req: AuthenticatedRequest, res: Response) {
   const db = getDb();
   const couriers = await db.collection('couriers').find({ tenantId: req.user!.tenantId }).sort({ createdAt: -1 }).toArray();
   res.json({ success: true, couriers: couriers.map(toCourierDto) });
+}
+
+export async function listCourierSummaries(req: AuthenticatedRequest, res: Response) {
+  const db = getDb();
+  const couriers = await db.collection('couriers').find({ tenantId: req.user!.tenantId }).sort({ createdAt: -1 }).toArray();
+  res.json({ success: true, couriers: couriers.map(toCourierSummaryDto) });
 }
 
 // One connected account per provider per tenant — reconnecting (e.g. rotated API keys) updates the

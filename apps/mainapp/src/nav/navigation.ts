@@ -55,7 +55,7 @@ export const NAV_ITEMS: NavItem[] = [
     module: 'printOut',
     children: [{ label: 'Invoice Design', path: '/print-out/templates' }],
   },
-  { label: 'Dispatch', path: '/dispatch', icon: Truck, module: 'orders' },
+  { label: 'Dispatch', path: '/dispatch', icon: Truck, module: 'dispatch' },
   { label: 'Call Center', path: '/call-center', icon: PhoneCall, module: 'callCenter' },
   { label: 'Messages', path: '/messages', icon: Headset, module: 'customerService' },
   {
@@ -79,7 +79,7 @@ export const NAV_ITEMS: NavItem[] = [
     icon: CalendarClock,
     module: 'preOrders',
   },
-  { label: 'Returns', path: '/returns', icon: Undo2, module: 'inventory' },
+  { label: 'Returns', path: '/returns', icon: Undo2, module: 'returns' },
   { label: 'Suppliers', path: '/suppliers', icon: Handshake, module: 'supplyChain' },
   { label: 'Delivery Partners', path: '/delivery-partners', icon: Truck, module: 'supplyChain' },
   { label: 'Customers', path: '/customers', icon: Users, module: 'customers' },

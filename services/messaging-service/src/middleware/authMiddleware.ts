@@ -2,7 +2,7 @@ import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { ObjectId } from 'mongodb';
 import { env } from '@zetsales/config/validateEnv';
-import { ROLE_DEFINITIONS, type ModuleKey, type TeamRole } from '@zetsales/shared';
+import { ROLE_DEFINITIONS, canWriteModule, type ModuleKey, type TeamRole } from '@zetsales/shared';
 import { getDb } from '../utils/db.js';
 
 export interface AuthenticatedRequest extends Request {
@@ -56,7 +56,7 @@ export function requireModule(module: ModuleKey) {
       res.status(403).json({ success: false, message: 'You do not have access to this section.' });
       return;
     }
-    if (req.method !== 'GET' && !definition.canWrite) {
+    if (req.method !== 'GET' && !canWriteModule(role, module)) {
       res.status(403).json({ success: false, message: 'Your role has read-only access.' });
       return;
     }

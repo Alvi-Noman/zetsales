@@ -23,7 +23,7 @@ import {
 import clsx from "clsx";
 import type {
   CancelReason,
-  CourierAccountDTO,
+  CourierSummaryDTO,
   HoldReason,
   OrderDTO,
   OrderPaymentStatus,
@@ -40,7 +40,7 @@ import {
   bulkUpdateOrders,
   getOrderStats,
   getOrderInventorySnapshot,
-  listCouriers,
+  listCourierSummaries,
   listOrders,
   listStores,
   splitOrder,
@@ -195,7 +195,7 @@ export function OrdersPage() {
   const [pageSize, setPageSize] = useState(25);
   const [stores, setStores] = useState<StoreDTO[]>([]);
   const [storesLoading, setStoresLoading] = useState(true);
-  const [couriers, setCouriers] = useState<CourierAccountDTO[]>([]);
+  const [couriers, setCouriers] = useState<CourierSummaryDTO[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(true);
   const [stats, setStats] = useState<OrderStatsDTO | null>(null);
   const [tab, setTab] = useState<OrderTabKey>("all");
@@ -274,7 +274,7 @@ export function OrdersPage() {
 
   const loadCouriers = async () => {
     try {
-      const { couriers: list } = await listCouriers();
+      const { couriers: list } = await listCourierSummaries();
       setCouriers(list);
     } catch {
       // Non-fatal — the courier dropdown just falls back to showing no connected options.

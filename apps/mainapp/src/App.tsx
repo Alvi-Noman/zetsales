@@ -38,6 +38,7 @@ import { AppsPage } from "./pages/settings/AppsPage";
 import { AppDetailPage } from "./pages/settings/AppDetailPage";
 import { ZetSalesAdsPage } from "./pages/zetsalesAds/ZetSalesAdsPage";
 import { NAV_ITEMS, NAV_FOOTER_ITEMS } from "./nav/navigation";
+import { ROLE_DEFINITIONS, type ModuleKey } from "@zetsales/shared";
 
 const routeEntries = new Map<string, string>();
 [...NAV_ITEMS, ...NAV_FOOTER_ITEMS].forEach((item) => {
@@ -119,7 +120,14 @@ function AppRoutes() {
         <Route path="/" element={<Navigate to="/home" replace />} />
         <Route path="/home" element={<HomePage />} />
         <Route path="/orders" element={<OrdersPage />} />
-        <Route path="/dispatch" element={<DispatchPage />} />
+        <Route
+          path="/dispatch"
+          element={
+            <ModuleRoute module="dispatch">
+              <DispatchPage />
+            </ModuleRoute>
+          }
+        />
         <Route path="/integrations" element={<IntegrationsPage />} />
         <Route path="/messages" element={<CustomerServicePage />} />
         <Route
@@ -133,7 +141,14 @@ function AppRoutes() {
         <Route path="/inventory" element={<InventoryPage />} />
         <Route path="/inventory/warehouses" element={<WarehousesPage />} />
         <Route path="/pre-orders" element={<PreOrderListPage />} />
-        <Route path="/returns" element={<ReturnsPage />} />
+        <Route
+          path="/returns"
+          element={
+            <ModuleRoute module="returns">
+              <ReturnsPage />
+            </ModuleRoute>
+          }
+        />
         <Route path="/print-out" element={<PrintOutPage />} />
         <Route path="/print-out/templates" element={<InvoiceTemplatesPage />} />
         <Route path="/accounting" element={<AccountingPage />} />
@@ -160,6 +175,24 @@ function AppRoutes() {
         <Route path="*" element={<Navigate to="/home" replace />} />
       </Route>
     </Routes>
+  );
+}
+
+function ModuleRoute({
+  module,
+  children,
+}: {
+  module: ModuleKey;
+  children: JSX.Element;
+}) {
+  const { user } = useAuth();
+  const allowedModules = user?.role
+    ? ROLE_DEFINITIONS[user.role].modules
+    : ROLE_DEFINITIONS.owner.modules;
+  return allowedModules.includes(module) ? (
+    children
+  ) : (
+    <Navigate to="/home" replace />
   );
 }
 

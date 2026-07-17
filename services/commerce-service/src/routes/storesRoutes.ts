@@ -17,7 +17,7 @@ const router: Router = Router();
 const requireIntegrations = requireModule('integrations');
 
 router.get('/capabilities', requireAuth, capabilities);
-router.get('/stores', requireAuth, requireTenant, requireIntegrations, listStores);
+router.get('/stores', requireAuth, requireTenant, listStores);
 router.delete('/stores/:storeId', requireAuth, requireTenant, requireIntegrations, removeStore);
 
 router.post('/stores/shopify/token', requireAuth, requireTenant, requireIntegrations, connectShopifyToken);

@@ -9,6 +9,7 @@ import {
 
 const router: Router = Router();
 const requireOrders = requireModule('orders');
+const requireDispatch = requireModule('dispatch');
 
 // Static/literal sub-paths must be registered before the `/orders/:id` param routes, otherwise
 // Express matches "stats"/"bulk" as an :id value first.
@@ -16,7 +17,7 @@ router.get('/orders/stats', requireAuth, requireTenant, requireOrders, asyncHand
 router.get('/orders/courier-stats', requireAuth, requireTenant, requireOrders, asyncHandler(getCourierShipmentStats));
 router.get('/orders/trends', requireAuth, requireTenant, requireOrders, asyncHandler(getOrderTrends));
 router.patch('/orders/bulk', requireAuth, requireTenant, requireOrders, asyncHandler(bulkUpdateOrders));
-router.post('/orders/dispatch-scan', requireAuth, requireTenant, requireOrders, asyncHandler(dispatchScanHandover));
+router.post('/orders/dispatch-scan', requireAuth, requireTenant, requireDispatch, asyncHandler(dispatchScanHandover));
 router.post('/orders/bulk/mark-collected', requireAuth, requireTenant, requireOrders, asyncHandler(bulkMarkPaymentCollected));
 router.post('/orders/bulk/recheck-fraud', requireAuth, requireTenant, requireOrders, asyncHandler(bulkRecheckFraud));
 router.get('/orders/ready-to-print', requireAuth, requireTenant, requireOrders, asyncHandler(getReadyToPrintOrders));

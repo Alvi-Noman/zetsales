@@ -1,4 +1,4 @@
-import type { AdAccountDTO, AdCampaignDTO, AdCreativeAssetDTO, CreateAdCampaignPayload, AdChannel, AdCostEntryDTO, AdPerformanceReportDTO, AppExtensionTarget, AppManifestDTO, BulkOrderResultDTO, CallOutcome, CancelReason, CourierAccountDTO, CourierSettlementDTO, CourierHandoverDTO, CourierHandoverDetailDTO, EligibleHandoverOrderDTO, CourierShipmentStatsDTO, CustomerListDTO, CustomerDetailDTO, CustomerOrderRowDTO, HoldReason, InstalledAppDTO, InvoiceTemplateDTO, ModuleKey, OrderDTO, OrderRiskDTO, OrderStage, OrderStatsDTO, OrderTabKey, OrderTrendsDTO, PaymentMethod, PreOrderTargetDTO, PrintPaperSize, ProductCollectionDTO, ProductDTO, ProductListItemDTO, ProductPublishTargetDTO, ProductPushResultDTO, ProductWritePayload, StoreDTO, SupplierProductDraftDTO } from '@zetsales/shared';
+import type { AdAccountDTO, AdCampaignDTO, AdCreativeAssetDTO, CreateAdCampaignPayload, AdChannel, AdCostEntryDTO, AdPerformanceReportDTO, AppExtensionTarget, AppManifestDTO, BulkOrderResultDTO, CallOutcome, CancelReason, CourierAccountDTO, CourierSummaryDTO, CourierSettlementDTO, CourierHandoverDTO, CourierHandoverDetailDTO, EligibleHandoverOrderDTO, CourierShipmentStatsDTO, CustomerListDTO, CustomerDetailDTO, CustomerOrderRowDTO, HoldReason, InstalledAppDTO, InvoiceTemplateDTO, ModuleKey, OrderDTO, OrderRiskDTO, OrderStage, OrderStatsDTO, OrderTabKey, OrderTrendsDTO, PaymentMethod, PreOrderTargetDTO, PrintPaperSize, ProductCollectionDTO, ProductDTO, ProductListItemDTO, ProductPublishTargetDTO, ProductPushResultDTO, ProductWritePayload, StoreDTO, SupplierProductDraftDTO } from '@zetsales/shared';
 import { api } from './api';
 
 export async function getCapabilities() {
@@ -53,6 +53,11 @@ export async function wooAuthStatus(sessionId: string) {
 export async function listCouriers() {
   const res = await api.get('/commerce/couriers');
   return res.data as { success: boolean; couriers: CourierAccountDTO[] };
+}
+
+export async function listCourierSummaries() {
+  const res = await api.get('/commerce/couriers/summaries');
+  return res.data as { success: boolean; couriers: CourierSummaryDTO[] };
 }
 
 export async function connectSteadfast(payload: { apiKey: string; secretKey: string; displayName?: string }) {
