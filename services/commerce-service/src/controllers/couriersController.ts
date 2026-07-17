@@ -19,6 +19,8 @@ import type {
 } from '@zetsales/shared';
 import { verifySteadfastCredentials, type SteadfastCredentials } from '../integrations/steadfastClient.js';
 import { verifyPathaoCredentials, type PathaoCredentials } from '../integrations/pathaoClient.js';
+import { getSteadfastFraudStatus } from '../integrations/steadfastFraudClient.js';
+import { getPathaoFraudStatus } from '../integrations/pathaoFraudClient.js';
 import { nextInvoiceNumberForStore } from '../utils/invoiceNumbers.js';
 
 function webhookBaseUrl(): string {
@@ -105,6 +107,14 @@ export async function listCourierSummaries(req: AuthenticatedRequest, res: Respo
   const db = getDb();
   const couriers = await db.collection('couriers').find({ tenantId: req.user!.tenantId }).sort({ createdAt: -1 }).toArray();
   res.json({ success: true, couriers: couriers.map(toCourierSummaryDto) });
+}
+
+// Diagnostic readout for the account-level (not tenant-scoped) Steadfast/Pathao fraud-check
+// portals — answers "why is the courier delivery-history check on the order drawer failing" without
+// needing container log access, which doesn't survive a restart anyway.
+export async function getCourierFraudDiagnostics(_req: AuthenticatedRequest, res: Response) {
+  const [steadfast, pathao] = await Promise.all([getSteadfastFraudStatus(), getPathaoFraudStatus()]);
+  res.json({ success: true, steadfast: steadfast ?? null, pathao: pathao ?? null });
 }
 
 // One connected account per provider per tenant — reconnecting (e.g. rotated API keys) updates the

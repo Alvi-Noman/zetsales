@@ -3,6 +3,7 @@ import { requireAuth, requireTenant, requireModule } from '../middleware/authMid
 import {
   listCouriers,
   listCourierSummaries,
+  getCourierFraudDiagnostics,
   connectSteadfast,
   connectPathao,
   removeCourier,
@@ -25,6 +26,7 @@ const requireOrders = requireModule('orders');
 
 router.get('/couriers', requireAuth, requireTenant, requireIntegrations, listCouriers);
 router.get('/couriers/summaries', requireAuth, requireTenant, requireOrders, listCourierSummaries);
+router.get('/couriers/fraud-diagnostics', requireAuth, requireTenant, requireIntegrations, getCourierFraudDiagnostics);
 router.post('/couriers/steadfast', requireAuth, requireTenant, requireIntegrations, connectSteadfast);
 router.post('/couriers/pathao', requireAuth, requireTenant, requireIntegrations, connectPathao);
 router.delete('/couriers/:courierId', requireAuth, requireTenant, requireIntegrations, removeCourier);
