@@ -92,7 +92,7 @@ export const NAV_ITEMS: NavItem[] = [
     path: '/analytics',
     icon: BarChart3,
     module: 'analytics',
-    children: [{ label: 'Report', path: '/analytics/report' }],
+    children: [{ label: 'Reports', path: '/analytics/reports' }],
   },
 ];
 
