@@ -481,6 +481,12 @@ function tabMatch(tab: string | undefined): Record<string, unknown> {
 // fabricated one, for the common case where the SKU still resolves to a synced product. Falls back
 // to matching by title when a line item has no SKU — some WooCommerce products are never given one
 // (the SKU field is optional there), and an empty SKU can never look up an image by definition.
+//
+// Prefers each variant's OWN synced image (productMapper.ts maps Shopify's variant.image_id /
+// WooCommerce's variant.image straight onto variants[].image) over the product's shared gallery
+// photo — a product with color/style variants often has a distinct photo per variant and an empty
+// (or generic) top-level gallery, so matching only on the product-level image showed no thumbnail
+// at all for those, even though the exact variant ordered has a perfectly good photo on file.
 async function attachLineItemImages(db: ReturnType<typeof getDb>, tenantId: string, orders: any[]) {
   const storeIds = [...new Set(orders.map((o) => o.storeId))];
   const hasLineItems = orders.some((o) => (o.lineItems ?? []).length > 0);
@@ -488,18 +494,18 @@ async function attachLineItemImages(db: ReturnType<typeof getDb>, tenantId: stri
 
   const products = await db
     .collection('products')
-    .find({ tenantId, storeId: { $in: storeIds }, image: { $ne: null } })
-    .project({ storeId: 1, title: 1, image: 1, 'variants.sku': 1 })
+    .find({ tenantId, storeId: { $in: storeIds } })
+    .project({ storeId: 1, title: 1, image: 1, 'variants.sku': 1, 'variants.image': 1 })
     .toArray();
 
   const imageBySkuKey = new Map<string, string>();
   const imageByTitleKey = new Map<string, string>();
   for (const p of products) {
-    if (!p.image) continue;
     for (const v of p.variants ?? []) {
-      if (v.sku) imageBySkuKey.set(`${p.storeId}::${v.sku}`, p.image);
+      const image = v.image ?? p.image;
+      if (v.sku && image) imageBySkuKey.set(`${p.storeId}::${v.sku}`, image);
     }
-    if (p.title) imageByTitleKey.set(`${p.storeId}::${p.title.trim().toLowerCase()}`, p.image);
+    if (p.title && p.image) imageByTitleKey.set(`${p.storeId}::${p.title.trim().toLowerCase()}`, p.image);
   }
 
   for (const order of orders) {
