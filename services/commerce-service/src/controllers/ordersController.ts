@@ -487,32 +487,51 @@ function tabMatch(tab: string | undefined): Record<string, unknown> {
 // photo — a product with color/style variants often has a distinct photo per variant and an empty
 // (or generic) top-level gallery, so matching only on the product-level image showed no thumbnail
 // at all for those, even though the exact variant ordered has a perfectly good photo on file.
+//
+// CSV-imported orders (csvOrderImportController.ts) live under a dedicated "CSV Import" pseudo-store
+// that never has its own product catalog — the SKUs on those orders belong to a real Shopify/
+// WooCommerce store elsewhere in the tenant (that's the whole point: backfilling historical orders
+// against products already synced from the real store). previewCsvOrderImport already matches SKUs
+// tenant-wide for this exact reason. So store-scoped matching is tried first (keeps correctness when
+// two genuine stores in the same tenant happen to reuse a SKU), falling back to a tenant-wide match
+// by SKU/title when the order's own store has no product catalog to match against.
 async function attachLineItemImages(db: ReturnType<typeof getDb>, tenantId: string, orders: any[]) {
-  const storeIds = [...new Set(orders.map((o) => o.storeId))];
   const hasLineItems = orders.some((o) => (o.lineItems ?? []).length > 0);
-  if (storeIds.length === 0 || !hasLineItems) return;
+  if (!hasLineItems) return;
 
   const products = await db
     .collection('products')
-    .find({ tenantId, storeId: { $in: storeIds } })
+    .find({ tenantId })
     .project({ storeId: 1, title: 1, image: 1, 'variants.sku': 1, 'variants.image': 1 })
     .toArray();
 
   const imageBySkuKey = new Map<string, string>();
   const imageByTitleKey = new Map<string, string>();
+  const imageBySkuTenantWide = new Map<string, string>();
+  const imageByTitleTenantWide = new Map<string, string>();
   for (const p of products) {
     for (const v of p.variants ?? []) {
       const image = v.image ?? p.image;
-      if (v.sku && image) imageBySkuKey.set(`${p.storeId}::${v.sku}`, image);
+      if (v.sku && image) {
+        imageBySkuKey.set(`${p.storeId}::${v.sku}`, image);
+        if (!imageBySkuTenantWide.has(v.sku)) imageBySkuTenantWide.set(v.sku, image);
+      }
     }
-    if (p.title && p.image) imageByTitleKey.set(`${p.storeId}::${p.title.trim().toLowerCase()}`, p.image);
+    if (p.title && p.image) {
+      const titleKey = p.title.trim().toLowerCase();
+      imageByTitleKey.set(`${p.storeId}::${titleKey}`, p.image);
+      if (!imageByTitleTenantWide.has(titleKey)) imageByTitleTenantWide.set(titleKey, p.image);
+    }
   }
 
   for (const order of orders) {
     for (const li of order.lineItems ?? []) {
+      const titleKey = li.title ? String(li.title).trim().toLowerCase() : undefined;
       const bySku = li.sku ? imageBySkuKey.get(`${order.storeId}::${li.sku}`) : undefined;
-      const byTitle = li.title ? imageByTitleKey.get(`${order.storeId}::${String(li.title).trim().toLowerCase()}`) : undefined;
-      li.image = bySku ?? byTitle ?? null;
+      const byTitle = titleKey ? imageByTitleKey.get(`${order.storeId}::${titleKey}`) : undefined;
+      const bySkuTenantWide = li.sku ? imageBySkuTenantWide.get(li.sku) : undefined;
+      const byTitleTenantWide = titleKey ? imageByTitleTenantWide.get(titleKey) : undefined;
+      li.image = bySku ?? byTitle ?? bySkuTenantWide ?? byTitleTenantWide ?? null;
     }
   }
 }
