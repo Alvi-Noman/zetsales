@@ -30,3 +30,22 @@ export function maskSecret(value: string, visible = 4): string {
   if (value.length <= visible) return '••••';
   return `••••${value.slice(-visible)}`;
 }
+
+// Scrypt (not bcrypt) so HRM's PIN hashing doesn't need its own bcrypt dependency in this
+// service — auth-service's user passwords use bcryptjs, this is a separate, much shorter secret
+// (a 4-6 digit punch PIN) with its own salt-per-hash scheme.
+const PIN_KEY_LENGTH = 64;
+
+export function hashPin(pin: string): string {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const derived = crypto.scryptSync(pin, salt, PIN_KEY_LENGTH).toString('hex');
+  return `${salt}:${derived}`;
+}
+
+export function verifyPin(pin: string, stored: string): boolean {
+  const [salt, hash] = stored.split(':');
+  if (!salt || !hash) return false;
+  const candidate = crypto.scryptSync(pin, salt, PIN_KEY_LENGTH);
+  const expected = Buffer.from(hash, 'hex');
+  return candidate.length === expected.length && crypto.timingSafeEqual(candidate, expected);
+}

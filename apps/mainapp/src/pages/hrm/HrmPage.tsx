@@ -1,0 +1,132 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Banknote, Building2, CalendarCheck2, ClipboardList, LayoutGrid, UserRound } from "lucide-react";
+import clsx from "clsx";
+import type { HrmAttendanceDTO, HrmDashboardDTO, HrmDepartmentDTO, HrmEmployeeDTO, HrmLeaveRequestDTO, HrmPayrollDTO } from "@zetsales/shared";
+import {
+  getHrmDashboard,
+  listHrmAttendance,
+  listHrmDepartments,
+  listHrmEmployees,
+  listHrmLeaveRequests,
+  listHrmPayroll,
+} from "../../lib/hrmApi";
+import { useToast } from "../../components/ui/ToastProvider";
+import { OverviewTab } from "./components/OverviewTab";
+import { EmployeesTab } from "./components/EmployeesTab";
+import { DepartmentsTab } from "./components/DepartmentsTab";
+import { AttendanceTab } from "./components/AttendanceTab";
+import { LeaveTab } from "./components/LeaveTab";
+import { PayrollTab } from "./components/PayrollTab";
+
+type TabKey = "overview" | "employees" | "departments" | "attendance" | "leave" | "payroll";
+
+const TABS: { key: TabKey; label: string; icon: typeof LayoutGrid }[] = [
+  { key: "overview", label: "Overview", icon: LayoutGrid },
+  { key: "employees", label: "Employees", icon: UserRound },
+  { key: "departments", label: "Departments", icon: Building2 },
+  { key: "attendance", label: "Attendance", icon: CalendarCheck2 },
+  { key: "leave", label: "Leave", icon: ClipboardList },
+  { key: "payroll", label: "Payroll", icon: Banknote },
+];
+
+const todayStr = () => new Date().toISOString().slice(0, 10);
+const currentMonth = () => new Date().toISOString().slice(0, 7);
+
+export function HrmPage() {
+  const toast = useToast();
+  const [tab, setTab] = useState<TabKey>("overview");
+  const [loading, setLoading] = useState(true);
+
+  const [dashboard, setDashboard] = useState<HrmDashboardDTO | null>(null);
+  const [employees, setEmployees] = useState<HrmEmployeeDTO[]>([]);
+  const [departments, setDepartments] = useState<HrmDepartmentDTO[]>([]);
+  const [attendance, setAttendance] = useState<HrmAttendanceDTO[]>([]);
+  const [leaveRequests, setLeaveRequests] = useState<HrmLeaveRequestDTO[]>([]);
+  const [payroll, setPayroll] = useState<HrmPayrollDTO[]>([]);
+
+  const [attendanceDate, setAttendanceDate] = useState(todayStr());
+  const [payrollMonth, setPayrollMonth] = useState(currentMonth());
+
+  const loadAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [dashboardRes, employeesRes, departmentsRes, attendanceRes, leaveRes, payrollRes] = await Promise.all([
+        getHrmDashboard(),
+        listHrmEmployees(),
+        listHrmDepartments(),
+        listHrmAttendance({ date: attendanceDate }),
+        listHrmLeaveRequests(),
+        listHrmPayroll({ month: payrollMonth }),
+      ]);
+      setDashboard(dashboardRes);
+      setEmployees(employeesRes);
+      setDepartments(departmentsRes);
+      setAttendance(attendanceRes);
+      setLeaveRequests(leaveRes);
+      setPayroll(payrollRes);
+    } catch {
+      toast.push("Could not load HRM data.", "info");
+    } finally {
+      setLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attendanceDate, payrollMonth]);
+
+  useEffect(() => {
+    void loadAll();
+  }, [loadAll]);
+
+  const activeEmployees = useMemo(() => employees.filter((e) => e.status !== "terminated"), [employees]);
+
+  return (
+    <div className="zs-page-scroll">
+      <div className="zs-page-header">
+        <h1 className="zs-page-title">HRM</h1>
+        <p className="zs-page-description">Employees, attendance, leave, and payroll — all in one place.</p>
+      </div>
+
+      <div className="zs-toolbox">
+        <div className="zs-toolbox-row">
+          <div className="flex gap-1 overflow-x-auto">
+            {TABS.map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                onClick={() => setTab(key)}
+                className={clsx(
+                  "flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold transition-colors",
+                  tab === key ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
+                )}
+              >
+                <Icon size={14} /> {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="zs-page-body">
+        {tab === "overview" && <OverviewTab dashboard={dashboard} />}
+        {tab === "employees" && (
+          <EmployeesTab employees={employees} departments={departments} loading={loading} onChanged={() => void loadAll()} />
+        )}
+        {tab === "departments" && <DepartmentsTab departments={departments} loading={loading} onChanged={() => void loadAll()} />}
+        {tab === "attendance" && (
+          <AttendanceTab
+            employees={employees}
+            attendance={attendance}
+            loading={loading}
+            date={attendanceDate}
+            onDateChange={setAttendanceDate}
+            onChanged={() => void loadAll()}
+          />
+        )}
+        {tab === "leave" && (
+          <LeaveTab leaveRequests={leaveRequests} employees={activeEmployees} loading={loading} onChanged={() => void loadAll()} />
+        )}
+        {tab === "payroll" && (
+          <PayrollTab payroll={payroll} loading={loading} month={payrollMonth} onMonthChange={setPayrollMonth} onChanged={() => void loadAll()} />
+        )}
+      </div>
+    </div>
+  );
+}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ExternalLink, Loader2, PackagePlus, RefreshCw, ShoppingBag, Store as StoreIcon } from 'lucide-react';
+import { AlertTriangle, ExternalLink, FileSpreadsheet, Loader2, PackagePlus, RefreshCw, ShoppingBag, Store as StoreIcon } from 'lucide-react';
 import clsx from 'clsx';
 import type { ProductCollectionDTO, ProductPushResultDTO, StoreDTO, SupplierProductDraftDTO } from '@zetsales/shared';
 import { createProduct, listProductCollections, previewAlibabaProduct } from '../../lib/commerceApi';
@@ -11,6 +11,7 @@ import { useToast } from '../ui/ToastProvider';
 const PLATFORM_META = {
   shopify: { label: 'Shopify collections', color: 'bg-[#95BF47]', icon: ShoppingBag },
   woocommerce: { label: 'WooCommerce categories', color: 'bg-[#7f54b3]', icon: StoreIcon },
+  csv: { label: 'CSV Import', color: 'bg-slate-500', icon: FileSpreadsheet },
 } as const;
 
 interface AlibabaImportModalProps {

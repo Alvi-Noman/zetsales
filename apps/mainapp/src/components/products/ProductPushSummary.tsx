@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   CheckCircle2,
+  FileSpreadsheet,
   Package,
   ShoppingBag,
   Store as StoreIcon,
@@ -12,6 +13,7 @@ import type { ProductPushResultDTO } from "@zetsales/shared";
 const PLATFORM_ICON = {
   shopify: ShoppingBag,
   woocommerce: StoreIcon,
+  csv: FileSpreadsheet,
 } as const;
 
 interface ProductPushSummaryProps {

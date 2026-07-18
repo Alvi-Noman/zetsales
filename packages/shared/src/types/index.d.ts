@@ -12,7 +12,7 @@ export interface UserDTO {
     installedPlugins: ModuleKey[];
 }
 export type TeamRole = 'owner' | 'admin' | 'manager' | 'agent' | 'viewer';
-export declare const MODULE_KEYS: readonly ["home", "orders", "dispatch", "products", "inventory", "returns", "preOrders", "printOut", "customers", "adPerformance", "customerService", "callCenter", "fraudChecker", "zetSalesAds", "supplyChain", "accounting", "analytics", "integrations", "team", "settings"];
+export declare const MODULE_KEYS: readonly ["home", "orders", "dispatch", "products", "inventory", "returns", "preOrders", "printOut", "customers", "adPerformance", "customerService", "callCenter", "fraudChecker", "zetSalesAds", "supplyChain", "accounting", "analytics", "integrations", "team", "settings", "hrm"];
 export type ModuleKey = (typeof MODULE_KEYS)[number];
 export declare const PLUGIN_MODULES: ModuleKey[];
 export declare const APP_EXTENSION_TARGETS: readonly ["admin.order-details.block", "admin.order-details.action", "admin.orders.index.row-badge", "admin.orders.index.bulk-action", "admin.products.index.row-badge", "admin.product-details.block", "admin.customers.index.row-badge", "admin.customer-details.block", "admin.home.block", "admin.analytics.block", "admin.topbar.block"];
@@ -1153,4 +1153,110 @@ export interface CreateAdCampaignPayload {
     googleSquareImageAssetId?: string;
     googleLogoAssetId?: string;
     businessName?: string;
+}
+export type HrmEmployeeStatus = 'active' | 'onLeave' | 'suspended' | 'terminated';
+export interface HrmDepartmentDTO {
+    id: string;
+    name: string;
+    description: string | null;
+    employeeCount: number;
+    createdAt: string;
+}
+export interface HrmEmployeeDTO {
+    id: string;
+    employeeCode: string;
+    name: string;
+    email: string | null;
+    phone: string | null;
+    departmentId: string | null;
+    departmentName: string | null;
+    designation: string;
+    status: HrmEmployeeStatus;
+    joinDate: string;
+    monthlySalary: number;
+    address: string | null;
+    emergencyContact: string | null;
+    notes: string | null;
+    hasPin: boolean;
+    createdAt: string;
+    updatedAt: string;
+}
+export type HrmAttendanceStatus = 'present' | 'absent' | 'late' | 'halfDay' | 'onLeave';
+export type HrmAttendanceSource = 'manual' | 'pin' | 'biometric';
+export interface HrmBreakDTO {
+    start: string;
+    end: string | null;
+}
+export interface HrmAttendanceDTO {
+    id: string;
+    employeeId: string;
+    employeeName: string;
+    date: string;
+    status: HrmAttendanceStatus;
+    checkIn: string | null;
+    checkOut: string | null;
+    breaks: HrmBreakDTO[];
+    hoursWorked: number | null;
+    note: string | null;
+    source: HrmAttendanceSource | null;
+}
+export type HrmPunchState = 'notCheckedIn' | 'checkedIn' | 'onBreak' | 'checkedOut';
+export type HrmPunchAction = 'checkIn' | 'breakStart' | 'breakEnd' | 'checkOut';
+export interface HrmPublicEmployeeDTO {
+    id: string;
+    name: string;
+    employeeCode: string;
+}
+export interface HrmPunchStatusDTO {
+    employeeId: string;
+    employeeName: string;
+    date: string;
+    state: HrmPunchState;
+    checkIn: string | null;
+    checkOut: string | null;
+    breaks: HrmBreakDTO[];
+}
+export type HrmLeaveType = 'sick' | 'casual' | 'annual' | 'unpaid' | 'other';
+export type HrmLeaveStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+export interface HrmLeaveRequestDTO {
+    id: string;
+    employeeId: string;
+    employeeName: string;
+    type: HrmLeaveType;
+    fromDate: string;
+    toDate: string;
+    days: number;
+    reason: string;
+    status: HrmLeaveStatus;
+    decidedBy: string | null;
+    decidedAt: string | null;
+    createdAt: string;
+}
+export type HrmPayrollStatus = 'draft' | 'paid';
+export interface HrmPayrollDTO {
+    id: string;
+    employeeId: string;
+    employeeName: string;
+    month: string;
+    baseSalary: number;
+    bonus: number;
+    deductions: number;
+    unpaidLeaveDays: number;
+    netPay: number;
+    status: HrmPayrollStatus;
+    paidAt: string | null;
+    generatedAt: string;
+}
+export interface HrmDashboardDTO {
+    totalEmployees: number;
+    activeEmployees: number;
+    presentToday: number;
+    absentToday: number;
+    onLeaveToday: number;
+    pendingLeaveRequests: number;
+    departmentBreakdown: {
+        departmentName: string;
+        count: number;
+    }[];
+    monthlyPayrollTotal: number;
 }

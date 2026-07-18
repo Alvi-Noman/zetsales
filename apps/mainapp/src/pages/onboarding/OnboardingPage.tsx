@@ -16,6 +16,7 @@ import {
 import clsx from "clsx";
 import type { BusinessType, SalesChannel } from "@zetsales/shared";
 import { useAuth } from "../../context/AuthContext";
+import { isLocalDevHost } from "../../lib/isLocalDevHost";
 
 const BUSINESS_TYPE_OPTIONS: {
   value: BusinessType;
@@ -190,7 +191,7 @@ export function OnboardingPage() {
         monthlyOrders,
         teamSize: finalTeamSize,
       });
-      if (user.businessUrl && window.location.origin !== user.businessUrl) {
+      if (!isLocalDevHost && user.businessUrl && window.location.origin !== user.businessUrl) {
         window.location.assign(`${user.businessUrl}/home`);
         return;
       }

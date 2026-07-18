@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   Settings,
   Rocket,
+  UserRound,
   type LucideIcon,
 } from 'lucide-react';
 import type { ModuleKey } from '@zetsales/shared';
@@ -84,6 +85,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: 'Customers', path: '/customers', icon: Users, module: 'customers' },
   { label: 'Ad Performance', path: '/ad-performance', icon: Megaphone, module: 'adPerformance' },
   { label: 'ZetSales Ads', path: '/zetsales-ads', icon: Rocket, module: 'zetSalesAds' },
+  { label: 'HRM', path: '/hrm', icon: UserRound, module: 'hrm' },
   { label: 'Accounting & Finance', path: '/accounting', icon: Landmark, module: 'accounting' },
   {
     label: 'Analytics',

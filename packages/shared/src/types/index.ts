@@ -35,6 +35,7 @@ export const MODULE_KEYS = [
   'integrations',
   'team',
   'settings',
+  'hrm',
 ] as const;
 export type ModuleKey = (typeof MODULE_KEYS)[number];
 
@@ -42,7 +43,7 @@ export type ModuleKey = (typeof MODULE_KEYS)[number];
 // appsController) before they're usable at all — independent of and in addition to
 // the role check below. Everything else is a "core" module: visible whenever the
 // signed-in user's role permits it, no install step needed.
-export const PLUGIN_MODULES: ModuleKey[] = ['fraudChecker', 'callCenter', 'adPerformance', 'customerService', 'zetSalesAds'];
+export const PLUGIN_MODULES: ModuleKey[] = ['fraudChecker', 'callCenter', 'adPerformance', 'customerService', 'zetSalesAds', 'hrm'];
 
 // --- App platform (extension points + install flow) ---
 // Two-tier model mirroring Shopify's own app platform: an "Embedded App" gets its own sidebar
@@ -166,6 +167,7 @@ export const ROLE_DEFINITIONS: Record<TeamRole, RoleDefinition> = {
       'supplyChain',
       'accounting',
       'analytics',
+      'hrm',
     ],
     canManageTeam: false,
     canWrite: true,
@@ -184,6 +186,7 @@ export const ROLE_DEFINITIONS: Record<TeamRole, RoleDefinition> = {
       'fraudChecker',
       'zetSalesAds',
       'supplyChain',
+      'hrm',
     ],
   },
   agent: {
@@ -1778,4 +1781,129 @@ export interface CreateAdCampaignPayload {
   // Google's BUSINESS_NAME asset — the frontend auto-fills this from the logged-in user's own
   // businessName (UserDTO) rather than asking the user to type it again.
   businessName?: string;
+}
+
+// --- HRM (Human Resource Management) ---
+
+export type HrmEmployeeStatus = 'active' | 'onLeave' | 'suspended' | 'terminated';
+
+export interface HrmDepartmentDTO {
+  id: string;
+  name: string;
+  description: string | null;
+  employeeCount: number;
+  createdAt: string;
+}
+
+export interface HrmEmployeeDTO {
+  id: string;
+  employeeCode: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  departmentId: string | null;
+  departmentName: string | null;
+  designation: string;
+  status: HrmEmployeeStatus;
+  joinDate: string;
+  monthlySalary: number;
+  address: string | null;
+  emergencyContact: string | null;
+  notes: string | null;
+  // Whether a self-service punch PIN has been set — the PIN itself is never returned to the client.
+  hasPin: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type HrmAttendanceStatus = 'present' | 'absent' | 'late' | 'halfDay' | 'onLeave';
+
+// How an attendance record was captured — 'pin' is today's self-service punch page;
+// 'biometric' is reserved for a future fingerprint/face device hitting the same punch endpoints.
+export type HrmAttendanceSource = 'manual' | 'pin' | 'biometric';
+
+export interface HrmBreakDTO {
+  start: string;
+  end: string | null;
+}
+
+export interface HrmAttendanceDTO {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  date: string; // YYYY-MM-DD
+  status: HrmAttendanceStatus;
+  checkIn: string | null;
+  checkOut: string | null;
+  breaks: HrmBreakDTO[];
+  hoursWorked: number | null;
+  note: string | null;
+  source: HrmAttendanceSource | null;
+}
+
+// --- Self-service punch page (no login — PIN-gated, tenant resolved from subdomain) ---
+
+export type HrmPunchState = 'notCheckedIn' | 'checkedIn' | 'onBreak' | 'checkedOut';
+export type HrmPunchAction = 'checkIn' | 'breakStart' | 'breakEnd' | 'checkOut';
+
+export interface HrmPublicEmployeeDTO {
+  id: string;
+  name: string;
+  employeeCode: string;
+}
+
+export interface HrmPunchStatusDTO {
+  employeeId: string;
+  employeeName: string;
+  date: string;
+  state: HrmPunchState;
+  checkIn: string | null;
+  checkOut: string | null;
+  breaks: HrmBreakDTO[];
+}
+
+export type HrmLeaveType = 'sick' | 'casual' | 'annual' | 'unpaid' | 'other';
+export type HrmLeaveStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+
+export interface HrmLeaveRequestDTO {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  type: HrmLeaveType;
+  fromDate: string;
+  toDate: string;
+  days: number;
+  reason: string;
+  status: HrmLeaveStatus;
+  decidedBy: string | null;
+  decidedAt: string | null;
+  createdAt: string;
+}
+
+export type HrmPayrollStatus = 'draft' | 'paid';
+
+export interface HrmPayrollDTO {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  month: string; // YYYY-MM
+  baseSalary: number;
+  bonus: number;
+  deductions: number;
+  unpaidLeaveDays: number;
+  netPay: number;
+  status: HrmPayrollStatus;
+  paidAt: string | null;
+  generatedAt: string;
+}
+
+export interface HrmDashboardDTO {
+  totalEmployees: number;
+  activeEmployees: number;
+  presentToday: number;
+  absentToday: number;
+  onLeaveToday: number;
+  pendingLeaveRequests: number;
+  departmentBreakdown: { departmentName: string; count: number }[];
+  monthlyPayrollTotal: number;
 }

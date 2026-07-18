@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
+  FileSpreadsheet,
   Loader2,
   ShoppingBag,
   Store as StoreIcon,
@@ -29,6 +30,7 @@ import { useAuth } from "../../context/AuthContext";
 const PLATFORM_META = {
   shopify: { label: "Shopify", color: "bg-[#95BF47]", icon: ShoppingBag },
   woocommerce: { label: "WooCommerce", color: "bg-[#7f54b3]", icon: StoreIcon },
+  csv: { label: "CSV Import", color: "bg-slate-500", icon: FileSpreadsheet },
 } as const;
 
 export function EditProductPage() {

@@ -6,6 +6,7 @@ import {
   Rocket,
   Blocks,
   Eye,
+  UserRound,
   type LucideIcon,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -19,6 +20,7 @@ const ICONS: Record<string, LucideIcon> = {
   headset: Headset,
   "shield-alert": ShieldAlert,
   rocket: Rocket,
+  users: UserRound,
 };
 
 // A pure browsing grid; Install/Uninstall happens on the detail page.

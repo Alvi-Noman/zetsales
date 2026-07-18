@@ -49,6 +49,17 @@ export const APP_MANIFESTS: AppManifestDTO[] = [
     sidebarPath: '/messages',
   },
   {
+    key: 'hrm',
+    name: 'HRM',
+    description: 'Employees, attendance, leave, and payroll — all in one place.',
+    icon: 'users',
+    authType: 'embedded',
+    isEmbeddedApp: true,
+    extensions: [],
+    sidebarLabel: 'HRM',
+    sidebarPath: '/hrm',
+  },
+  {
     key: 'zetSalesAds',
     name: 'ZetSales Ads',
     description: 'Connect your Facebook, TikTok, and Google Ads accounts to sync spend and campaigns automatically.',

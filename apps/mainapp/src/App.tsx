@@ -38,8 +38,11 @@ import { AppDetailPage } from "./pages/settings/AppDetailPage";
 import { GeneralSettingsPage } from "./pages/settings/GeneralSettingsPage";
 import { BrandingSettingsPage } from "./pages/settings/BrandingSettingsPage";
 import { ZetSalesAdsPage } from "./pages/zetsalesAds/ZetSalesAdsPage";
+import { HrmPage } from "./pages/hrm/HrmPage";
+import { PunchPage } from "./pages/hrm/PunchPage";
 import { NAV_ITEMS, NAV_FOOTER_ITEMS } from "./nav/navigation";
 import { ROLE_DEFINITIONS, type ModuleKey } from "@zetsales/shared";
+import { isLocalDevHost } from "./lib/isLocalDevHost";
 
 const routeEntries = new Map<string, string>();
 [...NAV_ITEMS, ...NAV_FOOTER_ITEMS].forEach((item) => {
@@ -65,6 +68,7 @@ routeEntries.delete("/settings/apps");
 routeEntries.delete("/settings/general");
 routeEntries.delete("/settings/branding");
 routeEntries.delete("/zetsales-ads");
+routeEntries.delete("/hrm");
 
 function FullScreenLoader() {
   return (
@@ -73,14 +77,6 @@ function FullScreenLoader() {
     </div>
   );
 }
-
-// Dev-only: skips the canonical-subdomain redirect below for localhost/127.0.0.1, so a locally
-// running dev server can be used to test an onboarded account's real session without being
-// bounced to that business's deployed subdomain (which never reflects local, unbuilt changes).
-// Never true for anything users actually visit in production.
-const isLocalDevHost =
-  window.location.hostname === "localhost" ||
-  window.location.hostname === "127.0.0.1";
 
 function AppRoutes() {
   const { user, loading } = useAuth();
@@ -97,6 +93,12 @@ function AppRoutes() {
       : `${location.pathname}${location.search}${location.hash}`;
     window.location.assign(`${user.businessUrl}${nextPath}`);
   }, [loading, location.hash, location.pathname, location.search, user]);
+
+  // Public, unauthenticated kiosk page — tenant is resolved server-side from the subdomain, not
+  // from a logged-in user, so this short-circuits before any of the auth/onboarding gates below
+  // (and it deliberately renders without AppShell's sidebar/topbar). Placed after all hooks above
+  // so this conditional return never skips a hook call.
+  if (location.pathname === "/punch") return <PunchPage />;
 
   if (loading) return <FullScreenLoader />;
 
@@ -178,6 +180,7 @@ function AppRoutes() {
         <Route path="/ad-performance" element={<AdPerformancePage />} />
         <Route path="/call-center" element={<CallCenterPage />} />
         <Route path="/zetsales-ads" element={<ZetSalesAdsPage />} />
+        <Route path="/hrm" element={<HrmPage />} />
         <Route path="/settings/general" element={<GeneralSettingsPage />} />
         <Route path="/settings/branding" element={<BrandingSettingsPage />} />
         <Route path="/settings/apps" element={<AppsPage />} />

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, ShoppingBag, Store as StoreIcon, Trash2 } from 'lucide-react';
+import { AlertTriangle, FileSpreadsheet, ShoppingBag, Store as StoreIcon, Trash2 } from 'lucide-react';
 import clsx from 'clsx';
 import type { ProductPushResultDTO } from '@zetsales/shared';
 import { getProduct, deleteProduct, type ProductStoreRef } from '../../lib/commerceApi';
@@ -10,6 +10,7 @@ import { useToast } from '../ui/ToastProvider';
 const PLATFORM_META = {
   shopify: { label: 'Shopify', color: 'bg-[#95BF47]', icon: ShoppingBag },
   woocommerce: { label: 'WooCommerce', color: 'bg-[#7f54b3]', icon: StoreIcon },
+  csv: { label: 'CSV Import', color: 'bg-slate-500', icon: FileSpreadsheet },
 } as const;
 
 interface DeleteProductModalProps {

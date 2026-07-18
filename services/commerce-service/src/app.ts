@@ -22,6 +22,8 @@ import callCenterRoutes from './routes/callCenterRoutes.js';
 import adPerformanceRoutes from './routes/adPerformanceRoutes.js';
 import adAccountsRoutes from './routes/adAccountsRoutes.js';
 import adCampaignsRoutes from './routes/adCampaignsRoutes.js';
+import hrmRoutes from './routes/hrmRoutes.js';
+import hrmPunchRoutes from './routes/hrmPunchRoutes.js';
 import appsRoutes from './routes/appsRoutes.js';
 import brandingRoutes from './routes/brandingRoutes.js';
 import oauthRoutes from './routes/oauthRoutes.js';
@@ -112,6 +114,8 @@ const commerceRouters = [
   adPerformanceRoutes,
   adAccountsRoutes,
   adCampaignsRoutes,
+  hrmRoutes,
+  hrmPunchRoutes,
   appsRoutes,
   brandingRoutes,
 ];

@@ -1,11 +1,12 @@
 import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
 import type { StoreDTO } from "@zetsales/shared";
-import { ShopifyLogo, WooCommerceLogo } from "../orders/platformLogos";
+import { CsvLogo, ShopifyLogo, WooCommerceLogo } from "../orders/platformLogos";
 
 const PLATFORM_META = {
   shopify: { label: "Shopify", logo: ShopifyLogo },
   woocommerce: { label: "WooCommerce", logo: WooCommerceLogo },
+  csv: { label: "CSV Import", logo: CsvLogo },
 } as const;
 
 function relativeTime(value: string | null): string {

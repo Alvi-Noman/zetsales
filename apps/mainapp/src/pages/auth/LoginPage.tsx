@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Loader2, Lock, Mail } from 'lucide-react';
 import { AuthLayout } from '../../components/auth/AuthLayout';
 import { useAuth } from '../../context/AuthContext';
+import { isLocalDevHost } from '../../lib/isLocalDevHost';
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -18,7 +19,7 @@ export function LoginPage() {
     setSubmitting(true);
     try {
       const user = await login(email, password);
-      if (user.isOnboarded && user.businessUrl && window.location.origin !== user.businessUrl) {
+      if (!isLocalDevHost && user.isOnboarded && user.businessUrl && window.location.origin !== user.businessUrl) {
         window.location.assign(`${user.businessUrl}/home`);
         return;
       }

@@ -3,12 +3,13 @@ import { ExternalLink, Loader2, Package, X } from "lucide-react";
 import clsx from "clsx";
 import type { ProductDTO, StoreDTO } from "@zetsales/shared";
 import { getProduct, type ProductStoreRef } from "../../lib/commerceApi";
-import { ShopifyLogo, WooCommerceLogo } from "../orders/platformLogos";
+import { CsvLogo, ShopifyLogo, WooCommerceLogo } from "../orders/platformLogos";
 import { AppBlock } from "../apps/AppBlock";
 
 const PLATFORM_META = {
   shopify: { label: "Shopify", logo: ShopifyLogo },
   woocommerce: { label: "WooCommerce", logo: WooCommerceLogo },
+  csv: { label: "CSV Import", logo: CsvLogo },
 } as const;
 
 function shopifyProductUrl(shopDomain: string, externalId: string) {

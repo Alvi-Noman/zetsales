@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Ban,
+  FileSpreadsheet,
   Megaphone,
   MessageCircle,
   Package,
@@ -41,6 +42,7 @@ const INTEGRATIONS_TABS: {
 const PLATFORM_META = {
   shopify: { label: "Shopify", color: "bg-[#95BF47]", icon: ShoppingBag },
   woocommerce: { label: "WooCommerce", color: "bg-[#7f54b3]", icon: StoreIcon },
+  csv: { label: "CSV Import", color: "bg-slate-500", icon: FileSpreadsheet },
 } as const;
 
 function StoreCard({

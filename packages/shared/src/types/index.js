@@ -19,12 +19,13 @@ export const MODULE_KEYS = [
     'integrations',
     'team',
     'settings',
+    'hrm',
 ];
 // The subset of modules that a tenant must explicitly "install" (see AppsPage /
 // appsController) before they're usable at all — independent of and in addition to
 // the role check below. Everything else is a "core" module: visible whenever the
 // signed-in user's role permits it, no install step needed.
-export const PLUGIN_MODULES = ['fraudChecker', 'callCenter', 'adPerformance', 'customerService', 'zetSalesAds'];
+export const PLUGIN_MODULES = ['fraudChecker', 'callCenter', 'adPerformance', 'customerService', 'zetSalesAds', 'hrm'];
 // --- App platform (extension points + install flow) ---
 // Two-tier model mirroring Shopify's own app platform: an "Embedded App" gets its own sidebar
 // nav entry and full page; an "Admin Block Extension" injects a small piece of UI into an
@@ -97,6 +98,7 @@ export const ROLE_DEFINITIONS = {
             'supplyChain',
             'accounting',
             'analytics',
+            'hrm',
         ],
         canManageTeam: false,
         canWrite: true,
@@ -115,6 +117,7 @@ export const ROLE_DEFINITIONS = {
             'fraudChecker',
             'zetSalesAds',
             'supplyChain',
+            'hrm',
         ],
     },
     agent: {

@@ -9,6 +9,7 @@ import {
   ShieldAlert,
   Rocket,
   Blocks,
+  UserRound,
   type LucideIcon,
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -23,6 +24,7 @@ const ICONS: Record<string, LucideIcon> = {
   headset: Headset,
   "shield-alert": ShieldAlert,
   rocket: Rocket,
+  users: UserRound,
 };
 
 interface AppMeta {
@@ -87,6 +89,17 @@ const APP_META: Record<string, AppMeta> = {
     ],
     category: "Marketing",
     worksWith: ["Facebook Ads", "TikTok Ads", "Google Ads"],
+  },
+  hrm: {
+    headline: "Run HR from employees to payroll, in one place",
+    features: [
+      "Employee directory with departments and designations",
+      "Daily attendance with check-in/check-out and manual marking",
+      "Leave requests with approve/reject workflow",
+      "Monthly payroll generation with unpaid-leave deductions",
+    ],
+    category: "Operations",
+    worksWith: ["Team"],
   },
 };
 

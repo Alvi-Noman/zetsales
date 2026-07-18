@@ -38,6 +38,7 @@ import { DeleteProductModal } from "../../components/products/DeleteProductModal
 import { AlibabaImportModal } from "../../components/products/AlibabaImportModal";
 import { Select } from "../../components/ui/Select";
 import {
+  CsvLogo,
   ShopifyLogo,
   WooCommerceLogo,
 } from "../../components/orders/platformLogos";
@@ -50,6 +51,7 @@ import { useAuth } from "../../context/AuthContext";
 const PLATFORM_META = {
   shopify: { label: "Shopify", logo: ShopifyLogo },
   woocommerce: { label: "WooCommerce", logo: WooCommerceLogo },
+  csv: { label: "CSV Import", logo: CsvLogo },
 } as const;
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
