@@ -133,9 +133,9 @@ export interface BusinessDTO {
     currency: string;
     installedPlugins: ModuleKey[];
 }
-export type StorePlatform = 'shopify' | 'woocommerce';
+export type StorePlatform = 'shopify' | 'woocommerce' | 'csv';
 export type StoreStatus = 'connected' | 'error' | 'pending';
-export type StoreConnectionMethod = 'oauth' | 'token' | 'keys';
+export type StoreConnectionMethod = 'oauth' | 'token' | 'keys' | 'manual';
 export interface StoreDTO {
     id: string;
     platform: StorePlatform;

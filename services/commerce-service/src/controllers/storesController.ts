@@ -144,6 +144,35 @@ export async function capabilities(_req: AuthenticatedRequest, res: Response) {
   });
 }
 
+// The catch-all store CSV-imported orders land in when the merchant doesn't attribute them to a
+// real connected storefront (see csvOrderImportController.ts). One per tenant, created lazily on
+// first use — its displayName ("CSV Import") deterministically drives its own invoice-number
+// prefix (buildStoreBillPrefix in invoiceNumbers.ts), so it never collides with a real store's
+// numbering.
+export async function getOrCreateCsvImportStore(tenantId: string) {
+  const db = getDb();
+  const now = new Date();
+  const result = await db.collection('stores').findOneAndUpdate(
+    { tenantId, platform: 'csv' },
+    {
+      $setOnInsert: {
+        tenantId,
+        platform: 'csv',
+        displayName: 'CSV Import',
+        shopDomain: null,
+        status: 'connected',
+        connectionMethod: 'manual',
+        productCount: 0,
+        lastSyncedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      },
+    },
+    { upsert: true, returnDocument: 'after' }
+  );
+  return result!;
+}
+
 export async function removeStore(req: AuthenticatedRequest, res: Response) {
   const db = getDb();
   const { storeId } = req.params;

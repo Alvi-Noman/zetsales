@@ -7,6 +7,7 @@ import {
   Copy,
   CreditCard,
   Download,
+  FileUp,
   Lock,
   MessageCircle,
   Package,
@@ -69,6 +70,7 @@ import {
   summarizeOrderStock,
 } from "../../components/orders/stockLookup";
 import {
+  CsvLogo,
   ShopifyLogo,
   WooCommerceLogo,
 } from "../../components/orders/platformLogos";
@@ -87,6 +89,7 @@ import {
 } from "../../components/orders/reasons";
 import { canPrintPackingSlip } from "../../components/orders/stageFlow";
 import { ImportOrdersModal } from "../../components/integrations/ImportOrdersModal";
+import { ImportOrdersCsvModal } from "../../components/orders/ImportOrdersCsvModal";
 import { ORDER_TABS } from "../../components/orders/tabs";
 import { DateRangeMenu } from "../../components/orders/DateRangeMenu";
 import { FilterMenu } from "../../components/orders/FilterMenu";
@@ -129,6 +132,7 @@ import { useToast } from "../../components/ui/ToastProvider";
 const PLATFORM_META = {
   shopify: { label: "Shopify", logo: ShopifyLogo },
   woocommerce: { label: "WooCommerce", logo: WooCommerceLogo },
+  csv: { label: "CSV Import", logo: CsvLogo },
 } as const;
 
 const COURIER_PROVIDER_LABEL = {
@@ -219,6 +223,7 @@ export function OrdersPage() {
   });
   const [activeOrder, setActiveOrder] = useState<OrderDTO | null>(null);
   const [importTarget, setImportTarget] = useState<StoreDTO | null>(null);
+  const [csvImportOpen, setCsvImportOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [confirmPopupData, setConfirmPopupData] = useState<{
@@ -1090,6 +1095,12 @@ export function OrdersPage() {
             <Download size={14} /> Export
           </button>
           <button
+            onClick={() => setCsvImportOpen(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            <FileUp size={14} /> Import CSV
+          </button>
+          <button
             onClick={() => setCreateOrderOpen(true)}
             className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-slate-800"
           >
@@ -1123,11 +1134,11 @@ export function OrdersPage() {
             <div className="flex flex-1 flex-col items-center justify-center gap-1 px-8 text-center">
               <Package size={28} className="text-slate-300" />
               <p className="text-sm font-medium text-slate-600">
-                Nothing imported yet
+                No orders yet
               </p>
               <p className="max-w-sm text-sm text-slate-400">
-                Click "Import orders" above on whichever store you want to pull
-                in.
+                Orders will show up here as they come in — synced live from a
+                connected store, imported from a CSV, or added manually.
               </p>
             </div>
           ) : (
@@ -1915,6 +1926,12 @@ export function OrdersPage() {
       <ImportOrdersModal
         store={importTarget}
         onClose={() => setImportTarget(null)}
+        onImported={handleImported}
+      />
+      <ImportOrdersCsvModal
+        open={csvImportOpen}
+        onClose={() => setCsvImportOpen(false)}
+        stores={stores}
         onImported={handleImported}
       />
       <ExportOrdersModal

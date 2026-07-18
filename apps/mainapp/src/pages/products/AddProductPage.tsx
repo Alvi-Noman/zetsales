@@ -35,6 +35,11 @@ const PLATFORM_META = {
   woocommerce: { label: "WooCommerce", color: "bg-[#7f54b3]", icon: StoreIcon },
 } as const;
 
+// The synthetic "CSV Import" store (see getOrCreateCsvImportStore) isn't a real storefront —
+// products can't be pushed there, so it never belongs in this picker.
+const isPushableStore = (s: StoreDTO): s is StoreDTO & { platform: "shopify" | "woocommerce" } =>
+  s.platform === "shopify" || s.platform === "woocommerce";
+
 export function AddProductPage() {
   const navigate = useNavigate();
   const toast = useToast();
@@ -104,7 +109,7 @@ export function AddProductPage() {
   const handleSubmit = async () => {
     if (!canSubmit) return;
     setSubmitting(true);
-    const targetStores = stores.filter((s) => selected.has(s.id));
+    const targetStores = stores.filter(isPushableStore).filter((s) => selected.has(s.id));
     setPushItems(
       targetStores.map((s) => ({
         storeId: s.id,
@@ -296,7 +301,7 @@ export function AddProductPage() {
                 <ProductPushProgress items={pushItems} />
               ) : (
                 <div className="space-y-2">
-                  {stores.map((store) => {
+                  {stores.filter(isPushableStore).map((store) => {
                     const meta = PLATFORM_META[store.platform];
                     const checked = selected.has(store.id);
                     return (

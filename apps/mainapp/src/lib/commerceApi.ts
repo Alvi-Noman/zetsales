@@ -1013,6 +1013,84 @@ export async function uploadBrandingLogo(file: File) {
   return res.data as { success: boolean; url: string };
 }
 
+export type CsvImportFieldKey =
+  | 'orderNumber'
+  | 'platformOrderId'
+  | 'orderDate'
+  | 'customerName'
+  | 'customerPhone'
+  | 'customerAltPhone'
+  | 'address'
+  | 'paymentMethod'
+  | 'productTitle'
+  | 'sku'
+  | 'quantity'
+  | 'price'
+  | 'total';
+
+export type CsvImportFieldMapping = Partial<Record<CsvImportFieldKey, number>>;
+export type CsvImportDateFormat = 'auto' | 'DMY' | 'MDY' | 'YMD';
+
+export async function parseCsvOrderImport(file: File) {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await api.post('/commerce/orders/import/csv/parse', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+  return res.data as {
+    success: boolean;
+    importId: string;
+    headers: string[];
+    sampleRows: string[][];
+    totalRows: number;
+    suggestedMapping: CsvImportFieldMapping;
+  };
+}
+
+export interface CsvImportPreviewRow {
+  rowNumbers: number[];
+  status: 'new' | 'duplicate' | 'invalid';
+  reason: string | null;
+  weakDedupeKey: boolean;
+  customerName: string;
+  customerPhone: string | null;
+  orderDate: string | null;
+  total: number;
+  itemCount: number;
+}
+
+export async function previewCsvOrderImport(params: {
+  importId: string;
+  mapping: CsvImportFieldMapping;
+  dateFormat: CsvImportDateFormat;
+  targetStoreId: string;
+}) {
+  const res = await api.post('/commerce/orders/import/csv/preview', params);
+  return res.data as {
+    success: boolean;
+    rows: CsvImportPreviewRow[];
+    counts: { new: number; duplicate: number; invalid: number; total: number };
+    skuMatch: { matched: number; total: number };
+    storeId: string;
+    storeDisplayName: string;
+  };
+}
+
+export async function commitCsvOrderImport(params: {
+  importId: string;
+  mapping: CsvImportFieldMapping;
+  dateFormat: CsvImportDateFormat;
+  targetStoreId: string;
+}) {
+  const res = await api.post('/commerce/orders/import/csv/commit', params);
+  return res.data as {
+    success: boolean;
+    created: number;
+    skippedDuplicate: number;
+    skippedInvalid: number;
+    storeId: string;
+    storeDisplayName: string;
+  };
+}
+
 // riskScope: 'courier' (default, live Steadfast dashboard data), 'network' (pools across every
 // tenant on ZetSales), or 'store' (this tenant's own history only) — the Order Detail Drawer's
 // scope switcher.

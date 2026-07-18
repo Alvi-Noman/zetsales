@@ -75,6 +75,10 @@ async function ensureIndexes(db: ReturnType<typeof client.db>) {
   // stale/abandoned one should disappear rather than linger.
   await db.collection('pendingImportDrafts').createIndex({ tenantId: 1 });
   await db.collection('pendingImportDrafts').createIndex({ createdAt: 1 }, { expireAfterSeconds: 60 * 60 });
+  // Holds a parsed CSV between the upload step and the preview/commit steps of order import, so
+  // the browser doesn't re-upload the whole file on every mapping tweak. Single-use/short-lived
+  // like pendingImportDrafts above, not a permanent record.
+  await db.collection('csvImportDrafts').createIndex({ createdAt: 1 }, { expireAfterSeconds: 60 * 60 });
   // Not tenant-scoped — a phone number's Steadfast/Pathao delivery history is a fact about the
   // phone number itself, shared across every tenant that ever checks it.
   await db.collection('courierFraudHistory').createIndex({ phone: 1 }, { unique: true });

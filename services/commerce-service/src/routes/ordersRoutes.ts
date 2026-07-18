@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import { requireAuth, requireTenant, requireModule } from '../middleware/authMiddleware.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
+import { uploadCsvFile } from '../middleware/csvUpload.js';
 import {
   importStoreOrdersStream, listOrders, getOrder, getOrderInventorySnapshot, getOrderFulfillmentStatus, getOrderStats, getOrderTrends, updateOrder, bulkUpdateOrders, markPartialDelivered,
   blockCustomer, unblockCustomer, markPaymentCollected, bulkMarkPaymentCollected, bulkRecheckFraud, claimOrder, heartbeatOrderClaim, releaseOrderClaim, upsellOrder, removeOrderLineItem, createOrder, splitOrder,
   getReadyToPrintOrders, markOrdersPrinted, ensureOrderInvoices, getCourierShipmentStats, dispatchScanHandover,
 } from '../controllers/ordersController.js';
+import { parseCsvOrderImport, previewCsvOrderImport, commitCsvOrderImport } from '../controllers/csvOrderImportController.js';
 
 const router: Router = Router();
 const requireOrders = requireModule('orders');
@@ -23,6 +25,9 @@ router.post('/orders/bulk/recheck-fraud', requireAuth, requireTenant, requireOrd
 router.get('/orders/ready-to-print', requireAuth, requireTenant, requireOrders, asyncHandler(getReadyToPrintOrders));
 router.post('/orders/ensure-invoices', requireAuth, requireTenant, requireOrders, asyncHandler(ensureOrderInvoices));
 router.post('/orders/mark-printed', requireAuth, requireTenant, requireOrders, asyncHandler(markOrdersPrinted));
+router.post('/orders/import/csv/parse', requireAuth, requireTenant, requireOrders, uploadCsvFile, asyncHandler(parseCsvOrderImport));
+router.post('/orders/import/csv/preview', requireAuth, requireTenant, requireOrders, asyncHandler(previewCsvOrderImport));
+router.post('/orders/import/csv/commit', requireAuth, requireTenant, requireOrders, asyncHandler(commitCsvOrderImport));
 
 router.get('/orders', requireAuth, requireTenant, requireOrders, asyncHandler(listOrders));
 router.post('/orders', requireAuth, requireTenant, requireOrders, asyncHandler(createOrder));
