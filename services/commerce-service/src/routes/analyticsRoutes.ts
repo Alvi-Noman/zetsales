@@ -59,6 +59,7 @@ import {
   getConfirmedSalesOverTime,
   getPaymentStatusBreakdown,
   getEmployeeActivity,
+  getOrderAgentUpsellPerformance,
   getProductCourierHistory,
   getDailyLeadQuantity,
   getCodChangeLog,
@@ -139,6 +140,7 @@ router.get('/analytics/product-performance', ...guard, getProductPerformance);
 router.get('/analytics/confirmed-sales-over-time', ...guard, getConfirmedSalesOverTime);
 router.get('/analytics/payment-status-breakdown', ...guard, getPaymentStatusBreakdown);
 router.get('/analytics/employee-activity', ...guard, getEmployeeActivity);
+router.get('/analytics/order-agent-upsell-performance', ...guard, getOrderAgentUpsellPerformance);
 router.get('/analytics/product-courier-history', ...guard, getProductCourierHistory);
 router.get('/analytics/daily-lead-quantity', ...guard, getDailyLeadQuantity);
 router.get('/analytics/cod-change-log', ...guard, getCodChangeLog);

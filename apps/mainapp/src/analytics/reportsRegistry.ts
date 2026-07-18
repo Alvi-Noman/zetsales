@@ -1,4 +1,4 @@
-import type { AnalyticsCardKey } from '@zetsales/shared';
+import type { AnalyticsCardKey, AnalyticsCategory } from '@zetsales/shared';
 import type {
   AnalyticsBreakdownDTO,
   AnalyticsSeriesDTO,
@@ -8,29 +8,77 @@ import type {
   EmployeeActivityDTO,
   ProductCourierHistoryDTO,
   InventoryThroughputDTO,
+  OrderAgentUpsellPerformanceDTO,
 } from '@zetsales/shared';
 import {
-  getCourierHandoverReport,
-  getOrderReturnReport,
+  getAnalyticsSummary as _getAnalyticsSummary, // not a card — excluded on purpose, see note below
+  getOrderFunnel,
   getConfirmationPerformance,
-  getCancelReasons,
+  getSalesOverTime,
+  getAovOverTime,
+  getSalesByStore,
+  getTopProducts,
+  getFulfillmentTime,
   getCourierPerformance,
-  getProductCourierHistory,
-  getDailyLeadQuantity,
-  getConfirmedSalesOverTime,
-  getEmployeeActivity,
-  getHandoverSales,
-  getGrossProfitOverTime,
-  getCodChangeLog,
   getDeliveryZones,
-  getPaymentStatusBreakdown,
+  getCancelReasons,
+  getSpamOrders,
+  getHoldReasons,
+  getNewVsReturning,
+  getTopCustomers,
+  getRfmSegments,
+  getRiskSegments,
+  getCustomersByZone,
+  getGrossProfitOverTime,
+  getProfitByProduct,
+  getSalesByPaymentMethod,
+  getDiscountsOverTime,
+  getCodCashflow,
+  getAbcAnalysis,
+  getSellThrough,
+  getStockoutCancellations,
+  getItemsBoughtTogether,
+  getReturnedProducts,
+  getWeeklyPatterns,
+  getPartialDeliveryRate,
+  getChannelPerformance,
   getInventoryAdjustments,
   getInventoryThroughput,
+  getShippingAndTracking,
+  getNewCustomerRevenue,
+  getNetSalesOverTime,
+  getProfitByCourier,
+  getProfitByZone,
+  getDeadStock,
+  getDuplicateOrders,
+  getCourierReconciliation,
+  getCourierHandoverReport,
+  getMarketingRoas,
+  getAddressQuality,
+  getSlaBreach,
+  getCallOutcomes,
+  getFlagReasons,
+  getRescheduleEffectiveness,
+  getBlocklistHitRate,
+  getRtoLoss,
+  getOrderReturnReport,
+  getMarginWaterfall,
+  getCohortRetention,
+  getProductPerformance,
+  getConfirmedSalesOverTime,
+  getPaymentStatusBreakdown,
+  getEmployeeActivity,
+  getOrderAgentUpsellPerformance,
+  getProductCourierHistory,
+  getDailyLeadQuantity,
+  getCodChangeLog,
+  getHandoverSales,
   type AnalyticsQueryParams,
 } from '../lib/analyticsApi';
+import { ANALYTICS_CARDS } from './cardRegistry';
 import { formatMoney } from './format';
 
-export type ReportCategory = 'Courier' | 'Sales' | 'Stock' | 'Staff' | 'Other';
+void _getAnalyticsSummary;
 
 export interface ReportColumn {
   key: string;
@@ -45,9 +93,70 @@ export interface ReportTable {
   rows: Record<string, string | number>[];
 }
 
-// Every curated report reuses an existing analytics endpoint and its DTO — nothing here computes
-// new data, it just re-shapes an already-fetched DTO into one flat table for the list/export view,
-// since each DTO has its own bespoke structure (breakdown rows, a time series, per-agent rows...).
+function titleCase(key: string): string {
+  const spaced = key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/_/g, ' ');
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+function isFlatRow(v: unknown): v is Record<string, unknown> {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return false;
+  return Object.values(v as Record<string, unknown>).every((val) => val === null || typeof val !== 'object');
+}
+
+// Fallback for every card without a hand-written extractor below — reflects on the fetched DTO to
+// find its row array (preferring the common `rows`/`points`/`stages`/`segments` field names, else
+// the first array of flat objects it finds) and turns that into a generic table. Every DTO in this
+// codebase is either that shape or a small bespoke object with no natural row array, in which case
+// its own scalar fields become one summary row instead of an empty table. New analytics cards get
+// a working report "for free" this way — a hand-tuned extractor above/here is an upgrade, not a
+// requirement, for any of them.
+function autoExtract(data: unknown): ReportTable {
+  if (!data || typeof data !== 'object') return { columns: [], rows: [] };
+  const obj = data as Record<string, unknown>;
+
+  let arr: unknown[] | null = null;
+  for (const key of ['rows', 'points', 'stages', 'segments']) {
+    const v = obj[key];
+    if (Array.isArray(v) && v.length > 0 && isFlatRow(v[0])) {
+      arr = v;
+      break;
+    }
+  }
+  if (!arr) {
+    for (const v of Object.values(obj)) {
+      if (Array.isArray(v) && v.length > 0 && isFlatRow(v[0])) {
+        arr = v;
+        break;
+      }
+    }
+  }
+
+  if (!arr) {
+    const scalarEntries = Object.entries(obj).filter(([, v]) => typeof v === 'number' || typeof v === 'string');
+    if (scalarEntries.length === 0) return { columns: [], rows: [] };
+    return {
+      columns: scalarEntries.map(([k, v]) => ({ key: k, header: titleCase(k), align: typeof v === 'number' ? 'right' : 'left' })),
+      rows: [Object.fromEntries(scalarEntries) as Record<string, string | number>],
+    };
+  }
+
+  const sample = arr[0] as Record<string, unknown>;
+  const columns: ReportColumn[] = Object.keys(sample).map((k) => ({
+    key: k,
+    header: titleCase(k),
+    align: typeof sample[k] === 'number' ? 'right' : 'left',
+  }));
+  const rows = (arr as Record<string, unknown>[]).map((row) => {
+    const out: Record<string, string | number> = {};
+    for (const col of columns) {
+      const v = row[col.key];
+      out[col.key] = v === null || v === undefined ? '' : (v as string | number);
+    }
+    return out;
+  });
+  return { columns, rows };
+}
+
 function fromBreakdown(d: AnalyticsBreakdownDTO): ReportTable {
   return {
     columns: [
@@ -70,6 +179,9 @@ function fromSeries(d: AnalyticsSeriesDTO): ReportTable {
   };
 }
 
+// Hand-tuned extractors for the reports worth polishing (nicer headers/formatting than the generic
+// fallback would produce). Everything in ANALYTICS_CARDS not listed here still gets a working
+// report via autoExtract() — see getReportTable() below.
 const REPORT_TABLES: Partial<Record<AnalyticsCardKey, (data: unknown) => ReportTable>> = {
   courierHandoverReport: (data) => {
     const d = data as CourierHandoverReportDTO;
@@ -139,6 +251,10 @@ const REPORT_TABLES: Partial<Record<AnalyticsCardKey, (data: unknown) => ReportT
   confirmedSalesOverTime: (data) => fromSeries(data as AnalyticsSeriesDTO),
   grossProfitOverTime: (data) => fromSeries(data as AnalyticsSeriesDTO),
   handoverSales: (data) => fromSeries(data as AnalyticsSeriesDTO),
+  salesOverTime: (data) => fromSeries(data as AnalyticsSeriesDTO),
+  aovOverTime: (data) => fromSeries(data as AnalyticsSeriesDTO),
+  netSalesOverTime: (data) => fromSeries(data as AnalyticsSeriesDTO),
+  discountsOverTime: (data) => fromSeries(data as AnalyticsSeriesDTO),
   employeeActivity: (data) => {
     const d = data as EmployeeActivityDTO;
     return {
@@ -161,6 +277,25 @@ const REPORT_TABLES: Partial<Record<AnalyticsCardKey, (data: unknown) => ReportT
         cancelled: r.cancelled,
         holdResolved: r.holdResolved,
         callAttempts: r.callAttempts,
+      })),
+    };
+  },
+  orderAgentUpsellPerformance: (data) => {
+    const d = data as OrderAgentUpsellPerformanceDTO;
+    return {
+      columns: [
+        { key: 'agent', header: 'Agent' },
+        { key: 'upsellCount', header: 'Upsells', align: 'right' },
+        { key: 'itemsAdded', header: 'Items added', align: 'right' },
+        { key: 'ordersUpsold', header: 'Orders upsold', align: 'right' },
+        { key: 'totalAmount', header: 'Upsell value', align: 'right', format: (v) => formatMoney(Number(v)) },
+      ],
+      rows: d.rows.map((r) => ({
+        agent: r.agent,
+        upsellCount: r.upsellCount,
+        itemsAdded: r.itemsAdded,
+        ordersUpsold: r.ordersUpsold,
+        totalAmount: r.totalAmount,
       })),
     };
   },
@@ -206,61 +341,92 @@ const REPORT_TABLES: Partial<Record<AnalyticsCardKey, (data: unknown) => ReportT
   },
 };
 
+// One fetcher per card in ANALYTICS_CARDS — every report in the list below is backed by a real
+// endpoint, the same one that card's dashboard tile already calls.
 const REPORT_FETCHERS: Partial<Record<AnalyticsCardKey, (params: AnalyticsQueryParams) => Promise<unknown>>> = {
-  courierHandoverReport: getCourierHandoverReport,
-  orderReturnReport: getOrderReturnReport,
+  orderFunnel: getOrderFunnel,
   confirmationPerformance: getConfirmationPerformance,
-  cancelReasons: getCancelReasons,
+  salesOverTime: getSalesOverTime,
+  aovOverTime: getAovOverTime,
+  salesByStore: getSalesByStore,
+  topProducts: getTopProducts,
+  fulfillmentTime: getFulfillmentTime,
   courierPerformance: getCourierPerformance,
-  productCourierHistory: getProductCourierHistory,
-  dailyLeadQuantity: getDailyLeadQuantity,
-  confirmedSalesOverTime: getConfirmedSalesOverTime,
-  employeeActivity: getEmployeeActivity,
-  handoverSales: getHandoverSales,
-  grossProfitOverTime: getGrossProfitOverTime,
-  codChangeLog: getCodChangeLog,
   deliveryZones: getDeliveryZones,
-  paymentStatusBreakdown: getPaymentStatusBreakdown,
+  cancelReasons: getCancelReasons,
+  spamOrders: getSpamOrders,
+  holdReasons: getHoldReasons,
+  newVsReturning: getNewVsReturning,
+  topCustomers: getTopCustomers,
+  rfmSegments: getRfmSegments,
+  riskSegments: getRiskSegments,
+  customersByZone: getCustomersByZone,
+  grossProfitOverTime: getGrossProfitOverTime,
+  profitByProduct: getProfitByProduct,
+  salesByPaymentMethod: getSalesByPaymentMethod,
+  discountsOverTime: getDiscountsOverTime,
+  codCashflow: getCodCashflow,
+  abcAnalysis: getAbcAnalysis,
+  sellThrough: getSellThrough,
+  stockoutCancellations: getStockoutCancellations,
+  itemsBoughtTogether: getItemsBoughtTogether,
+  returnedProducts: getReturnedProducts,
+  weeklyPatterns: getWeeklyPatterns,
+  partialDeliveryRate: getPartialDeliveryRate,
+  channelPerformance: getChannelPerformance,
   inventoryAdjustments: getInventoryAdjustments,
   inventoryThroughput: getInventoryThroughput,
+  shippingAndTracking: getShippingAndTracking,
+  newCustomerRevenue: getNewCustomerRevenue,
+  netSalesOverTime: getNetSalesOverTime,
+  profitByCourier: getProfitByCourier,
+  profitByZone: getProfitByZone,
+  deadStock: getDeadStock,
+  duplicateOrders: getDuplicateOrders,
+  courierReconciliation: getCourierReconciliation,
+  courierHandoverReport: getCourierHandoverReport,
+  marketingRoas: getMarketingRoas,
+  addressQuality: getAddressQuality,
+  slaBreach: getSlaBreach,
+  callOutcomes: getCallOutcomes,
+  flagReasons: getFlagReasons,
+  rescheduleEffectiveness: getRescheduleEffectiveness,
+  blocklistHitRate: getBlocklistHitRate,
+  rtoLoss: getRtoLoss,
+  orderReturnReport: getOrderReturnReport,
+  marginWaterfall: getMarginWaterfall,
+  cohortRetention: getCohortRetention,
+  productPerformance: getProductPerformance,
+  confirmedSalesOverTime: getConfirmedSalesOverTime,
+  paymentStatusBreakdown: getPaymentStatusBreakdown,
+  employeeActivity: getEmployeeActivity,
+  orderAgentUpsellPerformance: getOrderAgentUpsellPerformance,
+  productCourierHistory: getProductCourierHistory,
+  dailyLeadQuantity: getDailyLeadQuantity,
+  codChangeLog: getCodChangeLog,
+  handoverSales: getHandoverSales,
 };
 
 export interface ReportListEntry {
   key: AnalyticsCardKey;
   label: string;
-  category: ReportCategory;
+  category: AnalyticsCategory;
   description: string;
 }
 
-// Curated to match the report names/categories requested — several of the originally-requested
-// names (Courier Handover Report v2/v3/Admin; Courier Return/Final Return/Waiting Return Report)
-// collapse onto ONE underlying report here, since they're the same data sliced by status/stage
-// rather than genuinely different reports. Courier Handover Item Wise, Purchase Report, Purchase
-// Item Details, Supplier Ledger, and Expense/Income reports have no equivalent yet — Supplier
-// Ledger and Expense/Income already exist as operational pages (Supply Chain / Accounting) rather
-// than analytics reports.
-export const REPORTS_LIST: ReportListEntry[] = [
-  { key: 'courierHandoverReport', label: 'Courier Handover Report', category: 'Courier', description: 'Manifest volume per courier — parcels, COD, and confirmation status. Covers v2/v3/Admin variants and both Pending and Confirmed manifests.' },
-  { key: 'orderReturnReport', label: 'Courier Return Report', category: 'Courier', description: 'Orders in the return pipeline by stage — covers Final Return (Returned to stock) and Waiting Return (RTO in transit / Awaiting QC) in one table.' },
-  { key: 'courierPerformance', label: 'Date Wise Courier History Report', category: 'Courier', description: 'Delivered vs. RTO rate and average delivery time, per courier partner.' },
-  { key: 'productCourierHistory', label: 'Product-wise Courier History Report', category: 'Stock', description: 'Per-product, per-courier delivered/RTO performance.' },
-  { key: 'handoverSales', label: 'Handover Date Wise Sale Reports', category: 'Courier', description: 'COD value handed over to couriers, by handover date.' },
-  { key: 'confirmationPerformance', label: 'Confirmation Report', category: 'Other', description: 'Confirmation rate and call-attempt performance, per agent.' },
-  { key: 'cancelReasons', label: 'Cancelled Orders Report', category: 'Sales', description: 'Why orders get cancelled, ranked by frequency and revenue lost.' },
-  { key: 'dailyLeadQuantity', label: 'Daily Lead Quantity', category: 'Sales', description: 'New orders received per day.' },
-  { key: 'confirmedSalesOverTime', label: 'Confirm Date Base Sale Reports', category: 'Sales', description: 'Sales value by the date each order was confirmed, not placed.' },
-  { key: 'grossProfitOverTime', label: 'Sale Profit Report', category: 'Sales', description: 'Gross profit over time.' },
-  { key: 'codChangeLog', label: 'COD Change Reports', category: 'Sales', description: 'Every manual change to an order’s COD amount, with who changed it.' },
-  { key: 'deliveryZones', label: 'District Wise Sale Bill Date Base Report', category: 'Sales', description: 'Orders and RTO rate by delivery zone tier (inside/outside/suburb — not literal district boundaries).' },
-  { key: 'paymentStatusBreakdown', label: 'Advance Payment', category: 'Sales', description: 'Orders by payment status, including how much COD volume carries an upfront deposit.' },
-  { key: 'employeeActivity', label: 'Employee Base Report', category: 'Staff', description: 'Every staff-attributed action across the pipeline, per agent.' },
-  { key: 'inventoryAdjustments', label: 'Stock Reports (When Change)', category: 'Stock', description: 'Damage, loss, and count corrections, by reason.' },
-  { key: 'inventoryThroughput', label: 'Stock Report', category: 'Stock', description: 'Units ordered, received, and readied for pickup, plus current inventory value.' },
-];
+// Every report in Analytics, in the exact same order and category grouping as the Analytics
+// dashboard (ANALYTICS_CARDS) — not a curated subset. Sourced directly from the card registry so
+// a new analytics card automatically gets a Reports entry too, with no separate list to maintain.
+export const REPORTS_LIST: ReportListEntry[] = ANALYTICS_CARDS.map((def) => ({
+  key: def.key as AnalyticsCardKey,
+  label: def.title,
+  category: def.category,
+  description: def.description,
+}));
 
-export function getReportTable(key: AnalyticsCardKey, data: unknown): ReportTable | null {
+export function getReportTable(key: AnalyticsCardKey, data: unknown): ReportTable {
   const extractor = REPORT_TABLES[key];
-  return extractor ? extractor(data) : null;
+  return extractor ? extractor(data) : autoExtract(data);
 }
 
 export function getReportFetcher(key: AnalyticsCardKey) {

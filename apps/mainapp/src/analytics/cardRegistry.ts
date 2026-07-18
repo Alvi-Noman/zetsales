@@ -55,6 +55,7 @@ import { productPerformanceCard } from './cards/productPerformance';
 import { confirmedSalesOverTimeCard } from './cards/confirmedSalesOverTime';
 import { paymentStatusBreakdownCard } from './cards/paymentStatusBreakdown';
 import { employeeActivityCard } from './cards/employeeActivity';
+import { orderAgentUpsellPerformanceCard } from './cards/orderAgentUpsellPerformance';
 import { productCourierHistoryCard } from './cards/productCourierHistory';
 import { dailyLeadQuantityCard } from './cards/dailyLeadQuantity';
 import { codChangeLogCard } from './cards/codChangeLog';
@@ -84,6 +85,7 @@ export const ANALYTICS_CARDS: AnalyticsCardDefinition[] = [
   orderFunnelCard,
   confirmationPerformanceCard,
   employeeActivityCard,
+  orderAgentUpsellPerformanceCard,
   callOutcomesCard,
   flagReasonsCard,
   rescheduleEffectivenessCard,

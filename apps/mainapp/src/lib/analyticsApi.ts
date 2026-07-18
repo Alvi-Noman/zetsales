@@ -36,6 +36,7 @@ import type {
   EmployeeActivityDTO,
   ProductCourierHistoryDTO,
   SpamOrdersDTO,
+  OrderAgentUpsellPerformanceDTO,
 } from '@zetsales/shared';
 import { api } from './api';
 
@@ -371,6 +372,11 @@ export async function getPaymentStatusBreakdown(params: AnalyticsQueryParams) {
 export async function getEmployeeActivity(params: AnalyticsQueryParams) {
   const data = await cachedGet<{ employeeActivity: EmployeeActivityDTO }>('/commerce/analytics/employee-activity', params);
   return data.employeeActivity;
+}
+
+export async function getOrderAgentUpsellPerformance(params: AnalyticsQueryParams) {
+  const data = await cachedGet<{ orderAgentUpsellPerformance: OrderAgentUpsellPerformanceDTO }>('/commerce/analytics/order-agent-upsell-performance', params);
+  return data.orderAgentUpsellPerformance;
 }
 
 export async function getProductCourierHistory(params: AnalyticsQueryParams & { limit?: number }) {

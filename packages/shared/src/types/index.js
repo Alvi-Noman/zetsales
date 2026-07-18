@@ -231,6 +231,8 @@ export function bucketForCourierStatus(courierPartner, courierStatus) {
     const table = courierPartner === 'Steadfast' ? STEADFAST_STATUS_BUCKETS : courierPartner === 'Pathao' ? PATHAO_STATUS_BUCKETS : null;
     return table?.[key] ?? 'other';
 }
+// Common department names offered as one-click add suggestions during HRM setup — purely a
+// frontend convenience list, not enforced or referenced anywhere server-side.
 export const HRM_DEPARTMENT_PRESETS = [
     'Sales',
     'Marketing',

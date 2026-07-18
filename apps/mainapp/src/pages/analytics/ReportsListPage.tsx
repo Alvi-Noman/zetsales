@@ -1,12 +1,11 @@
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ChevronRight } from "lucide-react";
-import { REPORTS_LIST, type ReportCategory } from "../../analytics/reportsRegistry";
-
-const CATEGORY_ORDER: ReportCategory[] = ["Sales", "Courier", "Stock", "Staff", "Other"];
+import { REPORTS_LIST } from "../../analytics/reportsRegistry";
+import { ANALYTICS_CATEGORY_ORDER } from "../../analytics/cardRegistry";
 
 export function ReportsListPage() {
   const navigate = useNavigate();
-  const grouped = CATEGORY_ORDER.map((category) => ({
+  const grouped = ANALYTICS_CATEGORY_ORDER.map((category) => ({
     category,
     reports: REPORTS_LIST.filter((r) => r.category === category),
   })).filter((g) => g.reports.length > 0);

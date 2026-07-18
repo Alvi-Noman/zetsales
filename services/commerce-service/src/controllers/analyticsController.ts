@@ -49,6 +49,7 @@ import type {
   EmployeeActivityDTO,
   ProductCourierHistoryDTO,
   SpamOrdersDTO,
+  OrderAgentUpsellPerformanceDTO,
 } from '@zetsales/shared';
 import { resolveRange, bucketDate, bucketLabel, bucketIndexExpr, bucketIndexJs, type TrendGranularity, type TrendWindow, type ComparisonMode } from '../utils/dateRange.js';
 import { COGS_REASONS } from './accountingController.js';
@@ -2826,6 +2827,49 @@ export async function getEmployeeActivity(req: AuthenticatedRequest, res: Respon
     })),
   };
   res.json({ success: true, employeeActivity: dto });
+}
+
+// Per order agent: how many upsells (extra line items added mid-call via the order drawer's
+// "add product" flow), how many units, and how much revenue that added — derived from the same
+// 'Upsell added' history entries upsellOrder writes. quantity/amount are only populated on
+// entries written after that field was added, so older entries fall back to 1 unit / 0 amount
+// rather than being dropped from the count.
+export async function getOrderAgentUpsellPerformance(req: AuthenticatedRequest, res: Response) {
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const q = parseBaseQuery(req);
+  const match = baseMatch(tenantId, q.storeId);
+  const { current } = resolveRange(q.range, q.from, q.to);
+
+  const rows = await db
+    .collection('orders')
+    .aggregate([
+      { $match: { ...match, history: { $elemMatch: { label: 'Upsell added', by: { $ne: null }, at: { $gte: current.from, $lt: current.to } } } } },
+      { $unwind: '$history' },
+      { $match: { 'history.label': 'Upsell added', 'history.by': { $ne: null }, 'history.at': { $gte: current.from, $lt: current.to } } },
+      {
+        $group: {
+          _id: '$history.by',
+          upsellCount: { $sum: 1 },
+          itemsAdded: { $sum: { $ifNull: ['$history.quantity', 1] } },
+          totalAmount: { $sum: { $ifNull: ['$history.amount', 0] } },
+          orderIds: { $addToSet: '$_id' },
+        },
+      },
+      { $sort: { totalAmount: -1 } },
+    ])
+    .toArray();
+
+  const dto: OrderAgentUpsellPerformanceDTO = {
+    rows: rows.map((r) => ({
+      agent: r._id,
+      upsellCount: r.upsellCount,
+      itemsAdded: r.itemsAdded,
+      totalAmount: r.totalAmount,
+      ordersUpsold: r.orderIds.length,
+    })),
+  };
+  res.json({ success: true, orderAgentUpsellPerformance: dto });
 }
 
 // The cross-cut neither courierPerformance (per-courier only) nor productPerformance (per-product

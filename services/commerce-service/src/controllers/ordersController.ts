@@ -2086,7 +2086,10 @@ export async function upsellOrder(req: AuthenticatedRequest, res: Response) {
   const now = new Date();
 
   const update: Record<string, unknown> = {
-    $push: { lineItems: lineItem, history: { label: 'Upsell added', detail: `${quantity} × ${product.title}`, at: now, by: req.user!.email } },
+    $push: {
+      lineItems: lineItem,
+      history: { label: 'Upsell added', detail: `${quantity} × ${product.title}`, at: now, by: req.user!.email, quantity, amount: lineItem.price * quantity },
+    },
     $set: { subtotal, total, updatedAt: now },
   };
   const result = await db.collection('orders').findOneAndUpdate({ _id: new ObjectId(req.params.id), tenantId }, update, { returnDocument: 'after' });

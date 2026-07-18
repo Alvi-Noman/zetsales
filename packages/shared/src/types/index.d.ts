@@ -375,6 +375,8 @@ export interface OrderTimelineEventDTO {
     detail: string;
     at: string;
     by?: string | null;
+    quantity?: number;
+    amount?: number;
 }
 export type OrderClaimDTO = {
     userId: string;
@@ -552,7 +554,7 @@ export interface MessageDTO {
 export interface MessagingCapabilitiesDTO {
     metaAppConfigured: boolean;
 }
-export type AnalyticsCardKey = 'orderFunnel' | 'confirmationPerformance' | 'salesOverTime' | 'aovOverTime' | 'salesByStore' | 'topProducts' | 'fulfillmentTime' | 'courierPerformance' | 'deliveryZones' | 'cancelReasons' | 'holdReasons' | 'newVsReturning' | 'topCustomers' | 'rfmSegments' | 'riskSegments' | 'customersByZone' | 'grossProfitOverTime' | 'profitByProduct' | 'salesByPaymentMethod' | 'discountsOverTime' | 'codCashflow' | 'abcAnalysis' | 'sellThrough' | 'stockoutCancellations' | 'itemsBoughtTogether' | 'returnedProducts' | 'weeklyPatterns' | 'partialDeliveryRate' | 'channelPerformance' | 'inventoryAdjustments' | 'inventoryThroughput' | 'shippingAndTracking' | 'newCustomerRevenue' | 'netSalesOverTime' | 'profitByCourier' | 'profitByZone' | 'deadStock' | 'duplicateOrders' | 'courierReconciliation' | 'marketingRoas' | 'addressQuality' | 'slaBreach' | 'callOutcomes' | 'flagReasons' | 'rescheduleEffectiveness' | 'blocklistHitRate' | 'rtoLoss' | 'marginWaterfall' | 'cohortRetention' | 'productPerformance' | 'confirmedSalesOverTime' | 'paymentStatusBreakdown' | 'employeeActivity' | 'productCourierHistory' | 'dailyLeadQuantity' | 'codChangeLog' | 'handoverSales' | 'spamOrders' | 'courierHandoverReport' | 'orderReturnReport';
+export type AnalyticsCardKey = 'orderFunnel' | 'confirmationPerformance' | 'salesOverTime' | 'aovOverTime' | 'salesByStore' | 'topProducts' | 'fulfillmentTime' | 'courierPerformance' | 'deliveryZones' | 'cancelReasons' | 'holdReasons' | 'newVsReturning' | 'topCustomers' | 'rfmSegments' | 'riskSegments' | 'customersByZone' | 'grossProfitOverTime' | 'profitByProduct' | 'salesByPaymentMethod' | 'discountsOverTime' | 'codCashflow' | 'abcAnalysis' | 'sellThrough' | 'stockoutCancellations' | 'itemsBoughtTogether' | 'returnedProducts' | 'weeklyPatterns' | 'partialDeliveryRate' | 'channelPerformance' | 'inventoryAdjustments' | 'inventoryThroughput' | 'shippingAndTracking' | 'newCustomerRevenue' | 'netSalesOverTime' | 'profitByCourier' | 'profitByZone' | 'deadStock' | 'duplicateOrders' | 'courierReconciliation' | 'marketingRoas' | 'addressQuality' | 'slaBreach' | 'callOutcomes' | 'flagReasons' | 'rescheduleEffectiveness' | 'blocklistHitRate' | 'rtoLoss' | 'marginWaterfall' | 'cohortRetention' | 'productPerformance' | 'confirmedSalesOverTime' | 'paymentStatusBreakdown' | 'employeeActivity' | 'productCourierHistory' | 'dailyLeadQuantity' | 'codChangeLog' | 'handoverSales' | 'spamOrders' | 'courierHandoverReport' | 'orderReturnReport' | 'orderAgentUpsellPerformance';
 export type AnalyticsCategory = 'Sales' | 'Orders' | 'Delivery' | 'Customers' | 'Finance' | 'Inventory';
 export interface AnalyticsLayoutCardDTO {
     key: AnalyticsCardKey;
@@ -779,6 +781,16 @@ export interface EmployeeActivityRowDTO {
 }
 export interface EmployeeActivityDTO {
     rows: EmployeeActivityRowDTO[];
+}
+export interface OrderAgentUpsellPerformanceRowDTO {
+    agent: string;
+    upsellCount: number;
+    itemsAdded: number;
+    totalAmount: number;
+    ordersUpsold: number;
+}
+export interface OrderAgentUpsellPerformanceDTO {
+    rows: OrderAgentUpsellPerformanceRowDTO[];
 }
 export type CallCenterPresenceStatus = 'onCall' | 'available' | 'offline';
 export interface CallCenterAgentDTO {

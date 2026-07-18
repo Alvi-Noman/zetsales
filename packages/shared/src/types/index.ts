@@ -739,6 +739,10 @@ export interface OrderTimelineEventDTO {
   detail: string;
   at: string;
   by?: string | null;
+  // Structured counterpart to `detail`'s free-text "N × Product" — only set on 'Upsell added'
+  // entries, so the upsell performance report can sum without parsing the display string.
+  quantity?: number;
+  amount?: number;
 }
 
 // Advisory lock so two call-center agents can't both dial the same order at once — set when an
@@ -1043,7 +1047,8 @@ export type AnalyticsCardKey =
   | 'handoverSales'
   | 'spamOrders'
   | 'courierHandoverReport'
-  | 'orderReturnReport';
+  | 'orderReturnReport'
+  | 'orderAgentUpsellPerformance';
 
 export type AnalyticsCategory = 'Sales' | 'Orders' | 'Delivery' | 'Customers' | 'Finance' | 'Inventory';
 
@@ -1323,6 +1328,21 @@ export interface EmployeeActivityRowDTO {
 
 export interface EmployeeActivityDTO {
   rows: EmployeeActivityRowDTO[];
+}
+
+// Per-agent upselling performance — an order agent "upsells" by adding extra line items to an
+// order in the order drawer before it's confirmed (see upsellOrder). Derived entirely from the
+// existing 'Upsell added' history entries, same convention as EmployeeActivityDTO.
+export interface OrderAgentUpsellPerformanceRowDTO {
+  agent: string;
+  upsellCount: number;
+  itemsAdded: number;
+  totalAmount: number;
+  ordersUpsold: number;
+}
+
+export interface OrderAgentUpsellPerformanceDTO {
+  rows: OrderAgentUpsellPerformanceRowDTO[];
 }
 
 // --- Call Center ---
