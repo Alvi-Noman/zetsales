@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { SlidersHorizontal, TrendingDown, TrendingUp } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { FileText, SlidersHorizontal, TrendingDown, TrendingUp } from "lucide-react";
 import clsx from "clsx";
 import type {
   AnalyticsCardKey,
@@ -93,6 +94,7 @@ function summaryTiles(summary: AnalyticsSummaryDTO | null) {
 }
 
 export function AnalyticsEntryPage() {
+  const navigate = useNavigate();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [dateRange, setDateRange] = useState<DateRangeKey>("last30");
   const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
@@ -191,12 +193,20 @@ export function AnalyticsEntryPage() {
               an order didn't convert.
             </p>
           </div>
-          <button
-            onClick={() => setCustomizeOpen(true)}
-            className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-          >
-            <SlidersHorizontal size={14} /> Customize
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigate("/analytics/reports")}
+              className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              <FileText size={14} /> Reports
+            </button>
+            <button
+              onClick={() => setCustomizeOpen(true)}
+              className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              <SlidersHorizontal size={14} /> Customize
+            </button>
+          </div>
         </div>
         <div className="mt-4">
           <AnalyticsFilterBar

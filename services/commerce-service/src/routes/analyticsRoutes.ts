@@ -43,6 +43,7 @@ import {
   getDeadStock,
   getDuplicateOrders,
   getCourierReconciliation,
+  getCourierHandoverReport,
   getMarketingRoas,
   getAddressQuality,
   getSlaBreach,
@@ -51,6 +52,7 @@ import {
   getRescheduleEffectiveness,
   getBlocklistHitRate,
   getRtoLoss,
+  getOrderReturnReport,
   getMarginWaterfall,
   getCohortRetention,
   getProductPerformance,
@@ -119,6 +121,7 @@ router.get('/analytics/dead-stock', ...guard, getDeadStock);
 router.get('/analytics/duplicate-orders', ...guard, getDuplicateOrders);
 
 router.get('/analytics/courier-reconciliation', ...guard, getCourierReconciliation);
+router.get('/analytics/courier-handover-report', ...guard, getCourierHandoverReport);
 router.get('/analytics/marketing-roas', ...guard, getMarketingRoas);
 router.get('/analytics/address-quality', ...guard, getAddressQuality);
 router.get('/analytics/sla-breach', ...guard, getSlaBreach);
@@ -128,6 +131,7 @@ router.get('/analytics/flag-reasons', ...guard, getFlagReasons);
 router.get('/analytics/reschedule-effectiveness', ...guard, getRescheduleEffectiveness);
 router.get('/analytics/blocklist-hit-rate', ...guard, getBlocklistHitRate);
 router.get('/analytics/rto-loss', ...guard, getRtoLoss);
+router.get('/analytics/order-return-report', ...guard, getOrderReturnReport);
 router.get('/analytics/margin-waterfall', ...guard, getMarginWaterfall);
 router.get('/analytics/cohort-retention', ...guard, getCohortRetention);
 router.get('/analytics/product-performance', ...guard, getProductPerformance);

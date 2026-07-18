@@ -32,11 +32,14 @@ import type {
   DeadStockDTO,
   DuplicateOrdersDTO,
   CourierReconciliationDTO,
+  CourierHandoverReportDTO,
+  CourierHandoverReportRowDTO,
   MarketingRoasDTO,
   AddressQualityDTO,
   SlaBreachDTO,
   HoldReasonsDTO,
   RtoLossDTO,
+  OrderReturnReportDTO,
   MarginWaterfallDTO,
   CohortRetentionDTO,
   CohortRetentionRowDTO,
@@ -2102,6 +2105,78 @@ export async function getCourierReconciliation(req: AuthenticatedRequest, res: R
   res.json({ success: true, reconciliation: dto });
 }
 
+// Manifest-level operational view, distinct from getCourierReconciliation's lifetime cash balance —
+// how many pickup batches went out per courier in the selected period, how big they were, and how
+// long a batch sits Pending before the courier actually confirms receiving it. Scoped by
+// handoverDate (when the batch was bagged up), same as getHandoverSales.
+export async function getCourierHandoverReport(req: AuthenticatedRequest, res: Response) {
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const q = parseBaseQuery(req);
+  const { current } = resolveRange(q.range, q.from, q.to);
+
+  const [couriers, handovers] = await Promise.all([
+    db.collection('couriers').find({ tenantId }).toArray(),
+    db.collection('courierHandovers').find({ tenantId, handoverDate: { $gte: current.from, $lt: current.to } }).toArray(),
+  ]);
+
+  const handoversByProvider = new Map<string, typeof handovers>();
+  for (const h of handovers) {
+    const list = handoversByProvider.get(h.provider) ?? [];
+    list.push(h);
+    handoversByProvider.set(h.provider, list);
+  }
+
+  const rows: CourierHandoverReportRowDTO[] = couriers.map((c) => {
+    const list = handoversByProvider.get(c.provider) ?? [];
+    const confirmed = list.filter((h) => h.status === 'Confirmed');
+    const pending = list.filter((h) => h.status === 'Pending');
+    const confirmHours = confirmed
+      .filter((h) => h.confirmedAt)
+      .map((h) => (new Date(h.confirmedAt).getTime() - new Date(h.createdAt).getTime()) / 3_600_000);
+    return {
+      provider: c.provider,
+      displayName: c.displayName,
+      manifestCount: list.length,
+      parcelCount: list.reduce((s, h) => s + h.parcelCount, 0),
+      itemCount: list.reduce((s, h) => s + h.itemCount, 0),
+      totalCodAmount: Math.round(list.reduce((s, h) => s + h.totalCodAmount, 0) * 100) / 100,
+      confirmedCount: confirmed.length,
+      pendingCount: pending.length,
+      avgConfirmHours: confirmHours.length > 0 ? Math.round((confirmHours.reduce((s, v) => s + v, 0) / confirmHours.length) * 10) / 10 : null,
+    };
+  });
+
+  // Aging: manifests still Pending right now (not just within the date filter — a batch created
+  // weeks ago and still unconfirmed is exactly what this should surface), bucketed by days since
+  // it was created, same bucket shape as courier reconciliation's COD aging.
+  const pendingNow = await db.collection('courierHandovers').find({ tenantId, status: 'Pending' }).toArray();
+  const buckets = [
+    { label: '0-1 days', min: 0, max: 1, count: 0, value: 0 },
+    { label: '2-3 days', min: 2, max: 3, count: 0, value: 0 },
+    { label: '4-7 days', min: 4, max: 7, count: 0, value: 0 },
+    { label: '8+ days', min: 8, max: Infinity, count: 0, value: 0 },
+  ];
+  for (const h of pendingNow) {
+    const days = Math.floor((Date.now() - new Date(h.createdAt).getTime()) / 86_400_000);
+    const bucket = buckets.find((b) => days >= b.min && days <= b.max);
+    if (bucket) {
+      bucket.count += 1;
+      bucket.value += h.totalCodAmount;
+    }
+  }
+
+  const dto: CourierHandoverReportDTO = {
+    totalManifests: handovers.length,
+    totalParcels: handovers.reduce((s, h) => s + h.parcelCount, 0),
+    totalCodAmount: Math.round(handovers.reduce((s, h) => s + h.totalCodAmount, 0) * 100) / 100,
+    pendingManifests: pendingNow.length,
+    rows,
+    aging: buckets.map((b) => ({ label: b.label, count: b.count, value: Math.round(b.value * 100) / 100 })),
+  };
+  res.json({ success: true, handoverReport: dto });
+}
+
 export async function getMarketingRoas(req: AuthenticatedRequest, res: Response) {
   const db = getDb();
   const tenantId = req.user!.tenantId!;
@@ -2391,6 +2466,56 @@ export async function getRtoLoss(req: AuthenticatedRequest, res: Response) {
 
   const dto: RtoLossDTO = { totalLoss: Math.round((courierCharges + shippingFees) * 100) / 100, breakdown };
   res.json({ success: true, rtoLoss: dto });
+}
+
+// Order-level view of the return pipeline — returnedProducts is per-SKU and rtoLoss is purely the
+// cost side; this is "how many orders, which stage of the RTO Initiated/QC Pending/Returned leg
+// they're currently sitting in, and which courier/store they're coming from." Same
+// ['RTO Initiated', 'QC Pending', 'Returned'] stage set used by getReturnedProducts/getRtoLoss.
+export async function getOrderReturnReport(req: AuthenticatedRequest, res: Response) {
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const q = parseBaseQuery(req);
+  const match = baseMatch(tenantId, q.storeId);
+  const { current } = resolveRange(q.range, q.from, q.to);
+  match.createdAt = { $gte: current.from, $lt: current.to };
+  const returnMatch = { ...match, stage: { $in: ['RTO Initiated', 'QC Pending', 'Returned'] } };
+
+  const STAGE_LABELS: Record<string, string> = { 'RTO Initiated': 'RTO in transit', 'QC Pending': 'Awaiting QC', Returned: 'Returned to stock' };
+
+  const [totalAgg, shippedAgg, stageRows, courierRows, storeRows, stores] = await Promise.all([
+    db.collection('orders').aggregate([{ $match: returnMatch }, { $group: { _id: null, count: { $sum: 1 }, value: { $sum: '$total' } } }]).toArray(),
+    // Denominator for return rate: every order that ever left Processing in the period, whatever
+    // it went on to become — same "shipped-or-beyond" set getReturnedProducts uses per-unit.
+    db
+      .collection('orders')
+      .aggregate([
+        { $match: { ...match, stage: { $in: ['Ready for Pickup', 'Shipped', 'Out for Delivery', 'RTO Initiated', 'QC Pending', 'Delivered', 'Partial Delivered', 'Returned'] } } },
+        { $group: { _id: null, count: { $sum: 1 } } },
+      ])
+      .toArray(),
+    db.collection('orders').aggregate([{ $match: returnMatch }, { $group: { _id: '$stage', count: { $sum: 1 }, value: { $sum: '$total' } } }]).toArray(),
+    db.collection('orders').aggregate([{ $match: returnMatch }, { $group: { _id: { $ifNull: ['$courierPartner', 'Unassigned'] }, count: { $sum: 1 }, value: { $sum: '$total' } } }]).toArray(),
+    db.collection('orders').aggregate([{ $match: returnMatch }, { $group: { _id: '$storeId', count: { $sum: 1 }, value: { $sum: '$total' } } }]).toArray(),
+    db.collection('stores').find({ tenantId }).project({ displayName: 1 }).toArray(),
+  ]);
+
+  const storeNameById = new Map(stores.map((s) => [s._id.toString(), s.displayName as string]));
+  const totalCount = totalAgg[0]?.count ?? 0;
+  const totalValue = totalAgg[0]?.value ?? 0;
+  const shippedOrBeyond = shippedAgg[0]?.count ?? 0;
+
+  const dto: OrderReturnReportDTO = {
+    totalCount,
+    totalValue,
+    returnRate: shippedOrBeyond > 0 ? Math.round((totalCount / shippedOrBeyond) * 1000) / 10 : null,
+    byStage: buildBreakdown(stageRows.map((r) => ({ key: r._id, label: STAGE_LABELS[r._id] ?? r._id, count: r.count, value: r.value }))),
+    byCourier: buildBreakdown(courierRows.map((r) => ({ key: r._id, label: r._id, count: r.count, value: r.value }))),
+    byStore: buildBreakdown(
+      storeRows.map((r) => ({ key: r._id?.toString() ?? 'unknown', label: storeNameById.get(r._id?.toString()) ?? 'Unknown store', count: r.count, value: r.value }))
+    ),
+  };
+  res.json({ success: true, returnReport: dto });
 }
 
 export async function getMarginWaterfall(req: AuthenticatedRequest, res: Response) {

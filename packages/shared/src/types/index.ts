@@ -1037,7 +1037,9 @@ export type AnalyticsCardKey =
   | 'dailyLeadQuantity'
   | 'codChangeLog'
   | 'handoverSales'
-  | 'spamOrders';
+  | 'spamOrders'
+  | 'courierHandoverReport'
+  | 'orderReturnReport';
 
 export type AnalyticsCategory = 'Sales' | 'Orders' | 'Delivery' | 'Customers' | 'Finance' | 'Inventory';
 
@@ -1567,6 +1569,30 @@ export interface CourierReconciliationDTO {
   aging: CodAgingBucketDTO[];
 }
 
+export interface CourierHandoverReportRowDTO {
+  provider: string;
+  displayName: string;
+  manifestCount: number;
+  parcelCount: number;
+  itemCount: number;
+  totalCodAmount: number;
+  confirmedCount: number;
+  pendingCount: number;
+  avgConfirmHours: number | null;
+}
+
+// Manifest-level view of handovers within the selected date range (scoped by handoverDate, unlike
+// CourierReconciliationDTO which is a lifetime balance) — how many batches went out per courier,
+// how big they were, and how long a batch typically sits Pending before the courier confirms it.
+export interface CourierHandoverReportDTO {
+  totalManifests: number;
+  totalParcels: number;
+  totalCodAmount: number;
+  pendingManifests: number;
+  rows: CourierHandoverReportRowDTO[];
+  aging: CodAgingBucketDTO[];
+}
+
 export interface MarketingRoasDTO {
   adSpend: number;
   netSales: number;
@@ -1610,6 +1636,20 @@ export interface HoldReasonsDTO {
 export interface RtoLossDTO {
   totalLoss: number;
   breakdown: AnalyticsBreakdownDTO;
+}
+
+// Order-level view of the return pipeline — returnedProducts is per-SKU and rtoLoss is purely the
+// cost side; this is "how many orders, which stage of RTO Initiated/QC Pending/Returned they're
+// currently sitting in, and which courier/store they're coming from." returnRate is orders
+// returned as a share of every order that ever left Processing (Ready for Pickup or later), the
+// same denominator returnedProducts uses at the unit level.
+export interface OrderReturnReportDTO {
+  totalCount: number;
+  totalValue: number;
+  returnRate: number | null;
+  byStage: AnalyticsBreakdownDTO;
+  byCourier: AnalyticsBreakdownDTO;
+  byStore: AnalyticsBreakdownDTO;
 }
 
 export interface MarginWaterfallStepDTO {

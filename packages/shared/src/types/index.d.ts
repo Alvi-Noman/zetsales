@@ -551,7 +551,7 @@ export interface MessageDTO {
 export interface MessagingCapabilitiesDTO {
     metaAppConfigured: boolean;
 }
-export type AnalyticsCardKey = 'orderFunnel' | 'confirmationPerformance' | 'salesOverTime' | 'aovOverTime' | 'salesByStore' | 'topProducts' | 'fulfillmentTime' | 'courierPerformance' | 'deliveryZones' | 'cancelReasons' | 'holdReasons' | 'newVsReturning' | 'topCustomers' | 'rfmSegments' | 'riskSegments' | 'customersByZone' | 'grossProfitOverTime' | 'profitByProduct' | 'salesByPaymentMethod' | 'discountsOverTime' | 'codCashflow' | 'abcAnalysis' | 'sellThrough' | 'stockoutCancellations' | 'itemsBoughtTogether' | 'returnedProducts' | 'weeklyPatterns' | 'partialDeliveryRate' | 'channelPerformance' | 'inventoryAdjustments' | 'inventoryThroughput' | 'shippingAndTracking' | 'newCustomerRevenue' | 'netSalesOverTime' | 'profitByCourier' | 'profitByZone' | 'deadStock' | 'duplicateOrders' | 'courierReconciliation' | 'marketingRoas' | 'addressQuality' | 'slaBreach' | 'callOutcomes' | 'flagReasons' | 'rescheduleEffectiveness' | 'blocklistHitRate' | 'rtoLoss' | 'marginWaterfall' | 'cohortRetention' | 'productPerformance' | 'confirmedSalesOverTime' | 'paymentStatusBreakdown' | 'employeeActivity' | 'productCourierHistory' | 'dailyLeadQuantity' | 'codChangeLog' | 'handoverSales' | 'spamOrders';
+export type AnalyticsCardKey = 'orderFunnel' | 'confirmationPerformance' | 'salesOverTime' | 'aovOverTime' | 'salesByStore' | 'topProducts' | 'fulfillmentTime' | 'courierPerformance' | 'deliveryZones' | 'cancelReasons' | 'holdReasons' | 'newVsReturning' | 'topCustomers' | 'rfmSegments' | 'riskSegments' | 'customersByZone' | 'grossProfitOverTime' | 'profitByProduct' | 'salesByPaymentMethod' | 'discountsOverTime' | 'codCashflow' | 'abcAnalysis' | 'sellThrough' | 'stockoutCancellations' | 'itemsBoughtTogether' | 'returnedProducts' | 'weeklyPatterns' | 'partialDeliveryRate' | 'channelPerformance' | 'inventoryAdjustments' | 'inventoryThroughput' | 'shippingAndTracking' | 'newCustomerRevenue' | 'netSalesOverTime' | 'profitByCourier' | 'profitByZone' | 'deadStock' | 'duplicateOrders' | 'courierReconciliation' | 'marketingRoas' | 'addressQuality' | 'slaBreach' | 'callOutcomes' | 'flagReasons' | 'rescheduleEffectiveness' | 'blocklistHitRate' | 'rtoLoss' | 'marginWaterfall' | 'cohortRetention' | 'productPerformance' | 'confirmedSalesOverTime' | 'paymentStatusBreakdown' | 'employeeActivity' | 'productCourierHistory' | 'dailyLeadQuantity' | 'codChangeLog' | 'handoverSales' | 'spamOrders' | 'courierHandoverReport' | 'orderReturnReport';
 export type AnalyticsCategory = 'Sales' | 'Orders' | 'Delivery' | 'Customers' | 'Finance' | 'Inventory';
 export interface AnalyticsLayoutCardDTO {
     key: AnalyticsCardKey;
@@ -981,6 +981,25 @@ export interface CourierReconciliationDTO {
     rows: CourierReconciliationRowDTO[];
     aging: CodAgingBucketDTO[];
 }
+export interface CourierHandoverReportRowDTO {
+    provider: string;
+    displayName: string;
+    manifestCount: number;
+    parcelCount: number;
+    itemCount: number;
+    totalCodAmount: number;
+    confirmedCount: number;
+    pendingCount: number;
+    avgConfirmHours: number | null;
+}
+export interface CourierHandoverReportDTO {
+    totalManifests: number;
+    totalParcels: number;
+    totalCodAmount: number;
+    pendingManifests: number;
+    rows: CourierHandoverReportRowDTO[];
+    aging: CodAgingBucketDTO[];
+}
 export interface MarketingRoasDTO {
     adSpend: number;
     netSales: number;
@@ -1014,6 +1033,14 @@ export interface HoldReasonsDTO {
 export interface RtoLossDTO {
     totalLoss: number;
     breakdown: AnalyticsBreakdownDTO;
+}
+export interface OrderReturnReportDTO {
+    totalCount: number;
+    totalValue: number;
+    returnRate: number | null;
+    byStage: AnalyticsBreakdownDTO;
+    byCourier: AnalyticsBreakdownDTO;
+    byStore: AnalyticsBreakdownDTO;
 }
 export interface MarginWaterfallStepDTO {
     label: string;

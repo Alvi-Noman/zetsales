@@ -21,11 +21,13 @@ import type {
   DeadStockDTO,
   DuplicateOrdersDTO,
   CourierReconciliationDTO,
+  CourierHandoverReportDTO,
   MarketingRoasDTO,
   AddressQualityDTO,
   SlaBreachDTO,
   HoldReasonsDTO,
   RtoLossDTO,
+  OrderReturnReportDTO,
   MarginWaterfallDTO,
   CohortRetentionDTO,
   BlocklistHitRateDTO,
@@ -291,6 +293,11 @@ export async function getCourierReconciliation(params: AnalyticsQueryParams) {
   return data.reconciliation;
 }
 
+export async function getCourierHandoverReport(params: AnalyticsQueryParams) {
+  const data = await cachedGet<{ handoverReport: CourierHandoverReportDTO }>('/commerce/analytics/courier-handover-report', params);
+  return data.handoverReport;
+}
+
 export async function getMarketingRoas(params: AnalyticsQueryParams) {
   const data = await cachedGet<{ marketingRoas: MarketingRoasDTO }>('/commerce/analytics/marketing-roas', params);
   return data.marketingRoas;
@@ -329,6 +336,11 @@ export async function getBlocklistHitRate(params: AnalyticsQueryParams) {
 export async function getRtoLoss(params: AnalyticsQueryParams) {
   const data = await cachedGet<{ rtoLoss: RtoLossDTO }>('/commerce/analytics/rto-loss', params);
   return data.rtoLoss;
+}
+
+export async function getOrderReturnReport(params: AnalyticsQueryParams) {
+  const data = await cachedGet<{ returnReport: OrderReturnReportDTO }>('/commerce/analytics/order-return-report', params);
+  return data.returnReport;
 }
 
 export async function getMarginWaterfall(params: AnalyticsQueryParams) {

@@ -39,6 +39,8 @@ import { profitByZoneCard } from './cards/profitByZone';
 import { deadStockCard } from './cards/deadStock';
 import { duplicateOrdersCard } from './cards/duplicateOrders';
 import { courierReconciliationCard } from './cards/courierReconciliation';
+import { courierHandoverReportCard } from './cards/courierHandoverReport';
+import { orderReturnReportCard } from './cards/orderReturnReport';
 import { marketingRoasCard } from './cards/marketingRoas';
 import { addressQualityCard } from './cards/addressQuality';
 import { slaBreachCard } from './cards/slaBreach';
@@ -94,12 +96,14 @@ export const ANALYTICS_CARDS: AnalyticsCardDefinition[] = [
   productCourierHistoryCard,
   deliveryZonesCard,
   partialDeliveryRateCard,
+  orderReturnReportCard,
   shippingAndTrackingCard,
   cancelReasonsCard,
   holdReasonsCard,
   addressQualityCard,
   courierReconciliationCard,
   handoverSalesCard,
+  courierHandoverReportCard,
   // Customers
   newVsReturningCard,
   newCustomerRevenueCard,

@@ -30,6 +30,8 @@ import { TeamPage } from "./pages/team/TeamPage";
 import { AcceptInvitePage } from "./pages/auth/AcceptInvitePage";
 import { AnalyticsEntryPage } from "./pages/analytics/AnalyticsEntryPage";
 import { AnalyticsDetailPage } from "./pages/analytics/AnalyticsDetailPage";
+import { ReportsListPage } from "./pages/analytics/ReportsListPage";
+import { ReportDetailPage } from "./pages/analytics/ReportDetailPage";
 import { AdPerformancePage } from "./pages/adPerformance/AdPerformancePage";
 import { CallCenterPage } from "./pages/callCenter/CallCenterPage";
 import { AppHostPage } from "./pages/apps/AppHostPage";
@@ -176,6 +178,8 @@ function AppRoutes() {
         <Route path="/customers" element={<CustomersPage />} />
         <Route path="/customers/:phone" element={<CustomerDetailPage />} />
         <Route path="/analytics" element={<AnalyticsEntryPage />} />
+        <Route path="/analytics/reports" element={<ReportsListPage />} />
+        <Route path="/analytics/reports/:reportKey" element={<ReportDetailPage />} />
         <Route path="/analytics/:cardKey" element={<AnalyticsDetailPage />} />
         <Route path="/ad-performance" element={<AdPerformancePage />} />
         <Route path="/call-center" element={<CallCenterPage />} />
