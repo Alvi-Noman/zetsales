@@ -14,7 +14,19 @@ import type {
   HrmLeaveStatus,
   HrmLeaveType,
   HrmPayrollDTO,
+  HrmSettingsDTO,
+  HrmSettingsInput,
 } from '@zetsales/shared';
+
+// Bangladesh-typical defaults (9-to-6, Friday off) — a fresh tenant gets sensible values before
+// ever touching HRM Settings; nothing is persisted until they actually save a change.
+const DEFAULT_HRM_SETTINGS: Omit<HrmSettingsDTO, 'updatedAt'> = {
+  officeStartTime: '09:00',
+  officeEndTime: '18:00',
+  weeklyOffDays: [5],
+  overtimeMultiplier: 1.5,
+  workingDaysPerMonth: 26,
+};
 
 function todayStr(): string {
   return new Date().toISOString().slice(0, 10);
@@ -32,6 +44,88 @@ function daysBetween(fromDate: string, toDate: string): number {
   const from = new Date(`${fromDate}T00:00:00.000Z`);
   const to = new Date(`${toDate}T00:00:00.000Z`);
   return Math.max(1, Math.round((to.getTime() - from.getTime()) / 86_400_000) + 1);
+}
+
+// --- HRM settings (office hours, weekly off days, overtime rate, wage terms) ---
+
+function toSettingsDTO(doc: any): HrmSettingsDTO {
+  return {
+    officeStartTime: doc?.officeStartTime ?? DEFAULT_HRM_SETTINGS.officeStartTime,
+    officeEndTime: doc?.officeEndTime ?? DEFAULT_HRM_SETTINGS.officeEndTime,
+    weeklyOffDays: doc?.weeklyOffDays ?? DEFAULT_HRM_SETTINGS.weeklyOffDays,
+    overtimeMultiplier: doc?.overtimeMultiplier ?? DEFAULT_HRM_SETTINGS.overtimeMultiplier,
+    workingDaysPerMonth: doc?.workingDaysPerMonth ?? DEFAULT_HRM_SETTINGS.workingDaysPerMonth,
+    updatedAt: doc?.updatedAt?.toISOString?.() ?? new Date(0).toISOString(),
+  };
+}
+
+async function getSettingsDoc(tenantId: string) {
+  return getDb().collection('hrmSettings').findOne({ tenantId });
+}
+
+export async function getHrmSettings(req: AuthenticatedRequest, res: Response) {
+  const tenantId = req.user!.tenantId!;
+  const doc = await getSettingsDoc(tenantId);
+  res.json({ success: true, settings: toSettingsDTO(doc) });
+}
+
+export async function updateHrmSettings(req: AuthenticatedRequest, res: Response) {
+  const tenantId = req.user!.tenantId!;
+  const body = (req.body ?? {}) as HrmSettingsInput;
+  const update: Record<string, unknown> = { updatedAt: new Date() };
+
+  if (body.officeStartTime !== undefined) update.officeStartTime = body.officeStartTime;
+  if (body.officeEndTime !== undefined) update.officeEndTime = body.officeEndTime;
+  if (body.weeklyOffDays !== undefined) update.weeklyOffDays = body.weeklyOffDays.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
+  if (body.overtimeMultiplier !== undefined) update.overtimeMultiplier = Math.max(0, Number(body.overtimeMultiplier) || 0);
+  if (body.workingDaysPerMonth !== undefined) update.workingDaysPerMonth = Math.max(1, Number(body.workingDaysPerMonth) || DEFAULT_HRM_SETTINGS.workingDaysPerMonth);
+
+  await getDb()
+    .collection('hrmSettings')
+    .updateOne({ tenantId }, { $set: update, $setOnInsert: { tenantId } }, { upsert: true });
+  const doc = await getSettingsDoc(tenantId);
+  res.json({ success: true, settings: toSettingsDTO(doc) });
+}
+
+function parseTimeToHours(hhmm: string): number {
+  const [h, m] = hhmm.split(':').map(Number);
+  return (h || 0) + (m || 0) / 60;
+}
+
+// Scans one employee's attendance for the month and splits worked hours into overtime (beyond
+// the scheduled day, or any hours at all on a weekly-off day) and undertime (short of the
+// scheduled day on an otherwise working day) — leave/absence days are untouched here, they're
+// handled by the existing unpaid-leave deduction instead.
+async function computeOvertimeUndertime(
+  tenantId: string,
+  employeeId: string,
+  monthStart: string,
+  monthEnd: string,
+  settings: HrmSettingsDTO
+): Promise<{ overtimeHours: number; undertimeHours: number }> {
+  const scheduledHoursPerDay = Math.max(0, parseTimeToHours(settings.officeEndTime) - parseTimeToHours(settings.officeStartTime));
+  const records = await getDb()
+    .collection('hrmAttendance')
+    .find({ tenantId, employeeId, date: { $gte: monthStart, $lte: monthEnd }, hoursWorked: { $ne: null } })
+    .toArray();
+
+  let overtimeHours = 0;
+  let undertimeHours = 0;
+  for (const record of records) {
+    const hoursWorked = record.hoursWorked ?? 0;
+    const dayOfWeek = new Date(`${record.date}T00:00:00.000Z`).getUTCDay();
+    if (settings.weeklyOffDays.includes(dayOfWeek)) {
+      overtimeHours += hoursWorked;
+    } else if (hoursWorked > scheduledHoursPerDay) {
+      overtimeHours += hoursWorked - scheduledHoursPerDay;
+    } else {
+      undertimeHours += scheduledHoursPerDay - hoursWorked;
+    }
+  }
+  return {
+    overtimeHours: Math.round(overtimeHours * 100) / 100,
+    undertimeHours: Math.round(undertimeHours * 100) / 100,
+  };
 }
 
 // --- Departments ---
@@ -463,6 +557,10 @@ function toPayrollDTO(doc: any): HrmPayrollDTO {
     bonus: doc.bonus,
     deductions: doc.deductions,
     unpaidLeaveDays: doc.unpaidLeaveDays,
+    overtimeHours: doc.overtimeHours ?? 0,
+    overtimePay: doc.overtimePay ?? 0,
+    undertimeHours: doc.undertimeHours ?? 0,
+    undertimeDeduction: doc.undertimeDeduction ?? 0,
     netPay: doc.netPay,
     status: doc.status,
     paidAt: doc.paidAt ? new Date(doc.paidAt).toISOString() : null,
@@ -495,6 +593,8 @@ export async function generatePayroll(req: AuthenticatedRequest, res: Response) 
   const monthStart = `${month}-01`;
   const [y, m] = month.split('-').map(Number);
   const monthEnd = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+  const settings = toSettingsDTO(await getSettingsDoc(tenantId));
+  const scheduledHoursPerDay = Math.max(0, parseTimeToHours(settings.officeEndTime) - parseTimeToHours(settings.officeStartTime));
 
   const unpaidLeaves = await db
     .collection('hrmLeaveRequests')
@@ -513,19 +613,31 @@ export async function generatePayroll(req: AuthenticatedRequest, res: Response) 
       results.push(toPayrollDTO(existing));
       continue;
     }
+
     const unpaidLeaveDays = unpaidDaysByEmployee.get(employeeId) ?? 0;
-    const dailyRate = employee.monthlySalary / 30;
+    const dailyRate = employee.monthlySalary / settings.workingDaysPerMonth;
+    const hourlyRate = scheduledHoursPerDay > 0 ? dailyRate / scheduledHoursPerDay : 0;
     const deductions = Math.round(dailyRate * unpaidLeaveDays * 100) / 100;
-    const netPay = Math.max(0, Math.round((employee.monthlySalary - deductions) * 100) / 100);
+
+    const { overtimeHours, undertimeHours } = await computeOvertimeUndertime(tenantId, employeeId, monthStart, monthEnd, settings);
+    const overtimePay = Math.round(overtimeHours * hourlyRate * settings.overtimeMultiplier * 100) / 100;
+    const undertimeDeduction = Math.round(undertimeHours * hourlyRate * 100) / 100;
+
+    const bonus = existing?.bonus ?? 0;
+    const netPay = Math.max(0, Math.round((employee.monthlySalary + bonus + overtimePay - deductions - undertimeDeduction) * 100) / 100);
     const doc = {
       tenantId,
       employeeId,
       employeeName: employee.name,
       month,
       baseSalary: employee.monthlySalary,
-      bonus: existing?.bonus ?? 0,
+      bonus,
       deductions,
       unpaidLeaveDays,
+      overtimeHours,
+      overtimePay,
+      undertimeHours,
+      undertimeDeduction,
       netPay,
       status: 'draft' as const,
       paidAt: null,

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Banknote, Building2, CalendarCheck2, ClipboardList, LayoutGrid, UserRound } from "lucide-react";
+import { Banknote, Building2, CalendarCheck2, ClipboardList, LayoutGrid, Settings as SettingsIcon, UserRound } from "lucide-react";
 import clsx from "clsx";
-import type { HrmAttendanceDTO, HrmDashboardDTO, HrmDepartmentDTO, HrmEmployeeDTO, HrmLeaveRequestDTO, HrmPayrollDTO } from "@zetsales/shared";
+import type { HrmAttendanceDTO, HrmDashboardDTO, HrmDepartmentDTO, HrmEmployeeDTO, HrmLeaveRequestDTO, HrmPayrollDTO, HrmSettingsDTO } from "@zetsales/shared";
 import {
   getHrmDashboard,
+  getHrmSettings,
   listHrmAttendance,
   listHrmDepartments,
   listHrmEmployees,
@@ -17,8 +18,9 @@ import { DepartmentsTab } from "./components/DepartmentsTab";
 import { AttendanceTab } from "./components/AttendanceTab";
 import { LeaveTab } from "./components/LeaveTab";
 import { PayrollTab } from "./components/PayrollTab";
+import { SettingsTab } from "./components/SettingsTab";
 
-type TabKey = "overview" | "employees" | "departments" | "attendance" | "leave" | "payroll";
+type TabKey = "overview" | "employees" | "departments" | "attendance" | "leave" | "payroll" | "settings";
 
 const TABS: { key: TabKey; label: string; icon: typeof LayoutGrid }[] = [
   { key: "overview", label: "Overview", icon: LayoutGrid },
@@ -27,6 +29,7 @@ const TABS: { key: TabKey; label: string; icon: typeof LayoutGrid }[] = [
   { key: "attendance", label: "Attendance", icon: CalendarCheck2 },
   { key: "leave", label: "Leave", icon: ClipboardList },
   { key: "payroll", label: "Payroll", icon: Banknote },
+  { key: "settings", label: "Settings", icon: SettingsIcon },
 ];
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
@@ -43,6 +46,7 @@ export function HrmPage() {
   const [attendance, setAttendance] = useState<HrmAttendanceDTO[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<HrmLeaveRequestDTO[]>([]);
   const [payroll, setPayroll] = useState<HrmPayrollDTO[]>([]);
+  const [settings, setSettings] = useState<HrmSettingsDTO | null>(null);
 
   const [attendanceDate, setAttendanceDate] = useState(todayStr());
   const [payrollMonth, setPayrollMonth] = useState(currentMonth());
@@ -50,13 +54,14 @@ export function HrmPage() {
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [dashboardRes, employeesRes, departmentsRes, attendanceRes, leaveRes, payrollRes] = await Promise.all([
+      const [dashboardRes, employeesRes, departmentsRes, attendanceRes, leaveRes, payrollRes, settingsRes] = await Promise.all([
         getHrmDashboard(),
         listHrmEmployees(),
         listHrmDepartments(),
         listHrmAttendance({ date: attendanceDate }),
         listHrmLeaveRequests(),
         listHrmPayroll({ month: payrollMonth }),
+        getHrmSettings(),
       ]);
       setDashboard(dashboardRes);
       setEmployees(employeesRes);
@@ -64,6 +69,7 @@ export function HrmPage() {
       setAttendance(attendanceRes);
       setLeaveRequests(leaveRes);
       setPayroll(payrollRes);
+      setSettings(settingsRes);
     } catch {
       toast.push("Could not load HRM data.", "info");
     } finally {
@@ -126,6 +132,7 @@ export function HrmPage() {
         {tab === "payroll" && (
           <PayrollTab payroll={payroll} loading={loading} month={payrollMonth} onMonthChange={setPayrollMonth} onChanged={() => void loadAll()} />
         )}
+        {tab === "settings" && <SettingsTab settings={settings} loading={loading} onChanged={() => void loadAll()} />}
       </div>
     </div>
   );

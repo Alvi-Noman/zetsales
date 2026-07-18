@@ -106,8 +106,9 @@ export function PayrollTab({
                 <tr>
                   <th className="px-4 py-2.5 text-left font-semibold">Employee</th>
                   <th className="px-4 py-2.5 text-right font-semibold">Base salary</th>
-                  <th className="px-4 py-2.5 text-right font-semibold">Deductions</th>
-                  <th className="px-4 py-2.5 text-right font-semibold">Unpaid days</th>
+                  <th className="px-4 py-2.5 text-right font-semibold">Overtime</th>
+                  <th className="px-4 py-2.5 text-right font-semibold">Undertime</th>
+                  <th className="px-4 py-2.5 text-right font-semibold">Leave deduction</th>
                   <th className="px-4 py-2.5 text-right font-semibold">Net pay</th>
                   <th className="px-4 py-2.5 text-left font-semibold">Status</th>
                   <th className="px-4 py-2.5 text-right font-semibold"></th>
@@ -118,8 +119,36 @@ export function PayrollTab({
                   <tr key={p.id} className="zs-data-row">
                     <td className="px-4 py-3 font-medium text-slate-800">{p.employeeName}</td>
                     <td className="px-4 py-3 text-right tabular-nums text-slate-700">{money(p.baseSalary)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-rose-600">{p.deductions > 0 ? `-${money(p.deductions)}` : "—"}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-slate-600">{p.unpaidLeaveDays}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-emerald-600">
+                      {p.overtimePay > 0 ? (
+                        <>
+                          +{money(p.overtimePay)}
+                          <span className="ml-1 text-[11px] text-slate-400">({p.overtimeHours}h)</span>
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-rose-600">
+                      {p.undertimeDeduction > 0 ? (
+                        <>
+                          -{money(p.undertimeDeduction)}
+                          <span className="ml-1 text-[11px] text-slate-400">({p.undertimeHours}h)</span>
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-rose-600">
+                      {p.deductions > 0 ? (
+                        <>
+                          -{money(p.deductions)}
+                          <span className="ml-1 text-[11px] text-slate-400">({p.unpaidLeaveDays}d)</span>
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-right font-semibold tabular-nums text-slate-900">{money(p.netPay)}</td>
                     <td className="px-4 py-3">
                       <span

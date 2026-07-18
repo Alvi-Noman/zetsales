@@ -9,12 +9,26 @@ import type {
   HrmLeaveStatus,
   HrmLeaveType,
   HrmPayrollDTO,
+  HrmSettingsDTO,
+  HrmSettingsInput,
 } from "@zetsales/shared";
 import { api } from "./api";
 
 export async function getHrmDashboard() {
   const res = await api.get("/commerce/hrm/dashboard");
   return res.data.dashboard as HrmDashboardDTO;
+}
+
+// --- Settings ---
+
+export async function getHrmSettings() {
+  const res = await api.get("/commerce/hrm/settings");
+  return res.data.settings as HrmSettingsDTO;
+}
+
+export async function updateHrmSettings(input: HrmSettingsInput) {
+  const res = await api.patch("/commerce/hrm/settings", input);
+  return res.data.settings as HrmSettingsDTO;
 }
 
 // --- Departments ---

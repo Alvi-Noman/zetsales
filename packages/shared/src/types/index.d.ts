@@ -1242,6 +1242,10 @@ export interface HrmPayrollDTO {
     bonus: number;
     deductions: number;
     unpaidLeaveDays: number;
+    overtimeHours: number;
+    overtimePay: number;
+    undertimeHours: number;
+    undertimeDeduction: number;
     netPay: number;
     status: HrmPayrollStatus;
     paidAt: string | null;
@@ -1260,3 +1264,13 @@ export interface HrmDashboardDTO {
     }[];
     monthlyPayrollTotal: number;
 }
+export interface HrmSettingsDTO {
+    officeStartTime: string;
+    officeEndTime: string;
+    weeklyOffDays: number[];
+    overtimeMultiplier: number;
+    workingDaysPerMonth: number;
+    updatedAt: string;
+}
+export type HrmSettingsInput = Partial<Omit<HrmSettingsDTO, 'updatedAt'>>;
+export declare const HRM_DEPARTMENT_PRESETS: readonly ["Sales", "Marketing", "Warehouse Operations", "Customer Support", "Finance & Accounts", "Human Resources", "IT", "Delivery & Logistics", "Procurement", "Management"];

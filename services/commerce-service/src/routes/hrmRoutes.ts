@@ -23,12 +23,17 @@ import {
   listPayroll,
   generatePayroll,
   markPayrollPaid,
+  getHrmSettings,
+  updateHrmSettings,
 } from '../controllers/hrmController.js';
 
 const router: Router = Router();
 const guard = [requireAuth, requireTenant, requirePlugin('hrm'), requireModule('hrm')] as const;
 
 router.get('/hrm/dashboard', ...guard, getHrmDashboard);
+
+router.get('/hrm/settings', ...guard, getHrmSettings);
+router.patch('/hrm/settings', ...guard, updateHrmSettings);
 
 router.get('/hrm/departments', ...guard, listDepartments);
 router.post('/hrm/departments', ...guard, createDepartment);

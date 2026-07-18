@@ -89,6 +89,7 @@ async function ensureIndexes(db: ReturnType<typeof client.db>) {
   await db.collection('hrmAttendance').createIndex({ tenantId: 1, date: 1 });
   await db.collection('hrmLeaveRequests').createIndex({ tenantId: 1, employeeId: 1, status: 1 });
   await db.collection('hrmPayroll').createIndex({ tenantId: 1, employeeId: 1, month: 1 }, { unique: true });
+  await db.collection('hrmSettings').createIndex({ tenantId: 1 }, { unique: true });
   logger.info('Indexes ensured on MongoDB.');
 }
 

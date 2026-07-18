@@ -231,3 +231,15 @@ export function bucketForCourierStatus(courierPartner, courierStatus) {
     const table = courierPartner === 'Steadfast' ? STEADFAST_STATUS_BUCKETS : courierPartner === 'Pathao' ? PATHAO_STATUS_BUCKETS : null;
     return table?.[key] ?? 'other';
 }
+export const HRM_DEPARTMENT_PRESETS = [
+    'Sales',
+    'Marketing',
+    'Warehouse Operations',
+    'Customer Support',
+    'Finance & Accounts',
+    'Human Resources',
+    'IT',
+    'Delivery & Logistics',
+    'Procurement',
+    'Management',
+];

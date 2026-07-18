@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Building2, Plus, Trash2 } from "lucide-react";
-import type { HrmDepartmentDTO } from "@zetsales/shared";
+import { HRM_DEPARTMENT_PRESETS, type HrmDepartmentDTO } from "@zetsales/shared";
 import { createHrmDepartment, deleteHrmDepartment } from "../../../lib/hrmApi";
 import { Modal } from "../../../components/ui/Modal";
 import { useToast } from "../../../components/ui/ToastProvider";
@@ -79,6 +79,10 @@ export function DepartmentsTab({
 }) {
   const toast = useToast();
   const [addOpen, setAddOpen] = useState(false);
+  const [addingPreset, setAddingPreset] = useState<string | null>(null);
+
+  const existingNames = useMemo(() => new Set(departments.map((d) => d.name.toLowerCase())), [departments]);
+  const availablePresets = HRM_DEPARTMENT_PRESETS.filter((p) => !existingNames.has(p.toLowerCase()));
 
   const remove = async (dept: HrmDepartmentDTO) => {
     if (!window.confirm(`Delete "${dept.name}"? Employees in it become unassigned.`)) return;
@@ -91,9 +95,37 @@ export function DepartmentsTab({
     }
   };
 
+  const addPreset = async (name: string) => {
+    setAddingPreset(name);
+    try {
+      await createHrmDepartment({ name });
+      toast.push(`"${name}" added.`, "success");
+      onChanged();
+    } catch (err) {
+      toast.push((err as Error).message || "Could not add this department.", "info");
+    } finally {
+      setAddingPreset(null);
+    }
+  };
+
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {availablePresets.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-slate-400">Quick add:</span>
+            {availablePresets.map((preset) => (
+              <button
+                key={preset}
+                onClick={() => void addPreset(preset)}
+                disabled={addingPreset === preset}
+                className="flex h-7 items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Plus size={11} /> {preset}
+              </button>
+            ))}
+          </div>
+        )}
         <button
           onClick={() => setAddOpen(true)}
           className="flex h-9 items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 text-sm font-semibold text-white hover:bg-indigo-700"

@@ -1891,6 +1891,10 @@ export interface HrmPayrollDTO {
   bonus: number;
   deductions: number;
   unpaidLeaveDays: number;
+  overtimeHours: number;
+  overtimePay: number;
+  undertimeHours: number;
+  undertimeDeduction: number;
   netPay: number;
   status: HrmPayrollStatus;
   paidAt: string | null;
@@ -1907,3 +1911,33 @@ export interface HrmDashboardDTO {
   departmentBreakdown: { departmentName: string; count: number }[];
   monthlyPayrollTotal: number;
 }
+
+// --- HRM settings (office hours, weekly off days, overtime/wage terms) ---
+// One doc per tenant, drives both the payroll overtime/undertime calculation and the Attendance
+// tab's sense of what a "full day" is. `weeklyOffDays` uses JS's Date#getDay() convention
+// (0=Sunday..6=Saturday); an empty array means the business never has a weekly off day.
+export interface HrmSettingsDTO {
+  officeStartTime: string; // "HH:mm", 24h
+  officeEndTime: string; // "HH:mm", 24h
+  weeklyOffDays: number[];
+  overtimeMultiplier: number; // e.g. 1.5 = time-and-a-half
+  workingDaysPerMonth: number; // used to derive a daily/hourly rate from monthlySalary
+  updatedAt: string;
+}
+
+export type HrmSettingsInput = Partial<Omit<HrmSettingsDTO, 'updatedAt'>>;
+
+// Common department names offered as one-click add suggestions during HRM setup — purely a
+// frontend convenience list, not enforced or referenced anywhere server-side.
+export const HRM_DEPARTMENT_PRESETS = [
+  'Sales',
+  'Marketing',
+  'Warehouse Operations',
+  'Customer Support',
+  'Finance & Accounts',
+  'Human Resources',
+  'IT',
+  'Delivery & Logistics',
+  'Procurement',
+  'Management',
+] as const;
