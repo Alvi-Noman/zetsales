@@ -90,7 +90,7 @@ export async function clearHrmEmployeePin(id: string) {
 
 // --- Attendance ---
 
-export async function listHrmAttendance(params?: { date?: string; employeeId?: string }) {
+export async function listHrmAttendance(params?: { date?: string; from?: string; to?: string; employeeId?: string }) {
   const res = await api.get("/commerce/hrm/attendance", { params });
   return res.data.attendance as HrmAttendanceDTO[];
 }

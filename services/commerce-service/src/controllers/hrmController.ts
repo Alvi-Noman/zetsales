@@ -268,13 +268,31 @@ function toAttendanceDTO(doc: any): HrmAttendanceDTO {
   };
 }
 
+// Single `date` (default today) unless `from`/`to` are given, in which case this returns the
+// whole range instead — used by the Attendance tab's History view to pull a multi-day/employee
+// report rather than one day at a time.
 export async function listAttendance(req: AuthenticatedRequest, res: Response) {
   const tenantId = req.user!.tenantId!;
-  const date = typeof req.query.date === 'string' ? req.query.date : todayStr();
+  const from = typeof req.query.from === 'string' ? req.query.from : undefined;
+  const to = typeof req.query.to === 'string' ? req.query.to : undefined;
   const employeeId = typeof req.query.employeeId === 'string' ? req.query.employeeId : undefined;
-  const match: Record<string, unknown> = { tenantId, date };
+
+  const match: Record<string, unknown> = { tenantId };
+  if (from || to) {
+    const dateFilter: Record<string, string> = {};
+    if (from) dateFilter.$gte = from;
+    if (to) dateFilter.$lte = to;
+    match.date = dateFilter;
+  } else {
+    match.date = typeof req.query.date === 'string' ? req.query.date : todayStr();
+  }
   if (employeeId) match.employeeId = employeeId;
-  const docs = await getDb().collection('hrmAttendance').find(match).sort({ employeeName: 1 }).toArray();
+
+  const docs = await getDb()
+    .collection('hrmAttendance')
+    .find(match)
+    .sort({ date: -1, employeeName: 1 })
+    .toArray();
   res.json({ success: true, attendance: docs.map(toAttendanceDTO) });
 }
 
