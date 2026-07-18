@@ -18,6 +18,32 @@ import { canPrintPackingSlip } from "./stageFlow";
 
 export type PrintDocType = "invoice" | "packingSlip" | "combined";
 
+// window.print() snapshots whatever's already painted the instant it's called — unlike the rest
+// of the DOM (which React updates synchronously within the same tick), an <img>'s actual pixels
+// only arrive once its network fetch completes, so a product photo that hasn't finished loading
+// yet prints blank. Waits for every image in the print area to settle (loaded or failed) before
+// print fires, with a per-image timeout so one slow/broken image URL can't hang printing forever.
+function waitForImagesToLoad(
+  container: HTMLElement | null,
+  timeoutMs = 4000,
+): Promise<void> {
+  if (!container) return Promise.resolve();
+  const images = Array.from(container.querySelectorAll("img"));
+  const pending = images.filter((img) => !img.complete);
+  if (pending.length === 0) return Promise.resolve();
+  return Promise.all(
+    pending.map(
+      (img) =>
+        new Promise<void>((resolve) => {
+          const settle = () => resolve();
+          img.addEventListener("load", settle, { once: true });
+          img.addEventListener("error", settle, { once: true });
+          setTimeout(settle, timeoutMs);
+        }),
+    ),
+  ).then(() => undefined);
+}
+
 // The 7 named invoice layouts offered by the "Invoice format" picker (PrintOutPage.tsx). Purely a
 // client-side visual-style axis — orthogonal to InvoiceTemplateDTO's backend-persisted branding/
 // toggle overrides below. Every trait combination mirrors INVOICE_FORMATS' own skeleton-preview
@@ -880,6 +906,7 @@ export function PrintOrderModal({
   const [printing, setPrinting] = useState(false);
   const [issuingBills, setIssuingBills] = useState(false);
   const ensureKeyRef = useRef<string | null>(null);
+  const printAreaRef = useRef<HTMLDivElement | null>(null);
   // The tenant's own Settings/Branding logo — same one shown at /settings/branding, not the
   // (currently always-null) per-template logo override. Fetched fresh each time the modal opens
   // so a logo uploaded moments ago shows up without needing a full page reload.
@@ -963,7 +990,14 @@ export function PrintOrderModal({
       setOrders((previous) =>
         previous.map((order) => byId.get(order.id) ?? order),
       );
-      setTimeout(() => window.print(), 0);
+      // Wait a tick for React to commit the order/image swap, then wait for every product image
+      // to actually finish downloading before snapshotting the page — window.print() captures
+      // whatever's painted at the instant it's called, so a still-loading <img> (a real network
+      // fetch, not instant like the rest of the DOM) prints blank instead of the product photo.
+      setTimeout(async () => {
+        await waitForImagesToLoad(printAreaRef.current);
+        window.print();
+      }, 0);
     } catch {
       toast.push("Could not issue bill numbers for printing.", "info");
     } finally {
@@ -1015,7 +1049,10 @@ export function PrintOrderModal({
           {(paperSize ?? template?.paperSize) && (
             <style>{`@media print { @page { size: ${paperSize ?? template?.paperSize}; } }`}</style>
           )}
-          <div className="print-area overflow-y-auto bg-slate-50 print:overflow-visible print:bg-white">
+          <div
+            ref={printAreaRef}
+            className="print-area overflow-y-auto bg-slate-50 print:overflow-visible print:bg-white"
+          >
             {printableOrders.length === 0 ? (
               <p className="p-8 text-center text-sm text-slate-400">
                 None of the selected orders have reached packing yet.
