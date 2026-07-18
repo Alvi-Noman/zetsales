@@ -197,7 +197,14 @@ export async function upsertShopifyOrder(tenantId: string, storeId: string, orde
     customerPhone: order.customer?.phone || order.shipping_address?.phone || null,
     customerEmail: order.customer?.email || null,
     address: shopifyOrderAddress(order),
-    lineItems: order.line_items.map((li) => ({ title: li.title, variant: li.variant_title || null, quantity: li.quantity, price: Number(li.price) || 0, sku: li.sku })),
+    lineItems: order.line_items.map((li) => ({
+      title: li.title,
+      variant: li.variant_title || null,
+      quantity: li.quantity,
+      price: Number(li.price) || 0,
+      sku: li.sku,
+      variantId: li.variant_id != null ? String(li.variant_id) : null,
+    })),
     createdAt: new Date(order.created_at),
     updatedAt: now,
   };
@@ -277,7 +284,14 @@ export async function upsertWooOrder(tenantId: string, storeId: string, order: W
     customerPhone: order.billing?.phone || null,
     customerEmail: order.billing?.email || null,
     address: wooOrderAddress(order),
-    lineItems: order.line_items.map((li) => ({ title: li.name, variant: null, quantity: li.quantity, price: li.price, sku: li.sku })),
+    lineItems: order.line_items.map((li) => ({
+      title: li.name,
+      variant: null,
+      quantity: li.quantity,
+      price: li.price,
+      sku: li.sku,
+      variantId: li.variation_id ? String(li.variation_id) : null,
+    })),
     createdAt: new Date(order.date_created_gmt || order.date_created),
     updatedAt: now,
   };
@@ -488,13 +502,20 @@ function tabMatch(tab: string | undefined): Record<string, unknown> {
 // (or generic) top-level gallery, so matching only on the product-level image showed no thumbnail
 // at all for those, even though the exact variant ordered has a perfectly good photo on file.
 //
+// Highest-priority match is li.variantId — the platform's own variant/variation id (Shopify
+// variant_id, WooCommerce variation_id; upsertShopifyOrder/upsertWooOrder capture it straight off
+// the order webhook), matched against product.variants[].id (the same id productMapper.ts stores
+// for every synced variant). This is exact and unambiguous even when the line item has no SKU at
+// all, unlike the title fallback below which can only resolve to the product's single top-level
+// image, not any specific variant's.
+//
 // CSV-imported orders (csvOrderImportController.ts) live under a dedicated "CSV Import" pseudo-store
 // that never has its own product catalog — the SKUs on those orders belong to a real Shopify/
 // WooCommerce store elsewhere in the tenant (that's the whole point: backfilling historical orders
 // against products already synced from the real store). previewCsvOrderImport already matches SKUs
 // tenant-wide for this exact reason. So store-scoped matching is tried first (keeps correctness when
-// two genuine stores in the same tenant happen to reuse a SKU), falling back to a tenant-wide match
-// by SKU/title when the order's own store has no product catalog to match against.
+// two genuine stores in the same tenant happen to reuse a SKU/variant id), falling back to a
+// tenant-wide match when the order's own store has no product catalog to match against.
 async function attachLineItemImages(db: ReturnType<typeof getDb>, tenantId: string, orders: any[]) {
   const hasLineItems = orders.some((o) => (o.lineItems ?? []).length > 0);
   if (!hasLineItems) return;
@@ -502,17 +523,24 @@ async function attachLineItemImages(db: ReturnType<typeof getDb>, tenantId: stri
   const products = await db
     .collection('products')
     .find({ tenantId })
-    .project({ storeId: 1, title: 1, image: 1, 'variants.sku': 1, 'variants.image': 1 })
+    .project({ storeId: 1, title: 1, image: 1, 'variants.id': 1, 'variants.sku': 1, 'variants.image': 1 })
     .toArray();
 
+  const imageByVariantIdKey = new Map<string, string>();
   const imageBySkuKey = new Map<string, string>();
   const imageByTitleKey = new Map<string, string>();
+  const imageByVariantIdTenantWide = new Map<string, string>();
   const imageBySkuTenantWide = new Map<string, string>();
   const imageByTitleTenantWide = new Map<string, string>();
   for (const p of products) {
     for (const v of p.variants ?? []) {
       const image = v.image ?? p.image;
-      if (v.sku && image) {
+      if (!image) continue;
+      if (v.id != null) {
+        imageByVariantIdKey.set(`${p.storeId}::${v.id}`, image);
+        if (!imageByVariantIdTenantWide.has(v.id)) imageByVariantIdTenantWide.set(v.id, image);
+      }
+      if (v.sku) {
         imageBySkuKey.set(`${p.storeId}::${v.sku}`, image);
         if (!imageBySkuTenantWide.has(v.sku)) imageBySkuTenantWide.set(v.sku, image);
       }
@@ -527,11 +555,13 @@ async function attachLineItemImages(db: ReturnType<typeof getDb>, tenantId: stri
   for (const order of orders) {
     for (const li of order.lineItems ?? []) {
       const titleKey = li.title ? String(li.title).trim().toLowerCase() : undefined;
+      const byVariantId = li.variantId ? imageByVariantIdKey.get(`${order.storeId}::${li.variantId}`) : undefined;
       const bySku = li.sku ? imageBySkuKey.get(`${order.storeId}::${li.sku}`) : undefined;
       const byTitle = titleKey ? imageByTitleKey.get(`${order.storeId}::${titleKey}`) : undefined;
+      const byVariantIdTenantWide = li.variantId ? imageByVariantIdTenantWide.get(li.variantId) : undefined;
       const bySkuTenantWide = li.sku ? imageBySkuTenantWide.get(li.sku) : undefined;
       const byTitleTenantWide = titleKey ? imageByTitleTenantWide.get(titleKey) : undefined;
-      li.image = bySku ?? byTitle ?? bySkuTenantWide ?? byTitleTenantWide ?? null;
+      li.image = byVariantId ?? bySku ?? byTitle ?? byVariantIdTenantWide ?? bySkuTenantWide ?? byTitleTenantWide ?? null;
     }
   }
 }

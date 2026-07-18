@@ -368,6 +368,7 @@ export interface OrderLineItemDTO {
     price: number;
     sku: string | null;
     image: string | null;
+    variantId?: string | null;
 }
 export interface OrderTimelineEventDTO {
     label: string;

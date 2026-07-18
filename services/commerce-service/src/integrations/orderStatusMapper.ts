@@ -40,7 +40,7 @@ export interface ShopifyOrderWebhook {
   payment_gateway_names?: string[] | null;
   customer?: { first_name?: string; last_name?: string; email?: string; phone?: string } | null;
   shipping_address?: { phone?: string; address1?: string; city?: string } | null;
-  line_items: { id: number; title: string; variant_title?: string | null; quantity: number; price: string; sku: string | null }[];
+  line_items: { id: number; title: string; variant_id?: number | null; variant_title?: string | null; quantity: number; price: string; sku: string | null }[];
 }
 
 export function mapShopifyOrderStage(order: ShopifyOrderWebhook): MappedStage {

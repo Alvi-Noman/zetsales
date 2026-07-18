@@ -728,6 +728,10 @@ export interface OrderLineItemDTO {
   price: number;
   sku: string | null;
   image: string | null;
+  // The platform's own variant/variation id (Shopify variant_id, WooCommerce variation_id) — an
+  // exact, unambiguous match key for image resolution when a line item has no SKU. Not set on
+  // CSV-imported or manually-entered orders, which have no such platform identity to carry.
+  variantId?: string | null;
 }
 
 export interface OrderTimelineEventDTO {
