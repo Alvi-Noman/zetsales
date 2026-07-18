@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, Clock, Copy, ExternalLink, KeyRound, Save, Smartphone } from "lucide-react";
+import { Check, Clock, Copy, ExternalLink, KeyRound, Save, Smartphone, Sparkles } from "lucide-react";
 import clsx from "clsx";
 import type { HrmSettingsDTO } from "@zetsales/shared";
 import { updateHrmSettings } from "../../../lib/hrmApi";
@@ -87,13 +87,24 @@ function PunchPortalCard() {
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-export function SettingsTab({ settings, loading, onChanged }: { settings: HrmSettingsDTO | null; loading: boolean; onChanged: () => void }) {
+export function SettingsTab({
+  settings,
+  loading,
+  onChanged,
+  onRunSetupGuide,
+}: {
+  settings: HrmSettingsDTO | null;
+  loading: boolean;
+  onChanged: () => void;
+  onRunSetupGuide: () => void;
+}) {
   const toast = useToast();
   const [officeStartTime, setOfficeStartTime] = useState("09:00");
   const [officeEndTime, setOfficeEndTime] = useState("18:00");
   const [weeklyOffDays, setWeeklyOffDays] = useState<number[]>([]);
   const [overtimeMultiplier, setOvertimeMultiplier] = useState(1.5);
   const [workingDaysPerMonth, setWorkingDaysPerMonth] = useState(26);
+  const [payrollNotes, setPayrollNotes] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -103,6 +114,7 @@ export function SettingsTab({ settings, loading, onChanged }: { settings: HrmSet
       setWeeklyOffDays(settings.weeklyOffDays);
       setOvertimeMultiplier(settings.overtimeMultiplier);
       setWorkingDaysPerMonth(settings.workingDaysPerMonth);
+      setPayrollNotes(settings.payrollNotes);
     }
   }, [settings]);
 
@@ -111,7 +123,7 @@ export function SettingsTab({ settings, loading, onChanged }: { settings: HrmSet
   const save = async () => {
     setSaving(true);
     try {
-      await updateHrmSettings({ officeStartTime, officeEndTime, weeklyOffDays, overtimeMultiplier, workingDaysPerMonth });
+      await updateHrmSettings({ officeStartTime, officeEndTime, weeklyOffDays, overtimeMultiplier, workingDaysPerMonth, payrollNotes });
       toast.push("HRM settings saved.", "success");
       onChanged();
     } catch (err) {
@@ -200,13 +212,32 @@ export function SettingsTab({ settings, loading, onChanged }: { settings: HrmSet
           </div>
         </div>
 
-        <button
-          onClick={() => void save()}
-          disabled={saving}
-          className="mt-5 flex h-10 items-center gap-1.5 rounded-lg bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          <Save size={14} /> {saving ? "Saving..." : "Save settings"}
-        </button>
+        <div className="mt-4">
+          <label className={labelClass}>Any other wage terms? (optional)</label>
+          <textarea
+            value={payrollNotes}
+            onChange={(e) => setPayrollNotes(e.target.value)}
+            placeholder="e.g. Salary paid via bank transfer on the 5th of each month. Unpaid leave beyond 3 days needs owner approval."
+            rows={3}
+            className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15"
+          />
+        </div>
+
+        <div className="mt-5 flex items-center gap-2">
+          <button
+            onClick={() => void save()}
+            disabled={saving}
+            className="flex h-10 items-center gap-1.5 rounded-lg bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Save size={14} /> {saving ? "Saving..." : "Save settings"}
+          </button>
+          <button
+            onClick={onRunSetupGuide}
+            className="flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 px-4 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+          >
+            <Sparkles size={14} /> Run setup guide again
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -19,6 +19,7 @@ import { AttendanceTab } from "./components/AttendanceTab";
 import { LeaveTab } from "./components/LeaveTab";
 import { PayrollTab } from "./components/PayrollTab";
 import { SettingsTab } from "./components/SettingsTab";
+import { HrmOnboardingWizard } from "./components/HrmOnboardingWizard";
 
 type TabKey = "overview" | "employees" | "departments" | "attendance" | "leave" | "payroll" | "settings";
 
@@ -47,6 +48,7 @@ export function HrmPage() {
   const [leaveRequests, setLeaveRequests] = useState<HrmLeaveRequestDTO[]>([]);
   const [payroll, setPayroll] = useState<HrmPayrollDTO[]>([]);
   const [settings, setSettings] = useState<HrmSettingsDTO | null>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   const [attendanceDate, setAttendanceDate] = useState(todayStr());
   const [payrollMonth, setPayrollMonth] = useState(currentMonth());
@@ -70,6 +72,7 @@ export function HrmPage() {
       setLeaveRequests(leaveRes);
       setPayroll(payrollRes);
       setSettings(settingsRes);
+      if (!settingsRes.onboardedAt) setWizardOpen(true);
     } catch {
       toast.push("Could not load HRM data.", "info");
     } finally {
@@ -132,8 +135,20 @@ export function HrmPage() {
         {tab === "payroll" && (
           <PayrollTab payroll={payroll} loading={loading} month={payrollMonth} onMonthChange={setPayrollMonth} onChanged={() => void loadAll()} />
         )}
-        {tab === "settings" && <SettingsTab settings={settings} loading={loading} onChanged={() => void loadAll()} />}
+        {tab === "settings" && (
+          <SettingsTab settings={settings} loading={loading} onChanged={() => void loadAll()} onRunSetupGuide={() => setWizardOpen(true)} />
+        )}
       </div>
+
+      <HrmOnboardingWizard
+        open={wizardOpen}
+        departments={departments}
+        onDepartmentAdded={() => void loadAll()}
+        onFinished={() => {
+          setWizardOpen(false);
+          void loadAll();
+        }}
+      />
     </div>
   );
 }

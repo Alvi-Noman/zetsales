@@ -1270,7 +1270,11 @@ export interface HrmSettingsDTO {
     weeklyOffDays: number[];
     overtimeMultiplier: number;
     workingDaysPerMonth: number;
+    payrollNotes: string;
+    onboardedAt: string | null;
     updatedAt: string;
 }
-export type HrmSettingsInput = Partial<Omit<HrmSettingsDTO, 'updatedAt'>>;
+export type HrmSettingsInput = Partial<Omit<HrmSettingsDTO, 'updatedAt' | 'onboardedAt'>> & {
+    markOnboarded?: boolean;
+};
 export declare const HRM_DEPARTMENT_PRESETS: readonly ["Sales", "Marketing", "Warehouse Operations", "Customer Support", "Finance & Accounts", "Human Resources", "IT", "Delivery & Logistics", "Procurement", "Management"];

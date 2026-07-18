@@ -1922,10 +1922,14 @@ export interface HrmSettingsDTO {
   weeklyOffDays: number[];
   overtimeMultiplier: number; // e.g. 1.5 = time-and-a-half
   workingDaysPerMonth: number; // used to derive a daily/hourly rate from monthlySalary
+  payrollNotes: string; // free-form wage terms, e.g. pay date, approval rules
+  // null until the setup wizard is finished or explicitly skipped — drives whether HrmPage
+  // auto-opens the onboarding wizard. Never cleared by a later settings edit.
+  onboardedAt: string | null;
   updatedAt: string;
 }
 
-export type HrmSettingsInput = Partial<Omit<HrmSettingsDTO, 'updatedAt'>>;
+export type HrmSettingsInput = Partial<Omit<HrmSettingsDTO, 'updatedAt' | 'onboardedAt'>> & { markOnboarded?: boolean };
 
 // Common department names offered as one-click add suggestions during HRM setup — purely a
 // frontend convenience list, not enforced or referenced anywhere server-side.

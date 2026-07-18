@@ -20,12 +20,13 @@ import type {
 
 // Bangladesh-typical defaults (9-to-6, Friday off) — a fresh tenant gets sensible values before
 // ever touching HRM Settings; nothing is persisted until they actually save a change.
-const DEFAULT_HRM_SETTINGS: Omit<HrmSettingsDTO, 'updatedAt'> = {
+const DEFAULT_HRM_SETTINGS: Omit<HrmSettingsDTO, 'updatedAt' | 'onboardedAt'> = {
   officeStartTime: '09:00',
   officeEndTime: '18:00',
   weeklyOffDays: [5],
   overtimeMultiplier: 1.5,
   workingDaysPerMonth: 26,
+  payrollNotes: '',
 };
 
 function todayStr(): string {
@@ -55,6 +56,8 @@ function toSettingsDTO(doc: any): HrmSettingsDTO {
     weeklyOffDays: doc?.weeklyOffDays ?? DEFAULT_HRM_SETTINGS.weeklyOffDays,
     overtimeMultiplier: doc?.overtimeMultiplier ?? DEFAULT_HRM_SETTINGS.overtimeMultiplier,
     workingDaysPerMonth: doc?.workingDaysPerMonth ?? DEFAULT_HRM_SETTINGS.workingDaysPerMonth,
+    payrollNotes: doc?.payrollNotes ?? DEFAULT_HRM_SETTINGS.payrollNotes,
+    onboardedAt: doc?.onboardedAt ? new Date(doc.onboardedAt).toISOString() : null,
     updatedAt: doc?.updatedAt?.toISOString?.() ?? new Date(0).toISOString(),
   };
 }
@@ -79,6 +82,12 @@ export async function updateHrmSettings(req: AuthenticatedRequest, res: Response
   if (body.weeklyOffDays !== undefined) update.weeklyOffDays = body.weeklyOffDays.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
   if (body.overtimeMultiplier !== undefined) update.overtimeMultiplier = Math.max(0, Number(body.overtimeMultiplier) || 0);
   if (body.workingDaysPerMonth !== undefined) update.workingDaysPerMonth = Math.max(1, Number(body.workingDaysPerMonth) || DEFAULT_HRM_SETTINGS.workingDaysPerMonth);
+  if (body.payrollNotes !== undefined) update.payrollNotes = body.payrollNotes;
+
+  // Only ever set once — finishing or skipping the setup wizard marks the tenant onboarded for
+  // good; a later edit to any of the fields above must not re-trigger the wizard.
+  const existing = await getSettingsDoc(tenantId);
+  if (body.markOnboarded && !existing?.onboardedAt) update.onboardedAt = new Date();
 
   await getDb()
     .collection('hrmSettings')
