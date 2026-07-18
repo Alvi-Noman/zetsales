@@ -845,6 +845,7 @@ export async function markOrdersPrinted(req: AuthenticatedRequest, res: Response
   await ensureInvoiceNumbers(tenantId, ids, req.user!.email, 'printed');
   await db.collection('orders').updateMany({ _id: { $in: ids }, tenantId }, { $set: { printedAt: new Date() } });
   const docs = await db.collection('orders').find({ _id: { $in: ids }, tenantId }).toArray();
+  await attachLineItemImages(db, tenantId, docs);
   const orders = docs.map(toOrderDto);
   await attachBlockedFlags(db, tenantId, orders);
   await attachReturningFlags(db, tenantId, orders);
@@ -863,6 +864,7 @@ export async function ensureOrderInvoices(req: AuthenticatedRequest, res: Respon
   const ids = parsed.data.orderIds.filter((id) => ObjectId.isValid(id)).map((id) => new ObjectId(id));
   await ensureInvoiceNumbers(tenantId, ids, req.user!.email, 'printed');
   const docs = await db.collection('orders').find({ _id: { $in: ids }, tenantId }).toArray();
+  await attachLineItemImages(db, tenantId, docs);
   const orders = docs.map(toOrderDto);
   await attachBlockedFlags(db, tenantId, orders);
   await attachReturningFlags(db, tenantId, orders);
@@ -1380,6 +1382,7 @@ export async function getOrder(req: AuthenticatedRequest, res: Response) {
       risk = { ...riskBase, possibleDuplicateOrders };
     }
   }
+  await attachLineItemImages(db, tenantId, [doc]);
   const dto = toOrderDto(doc);
   await attachBlockedFlags(db, tenantId, [dto]);
   await attachReturningFlags(db, tenantId, [dto]);
