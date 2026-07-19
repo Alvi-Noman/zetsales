@@ -1593,7 +1593,7 @@ export async function createOrder(req: AuthenticatedRequest, res: Response) {
       quantity: item.quantity,
       price: variant.price,
       sku: variant.sku ?? null,
-      image: product.images?.[0] ?? null,
+      image: variant.image ?? product.images?.[0] ?? null,
     });
   }
 
@@ -2079,7 +2079,7 @@ export async function upsellOrder(req: AuthenticatedRequest, res: Response) {
     quantity,
     price: variant.price,
     sku: variant.sku ?? null,
-    image: product.images?.[0] ?? null,
+    image: variant.image ?? product.images?.[0] ?? null,
   };
   const subtotal = (current.subtotal ?? current.total ?? 0) + lineItem.price * quantity;
   const total = Math.max(0, subtotal + (current.shippingFee ?? 0) - (current.discount ?? 0));
