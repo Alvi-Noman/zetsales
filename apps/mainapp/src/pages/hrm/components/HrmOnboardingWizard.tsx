@@ -65,7 +65,7 @@ export function HrmOnboardingWizard({
     }
   };
 
-  const finish = async (asSkip: boolean) => {
+  const finish = async () => {
     setFinishing(true);
     try {
       await updateHrmSettings({
@@ -78,7 +78,7 @@ export function HrmOnboardingWizard({
         payrollNotes,
         markOnboarded: true,
       });
-      toast.push(asSkip ? "Setup skipped — you can change these anytime in Settings." : "HRM setup complete.", "success");
+      toast.push("HRM setup complete.", "success");
       onFinished();
     } catch (err) {
       toast.push((err as Error).message || "Could not save setup.", "info");
@@ -92,8 +92,20 @@ export function HrmOnboardingWizard({
   const labelClass = "mb-1.5 block text-xs font-semibold text-slate-600";
   const isLastStep = step === STEP_LABELS.length - 1;
 
+  // Each step must actually be filled in before moving on — this wizard has no "Skip" escape
+  // hatch, so a step with nothing valid to submit would otherwise let someone click straight
+  // through without office hours/shifts or a sane overtime rate ever being set.
+  const canProceed =
+    step === 1
+      ? multiShift
+        ? shifts.length > 0
+        : !!officeStartTime && !!officeEndTime
+      : step === 3
+        ? overtimeMultiplier >= 1 && workingDaysPerMonth >= 1 && workingDaysPerMonth <= 31
+        : true;
+
   return (
-    <Modal open={open} onClose={() => void finish(true)} title="Set up HRM" widthClass="max-w-lg" bodyClassName="max-h-[75vh] overflow-y-auto px-6 py-5">
+    <Modal open={open} onClose={() => {}} dismissible={false} title="Set up HRM" widthClass="max-w-lg" bodyClassName="max-h-[75vh] overflow-y-auto px-6 py-5">
       <div className="mb-5 flex items-center gap-1.5">
         {STEP_LABELS.map((label, i) => (
           <div key={label} className="flex flex-1 items-center gap-1.5">
@@ -139,6 +151,7 @@ export function HrmOnboardingWizard({
             <div>
               <p className="mb-2 text-xs text-slate-500">Set up your shifts — each employee will be assigned one under Employees.</p>
               <ShiftsEditor shifts={shifts} onChanged={onShiftAdded} />
+              {shifts.length === 0 && <p className="mt-2 text-[11px] font-medium text-amber-600">Add at least one shift to continue.</p>}
             </div>
           ) : (
             <>
@@ -295,14 +308,7 @@ export function HrmOnboardingWizard({
         </div>
       )}
 
-      <div className="mt-6 flex items-center justify-between">
-        <button
-          onClick={() => void finish(true)}
-          disabled={finishing}
-          className="text-xs font-semibold text-slate-400 hover:text-slate-600 disabled:opacity-40"
-        >
-          Skip setup
-        </button>
+      <div className="mt-6 flex items-center justify-end">
         <div className="flex gap-2">
           {step > 0 && (
             <button
@@ -315,16 +321,17 @@ export function HrmOnboardingWizard({
           )}
           {isLastStep ? (
             <button
-              onClick={() => void finish(false)}
-              disabled={finishing}
-              className="flex h-9 items-center gap-1.5 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+              onClick={() => void finish()}
+              disabled={finishing || !canProceed}
+              className="flex h-9 items-center gap-1.5 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {finishing ? "Finishing..." : "Finish setup"}
             </button>
           ) : (
             <button
               onClick={() => setStep((s) => s + 1)}
-              className="flex h-9 items-center rounded-lg bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-800"
+              disabled={!canProceed}
+              className="flex h-9 items-center rounded-lg bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Next
             </button>
