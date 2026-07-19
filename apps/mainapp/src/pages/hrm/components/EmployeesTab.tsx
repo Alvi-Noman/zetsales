@@ -32,6 +32,9 @@ function money(value: number) {
   return `৳${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 }
 
+const ADD_NEW_DESIGNATION = "__add_new_designation__";
+const ADD_NEW_DEPARTMENT = "__add_new_department__";
+
 function EmployeeFormModal({
   open,
   onClose,
@@ -55,11 +58,9 @@ function EmployeeFormModal({
 }) {
   const toast = useToast();
   const [form, setForm] = useState<HrmEmployeeInput>({});
-  // Plain text, not the department's id — resolved to an id (existing match, or a freshly created
-  // department) only at save time. A native <select>'s built-in type-ahead search silently jumps
-  // to an existing option the moment you start typing, so a free-text field with a <datalist> for
-  // suggestions is the only way "pick existing or type a new one" reliably works — the same reason
-  // Designation below is a plain input too, not a select.
+  // The department's name, not its id — resolved to an id (existing match, or a freshly created
+  // department) only at save time via resolveDepartmentId below. Kept as a name here so the
+  // dropdown's "+ Add new department" option (a window.prompt) can add one without an id yet.
   const [departmentName, setDepartmentName] = useState("");
   const [saving, setSaving] = useState(false);
   const isEdit = !!employee;
@@ -139,20 +140,31 @@ function EmployeeFormModal({
           </div>
           <div>
             <label className={labelClass}>Designation</label>
-            <input
-              list="hrm-designation-options"
-              name="hrm-designation-freetext"
-              autoComplete="off"
+            <select
               value={form.designation ?? ""}
-              onChange={(e) => set("designation", e.target.value)}
-              placeholder="e.g. Warehouse Associate"
+              onChange={(e) => {
+                if (e.target.value === ADD_NEW_DESIGNATION) {
+                  const entered = window.prompt("Enter new designation:")?.trim();
+                  if (entered) set("designation", entered);
+                  return;
+                }
+                set("designation", e.target.value);
+              }}
               className={inputClass}
-            />
-            <datalist id="hrm-designation-options">
+            >
+              <option value="" disabled>
+                Select designation
+              </option>
               {designationOptions.map((d) => (
-                <option key={d} value={d} />
+                <option key={d} value={d}>
+                  {d}
+                </option>
               ))}
-            </datalist>
+              {form.designation && !designationOptions.includes(form.designation) && (
+                <option value={form.designation}>{form.designation}</option>
+              )}
+              <option value={ADD_NEW_DESIGNATION}>+ Add new designation</option>
+            </select>
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -168,20 +180,29 @@ function EmployeeFormModal({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className={labelClass}>Department</label>
-            <input
-              list="hrm-department-options"
-              name="hrm-department-freetext"
-              autoComplete="off"
+            <select
               value={departmentName}
-              onChange={(e) => setDepartmentName(e.target.value)}
-              placeholder="e.g. Warehouse Operations (optional)"
+              onChange={(e) => {
+                if (e.target.value === ADD_NEW_DEPARTMENT) {
+                  const entered = window.prompt("Enter new department name:")?.trim();
+                  if (entered) setDepartmentName(entered);
+                  return;
+                }
+                setDepartmentName(e.target.value);
+              }}
               className={inputClass}
-            />
-            <datalist id="hrm-department-options">
+            >
+              <option value="">Unassigned</option>
               {departments.map((d) => (
-                <option key={d.id} value={d.name} />
+                <option key={d.id} value={d.name}>
+                  {d.name}
+                </option>
               ))}
-            </datalist>
+              {departmentName && !departments.some((d) => d.name === departmentName) && (
+                <option value={departmentName}>{departmentName}</option>
+              )}
+              <option value={ADD_NEW_DEPARTMENT}>+ Add new department</option>
+            </select>
           </div>
           {multiShift && (
             <div>
