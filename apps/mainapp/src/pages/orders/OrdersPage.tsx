@@ -202,6 +202,12 @@ export function OrdersPage() {
   const [couriers, setCouriers] = useState<CourierSummaryDTO[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(true);
   const [stats, setStats] = useState<OrderStatsDTO | null>(null);
+  // Lifetime order count, independent of the current date/tab filters — lets us tell "this
+  // tenant has never had an order" (show onboarding) apart from "no orders in today's range"
+  // (keep the normal toolbar and show a lighter-weight empty state instead).
+  const [hasAnyOrdersEver, setHasAnyOrdersEver] = useState<boolean | null>(
+    null,
+  );
   const [tab, setTab] = useState<OrderTabKey>("all");
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
@@ -374,6 +380,15 @@ export function OrdersPage() {
   useEffect(() => {
     void loadStores();
     void loadCouriers();
+    void (async () => {
+      try {
+        const data = await getOrderStats({});
+        setHasAnyOrdersEver(data.totalOrders > 0);
+      } catch {
+        // Unknown — fall back to the filtered "no orders" state rather than assuming onboarding.
+        setHasAnyOrdersEver(true);
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1130,7 +1145,10 @@ export function OrdersPage() {
         </div>
       ) : (
         <>
-          {total === 0 && noFiltersActive && !ordersLoading ? (
+          {total === 0 &&
+          noFiltersActive &&
+          !ordersLoading &&
+          hasAnyOrdersEver === false ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-1 px-8 text-center">
               <Package size={28} className="text-slate-300" />
               <p className="text-sm font-medium text-slate-600">
@@ -1750,7 +1768,9 @@ export function OrdersPage() {
                 )}
                 {!ordersLoading && orders.length === 0 && (
                   <div className="py-16 text-center text-sm text-slate-400">
-                    No orders match your filters.
+                    {noFiltersActive
+                      ? "No orders today yet — new orders will show up here as they come in."
+                      : "No orders match your filters."}
                   </div>
                 )}
               </div>
