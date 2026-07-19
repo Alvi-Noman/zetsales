@@ -867,9 +867,10 @@ export function PreOrderListPage() {
                 const isSelected = selectedKeys.has(key);
                 const target = targets[key]?.targetQuantity ?? null;
                 return (
-                  <div key={key} className="zs-data-row p-4">
-                    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
-                      <div className="min-w-0">
+                  <div key={key} className="zs-data-row">
+                    <div className="grid xl:grid-cols-[minmax(0,1fr)_360px]">
+                      {/* Identity + stock status + locations */}
+                      <div className="min-w-0 border-b border-slate-100 p-4 xl:border-b-0 xl:border-r xl:border-slate-100">
                         <div className="flex min-w-0 items-start gap-3">
                           {canLogIncoming && (
                             <input
@@ -884,179 +885,207 @@ export function PreOrderListPage() {
                             <img
                               src={row.productImage}
                               alt={row.productTitle ?? ""}
-                              className="h-14 w-14 shrink-0 rounded-lg border border-slate-200 object-cover"
+                              className="h-12 w-12 shrink-0 rounded-lg border border-slate-200 object-cover"
                             />
                           ) : (
-                            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-300">
-                              <Package size={18} />
+                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-300">
+                              <Package size={16} />
                             </div>
                           )}
                           <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-1.5">
                               <p className="truncate font-semibold text-slate-900">
                                 {row.productTitle ?? "Inventory item"}
                               </p>
                               {row.orderNeed > 0 ? (
-                                <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-700 ring-1 ring-inset ring-rose-600/20">
+                                <span className="shrink-0 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-700 ring-1 ring-inset ring-rose-600/20">
                                   Need to import
                                 </span>
                               ) : (
-                                <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-700 ring-1 ring-inset ring-indigo-600/20">
+                                <span className="shrink-0 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-700 ring-1 ring-inset ring-indigo-600/20">
                                   Already ordered
                                 </span>
                               )}
                               <AgingBadge days={daysSince(row.oldestOrderAt)} />
-                              {suggestion && (
-                                <button
-                                  onClick={() => {
-                                    setSelectedKeys(new Set([key]));
-                                    setAddToStockModalOpen(true);
-                                  }}
-                                  className="ml-auto flex h-7 shrink-0 items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-2.5 text-[11px] font-bold text-indigo-600 hover:bg-indigo-50"
-                                >
-                                  <Boxes size={12} /> Add to stock
-                                </button>
-                              )}
-                              {suggestion && (
-                                <button
-                                  onClick={() => {
-                                    setSelectedKeys(new Set([key]));
-                                    setModalOpen(true);
-                                  }}
-                                  className="flex h-7 shrink-0 items-center gap-1.5 rounded-lg bg-indigo-600 px-2.5 text-[11px] font-bold text-white hover:bg-indigo-700"
-                                >
-                                  <Truck size={12} /> Add incoming
-                                </button>
-                              )}
                             </div>
                             <p className="mt-0.5 truncate text-xs text-slate-400">
                               {row.variantLabel ? `${row.variantLabel} - ` : ""}
                               SKU {row.sku}
                             </p>
-                            <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
-                              <div>
-                                <p className="font-bold tabular-nums text-slate-900">
-                                  {row.demand}
-                                </p>
-                                <p className="text-slate-400">pre-ordered</p>
-                              </div>
-                              <div>
-                                <p className="font-bold tabular-nums text-emerald-600">
-                                  {row.availableNow}
-                                </p>
-                                <p className="text-slate-400">free now</p>
-                              </div>
-                              <div>
-                                {singleIncomingLevel ? (
+                          </div>
+                        </div>
+
+                        {/* Stock flow: same amber/emerald/indigo/rose language as the summary
+                            cards above, so a glance at a row reads the same way the page-level
+                            totals do — pre-ordered -> covered by free/incoming -> what's left short. */}
+                        <div className="mt-3 grid grid-cols-2 gap-1.5 sm:grid-cols-5">
+                          <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5">
+                            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                              Pre-ordered
+                            </p>
+                            <p className="font-bold tabular-nums text-slate-900">
+                              {row.demand}
+                            </p>
+                          </div>
+                          <div className="rounded-lg border border-emerald-100 bg-emerald-50/50 px-2.5 py-1.5">
+                            <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700/70">
+                              Free now
+                            </p>
+                            <p className="font-bold tabular-nums text-emerald-700">
+                              {row.availableNow}
+                            </p>
+                          </div>
+                          <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 px-2.5 py-1.5">
+                            <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-700/70">
+                              Incoming
+                            </p>
+                            {singleIncomingLevel ? (
+                              <IncomingCell
+                                level={singleIncomingLevel}
+                                onReceived={refreshShipments}
+                                overdueDays={
+                                  overdueDaysByLevelKey.get(
+                                    shipmentKey(singleIncomingLevel),
+                                  ) ?? null
+                                }
+                                shipments={
+                                  openShipmentsByLevelKey.get(
+                                    shipmentKey(singleIncomingLevel),
+                                  ) ?? []
+                                }
+                                variant="shortfall"
+                              />
+                            ) : (
+                              <p className="font-bold tabular-nums text-indigo-700">
+                                {row.inbound}
+                              </p>
+                            )}
+                          </div>
+                          <div className="rounded-lg border border-amber-100 bg-amber-50/50 px-2.5 py-1.5">
+                            <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-700/70">
+                              Short now
+                            </p>
+                            <p className="font-bold tabular-nums text-amber-700">
+                              {row.shortageNow}
+                            </p>
+                          </div>
+                          <div
+                            className={clsx(
+                              "rounded-lg border px-2.5 py-1.5",
+                              row.orderNeed > 0
+                                ? "border-rose-100 bg-rose-50/50"
+                                : "border-emerald-100 bg-emerald-50/50",
+                            )}
+                          >
+                            <p
+                              className={clsx(
+                                "text-[10px] font-semibold uppercase tracking-wide",
+                                row.orderNeed > 0
+                                  ? "text-rose-700/70"
+                                  : "text-emerald-700/70",
+                              )}
+                            >
+                              Need to import
+                            </p>
+                            <p
+                              className={clsx(
+                                "font-bold tabular-nums",
+                                row.orderNeed > 0
+                                  ? "text-rose-700"
+                                  : "text-emerald-700",
+                              )}
+                            >
+                              {row.orderNeed}
+                            </p>
+                          </div>
+                        </div>
+                        {suggestion && suggestion.quantity > row.orderNeed && (
+                          <p className="mt-1.5 text-[11px] font-semibold text-indigo-600">
+                            Suggest importing {suggestion.quantity} to also
+                            refill the reorder point
+                          </p>
+                        )}
+
+                        {/* Locations + import target, separated from the stock-flow numbers above */}
+                        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+                          {row.locations.map((location) => {
+                            const locationLevel = levelForLocation(
+                              row,
+                              location,
+                            );
+                            return (
+                              <span
+                                key={`${location.warehouseId}-${location.bin}`}
+                                className="inline-flex items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5 text-[11px] text-slate-600 ring-1 ring-inset ring-slate-100"
+                              >
+                                <span>
+                                  {location.warehouseName}
+                                  {location.bin !== "Unassigned"
+                                    ? ` / ${location.bin}`
+                                    : ""}
+                                  :{" "}
+                                  <span className="font-semibold tabular-nums text-slate-700">
+                                    {location.free}
+                                  </span>{" "}
+                                  free
+                                </span>
+                                {location.inbound > 0 && locationLevel ? (
                                   <IncomingCell
-                                    level={singleIncomingLevel}
+                                    level={locationLevel}
                                     onReceived={refreshShipments}
                                     overdueDays={
                                       overdueDaysByLevelKey.get(
-                                        shipmentKey(singleIncomingLevel),
+                                        shipmentKey(locationLevel),
                                       ) ?? null
                                     }
                                     shipments={
                                       openShipmentsByLevelKey.get(
-                                        shipmentKey(singleIncomingLevel),
+                                        shipmentKey(locationLevel),
                                       ) ?? []
                                     }
                                     variant="shortfall"
                                   />
-                                ) : (
-                                  <p className="font-bold tabular-nums text-indigo-600">
-                                    {row.inbound}
-                                  </p>
-                                )}
-                                {!singleIncomingLevel && (
-                                  <p className="mt-0.5 text-slate-400">
-                                    incoming
-                                  </p>
-                                )}
-                              </div>
-                              <div>
-                                <p className="font-bold tabular-nums text-amber-600">
-                                  {row.shortageNow}
-                                </p>
-                                <p className="text-slate-400">short now</p>
-                              </div>
-                              <div>
-                                <p
-                                  className={clsx(
-                                    "font-bold tabular-nums",
-                                    row.orderNeed > 0
-                                      ? "text-rose-600"
-                                      : "text-emerald-600",
-                                  )}
-                                >
-                                  {row.orderNeed}
-                                </p>
-                                <p className="text-slate-400">need to import</p>
-                                {suggestion &&
-                                  suggestion.quantity > row.orderNeed && (
-                                    <p className="mt-0.5 text-[10px] font-semibold text-indigo-600">
-                                      Suggest {suggestion.quantity} to also
-                                      refill reorder point
-                                    </p>
-                                  )}
-                              </div>
-                            </div>
-                            <div className="mt-3 flex flex-wrap items-center gap-3">
-                              {row.locations.map((location) => {
-                                const locationLevel = levelForLocation(
-                                  row,
-                                  location,
-                                );
-                                return (
-                                  <span
-                                    key={`${location.warehouseId}-${location.bin}`}
-                                    className="inline-flex items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5 text-[11px] text-slate-600 ring-1 ring-inset ring-slate-100"
-                                  >
-                                    <span>
-                                      {location.warehouseName}
-                                      {location.bin !== "Unassigned"
-                                        ? ` / ${location.bin}`
-                                        : ""}
-                                      :{" "}
-                                      <span className="font-semibold tabular-nums text-slate-700">
-                                        {location.free}
-                                      </span>{" "}
-                                      free
-                                    </span>
-                                    {location.inbound > 0 && locationLevel ? (
-                                      <IncomingCell
-                                        level={locationLevel}
-                                        onReceived={refreshShipments}
-                                        overdueDays={
-                                          overdueDaysByLevelKey.get(
-                                            shipmentKey(locationLevel),
-                                          ) ?? null
-                                        }
-                                        shipments={
-                                          openShipmentsByLevelKey.get(
-                                            shipmentKey(locationLevel),
-                                          ) ?? []
-                                        }
-                                        variant="shortfall"
-                                      />
-                                    ) : location.inbound > 0 ? (
-                                      <span>, {location.inbound} incoming</span>
-                                    ) : null}
-                                  </span>
-                                );
-                              })}
-                              <TargetProgress
-                                shortageNow={row.shortageNow}
-                                target={target}
-                                onSave={(value) => saveTarget(row, value)}
-                              />
-                            </div>
-                          </div>
+                                ) : location.inbound > 0 ? (
+                                  <span>, {location.inbound} incoming</span>
+                                ) : null}
+                              </span>
+                            );
+                          })}
+                          <TargetProgress
+                            shortageNow={row.shortageNow}
+                            target={target}
+                            onSave={(value) => saveTarget(row, value)}
+                          />
                         </div>
+
+                        {/* Actions live on their own row, not squeezed between badges */}
+                        {suggestion && (
+                          <div className="mt-3 flex justify-end gap-2 border-t border-slate-100 pt-3">
+                            <button
+                              onClick={() => {
+                                setSelectedKeys(new Set([key]));
+                                setAddToStockModalOpen(true);
+                              }}
+                              className="flex h-8 items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-3 text-xs font-bold text-indigo-600 hover:bg-indigo-50"
+                            >
+                              <Boxes size={13} /> Add to stock
+                            </button>
+                            <button
+                              onClick={() => {
+                                setSelectedKeys(new Set([key]));
+                                setModalOpen(true);
+                              }}
+                              className="flex h-8 items-center gap-1.5 rounded-lg bg-indigo-600 px-3 text-xs font-bold text-white hover:bg-indigo-700"
+                            >
+                              <Truck size={13} /> Add incoming
+                            </button>
+                          </div>
+                        )}
                       </div>
 
-                      <div className="rounded-lg border border-slate-200">
-                        <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+                      {/* Pre-ordered by: an actual labeled mini-table instead of unlabeled stacked rows */}
+                      <div className="flex min-w-0 flex-col bg-slate-50/40 p-4 xl:bg-transparent">
+                        <div className="flex items-center justify-between">
                           <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
                             Pre-ordered by
                           </p>
@@ -1064,14 +1093,18 @@ export function PreOrderListPage() {
                             {row.orderCount}
                           </span>
                         </div>
-                        <div className="max-h-56 overflow-y-auto zs-table-body">
+                        <div className="mt-2 grid grid-cols-[minmax(0,1fr)_64px] gap-x-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                          <span>Order / customer</span>
+                          <span className="text-right">Short</span>
+                        </div>
+                        <div className="mt-1 max-h-56 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200 bg-white">
                           {row.orders.map((order) => (
                             <div
                               key={order.orderId}
-                              className="flex items-start justify-between gap-3 px-3 py-2.5 text-xs"
+                              className="grid grid-cols-[minmax(0,1fr)_64px] items-start gap-x-2 px-2.5 py-2 text-xs"
                             >
                               <div className="min-w-0">
-                                <div className="flex items-center gap-2">
+                                <div className="flex flex-wrap items-center gap-1.5">
                                   <span className="font-bold text-slate-800">
                                     {order.orderNumber}
                                   </span>
@@ -1096,7 +1129,7 @@ export function PreOrderListPage() {
                               </div>
                               <div className="shrink-0 text-right">
                                 <p className="font-bold tabular-nums text-rose-600">
-                                  {order.shortQuantity} short
+                                  {order.shortQuantity}
                                 </p>
                                 <p className="text-slate-400">
                                   of {order.quantity}
