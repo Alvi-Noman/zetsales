@@ -141,6 +141,8 @@ function EmployeeFormModal({
             <label className={labelClass}>Designation</label>
             <input
               list="hrm-designation-options"
+              name="hrm-designation-freetext"
+              autoComplete="off"
               value={form.designation ?? ""}
               onChange={(e) => set("designation", e.target.value)}
               placeholder="e.g. Warehouse Associate"
@@ -168,6 +170,8 @@ function EmployeeFormModal({
             <label className={labelClass}>Department</label>
             <input
               list="hrm-department-options"
+              name="hrm-department-freetext"
+              autoComplete="off"
               value={departmentName}
               onChange={(e) => setDepartmentName(e.target.value)}
               placeholder="e.g. Warehouse Operations (optional)"
