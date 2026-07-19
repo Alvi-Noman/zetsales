@@ -35,6 +35,64 @@ function money(value: number) {
 const ADD_NEW_DESIGNATION = "__add_new_designation__";
 const ADD_NEW_DEPARTMENT = "__add_new_department__";
 
+// Styled in-app replacement for window.prompt() — opened when "+ Add new..." is picked from the
+// Designation/Department dropdown. A dedicated text input here (not the select itself) means
+// typing is never intercepted by the select's own type-ahead search.
+function QuickAddModal({
+  open,
+  title,
+  placeholder,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  title: string;
+  placeholder: string;
+  onCancel: () => void;
+  onConfirm: (value: string) => void;
+}) {
+  const [value, setValue] = useState("");
+
+  useEffect(() => {
+    if (open) setValue("");
+  }, [open]);
+
+  const confirm = () => {
+    const trimmed = value.trim();
+    if (trimmed) onConfirm(trimmed);
+  };
+
+  return (
+    <Modal open={open} onClose={onCancel} title={title} widthClass="max-w-xs">
+      <div className="space-y-4">
+        <input
+          autoFocus
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && confirm()}
+          placeholder={placeholder}
+          className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15"
+        />
+        <div className="flex gap-2">
+          <button
+            onClick={confirm}
+            disabled={!value.trim()}
+            className="flex h-9 flex-1 items-center justify-center rounded-lg bg-slate-900 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Add
+          </button>
+          <button
+            onClick={onCancel}
+            className="flex h-9 flex-1 items-center justify-center rounded-lg border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function EmployeeFormModal({
   open,
   onClose,
@@ -60,9 +118,11 @@ function EmployeeFormModal({
   const [form, setForm] = useState<HrmEmployeeInput>({});
   // The department's name, not its id — resolved to an id (existing match, or a freshly created
   // department) only at save time via resolveDepartmentId below. Kept as a name here so the
-  // dropdown's "+ Add new department" option (a window.prompt) can add one without an id yet.
+  // dropdown's "+ Add new department" option can add one without an id yet.
   const [departmentName, setDepartmentName] = useState("");
   const [saving, setSaving] = useState(false);
+  const [addDesignationOpen, setAddDesignationOpen] = useState(false);
+  const [addDepartmentOpen, setAddDepartmentOpen] = useState(false);
   const isEdit = !!employee;
 
   useEffect(() => {
@@ -144,8 +204,7 @@ function EmployeeFormModal({
               value={form.designation ?? ""}
               onChange={(e) => {
                 if (e.target.value === ADD_NEW_DESIGNATION) {
-                  const entered = window.prompt("Enter new designation:")?.trim();
-                  if (entered) set("designation", entered);
+                  setAddDesignationOpen(true);
                   return;
                 }
                 set("designation", e.target.value);
@@ -184,8 +243,7 @@ function EmployeeFormModal({
               value={departmentName}
               onChange={(e) => {
                 if (e.target.value === ADD_NEW_DEPARTMENT) {
-                  const entered = window.prompt("Enter new department name:")?.trim();
-                  if (entered) setDepartmentName(entered);
+                  setAddDepartmentOpen(true);
                   return;
                 }
                 setDepartmentName(e.target.value);
@@ -265,6 +323,27 @@ function EmployeeFormModal({
           {saving ? "Saving..." : isEdit ? "Save changes" : "Add employee"}
         </button>
       </div>
+
+      <QuickAddModal
+        open={addDesignationOpen}
+        title="Add new designation"
+        placeholder="e.g. Warehouse Associate"
+        onCancel={() => setAddDesignationOpen(false)}
+        onConfirm={(value) => {
+          set("designation", value);
+          setAddDesignationOpen(false);
+        }}
+      />
+      <QuickAddModal
+        open={addDepartmentOpen}
+        title="Add new department"
+        placeholder="e.g. Warehouse Operations"
+        onCancel={() => setAddDepartmentOpen(false)}
+        onConfirm={(value) => {
+          setDepartmentName(value);
+          setAddDepartmentOpen(false);
+        }}
+      />
     </Modal>
   );
 }
