@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { Check, Clock, Copy, ExternalLink, KeyRound, Save, Smartphone, Sparkles } from "lucide-react";
 import clsx from "clsx";
-import type { HrmSettingsDTO } from "@zetsales/shared";
+import type { HrmSettingsDTO, HrmShiftDTO } from "@zetsales/shared";
 import { updateHrmSettings } from "../../../lib/hrmApi";
 import { useToast } from "../../../components/ui/ToastProvider";
+import { ShiftsEditor } from "./ShiftsEditor";
 
 function PunchPortalCard() {
   const toast = useToast();
@@ -89,11 +90,13 @@ const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export function SettingsTab({
   settings,
+  shifts,
   loading,
   onChanged,
   onRunSetupGuide,
 }: {
   settings: HrmSettingsDTO | null;
+  shifts: HrmShiftDTO[];
   loading: boolean;
   onChanged: () => void;
   onRunSetupGuide: () => void;
@@ -101,6 +104,7 @@ export function SettingsTab({
   const toast = useToast();
   const [officeStartTime, setOfficeStartTime] = useState("09:00");
   const [officeEndTime, setOfficeEndTime] = useState("18:00");
+  const [multiShift, setMultiShift] = useState(false);
   const [weeklyOffDays, setWeeklyOffDays] = useState<number[]>([]);
   const [overtimeMultiplier, setOvertimeMultiplier] = useState(1.5);
   const [workingDaysPerMonth, setWorkingDaysPerMonth] = useState(26);
@@ -111,6 +115,7 @@ export function SettingsTab({
     if (settings) {
       setOfficeStartTime(settings.officeStartTime);
       setOfficeEndTime(settings.officeEndTime);
+      setMultiShift(settings.multiShift);
       setWeeklyOffDays(settings.weeklyOffDays);
       setOvertimeMultiplier(settings.overtimeMultiplier);
       setWorkingDaysPerMonth(settings.workingDaysPerMonth);
@@ -123,7 +128,7 @@ export function SettingsTab({
   const save = async () => {
     setSaving(true);
     try {
-      await updateHrmSettings({ officeStartTime, officeEndTime, weeklyOffDays, overtimeMultiplier, workingDaysPerMonth, payrollNotes });
+      await updateHrmSettings({ officeStartTime, officeEndTime, multiShift, weeklyOffDays, overtimeMultiplier, workingDaysPerMonth, payrollNotes });
       toast.push("HRM settings saved.", "success");
       onChanged();
     } catch (err) {
@@ -152,16 +157,34 @@ export function SettingsTab({
           Used to calculate overtime and undertime on payroll — hours worked beyond office hours (or any hours on a weekly off day)
           count as overtime; falling short on a working day is deducted as undertime.
         </p>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className={labelClass}>Office start time</label>
-            <input type="time" value={officeStartTime} onChange={(e) => setOfficeStartTime(e.target.value)} className={inputClass} />
+
+        <label className="mb-4 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={multiShift}
+            onChange={(e) => setMultiShift(e.target.checked)}
+            className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+          />
+          I have multiple shifts (e.g. Morning, Evening, Night)
+        </label>
+
+        {multiShift ? (
+          <div className="mb-4">
+            <p className="mb-2 text-xs text-slate-500">Each employee is assigned one of these shifts from the Employees tab.</p>
+            <ShiftsEditor shifts={shifts} onChanged={onChanged} />
           </div>
-          <div>
-            <label className={labelClass}>Office end time</label>
-            <input type="time" value={officeEndTime} onChange={(e) => setOfficeEndTime(e.target.value)} className={inputClass} />
+        ) : (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelClass}>Office start time</label>
+              <input type="time" value={officeStartTime} onChange={(e) => setOfficeStartTime(e.target.value)} className={inputClass} />
+            </div>
+            <div>
+              <label className={labelClass}>Office end time</label>
+              <input type="time" value={officeEndTime} onChange={(e) => setOfficeEndTime(e.target.value)} className={inputClass} />
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="mt-4">
           <label className={labelClass}>Weekly off day(s)</label>

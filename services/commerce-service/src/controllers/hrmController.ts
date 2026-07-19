@@ -16,6 +16,7 @@ import type {
   HrmPayrollDTO,
   HrmSettingsDTO,
   HrmSettingsInput,
+  HrmShiftDTO,
 } from '@zetsales/shared';
 
 // Bangladesh-typical defaults (9-to-6, Friday off) — a fresh tenant gets sensible values before
@@ -27,6 +28,7 @@ const DEFAULT_HRM_SETTINGS: Omit<HrmSettingsDTO, 'updatedAt' | 'onboardedAt'> = 
   overtimeMultiplier: 1.5,
   workingDaysPerMonth: 26,
   payrollNotes: '',
+  multiShift: false,
 };
 
 function todayStr(): string {
@@ -57,6 +59,7 @@ function toSettingsDTO(doc: any): HrmSettingsDTO {
     overtimeMultiplier: doc?.overtimeMultiplier ?? DEFAULT_HRM_SETTINGS.overtimeMultiplier,
     workingDaysPerMonth: doc?.workingDaysPerMonth ?? DEFAULT_HRM_SETTINGS.workingDaysPerMonth,
     payrollNotes: doc?.payrollNotes ?? DEFAULT_HRM_SETTINGS.payrollNotes,
+    multiShift: doc?.multiShift ?? DEFAULT_HRM_SETTINGS.multiShift,
     onboardedAt: doc?.onboardedAt ? new Date(doc.onboardedAt).toISOString() : null,
     updatedAt: doc?.updatedAt?.toISOString?.() ?? new Date(0).toISOString(),
   };
@@ -83,6 +86,7 @@ export async function updateHrmSettings(req: AuthenticatedRequest, res: Response
   if (body.overtimeMultiplier !== undefined) update.overtimeMultiplier = Math.max(0, Number(body.overtimeMultiplier) || 0);
   if (body.workingDaysPerMonth !== undefined) update.workingDaysPerMonth = Math.max(1, Number(body.workingDaysPerMonth) || DEFAULT_HRM_SETTINGS.workingDaysPerMonth);
   if (body.payrollNotes !== undefined) update.payrollNotes = body.payrollNotes;
+  if (body.multiShift !== undefined) update.multiShift = !!body.multiShift;
 
   // Only ever set once — finishing or skipping the setup wizard marks the tenant onboarded for
   // good; a later edit to any of the fields above must not re-trigger the wizard.
@@ -104,15 +108,16 @@ function parseTimeToHours(hhmm: string): number {
 // Scans one employee's attendance for the month and splits worked hours into overtime (beyond
 // the scheduled day, or any hours at all on a weekly-off day) and undertime (short of the
 // scheduled day on an otherwise working day) — leave/absence days are untouched here, they're
-// handled by the existing unpaid-leave deduction instead.
+// handled by the existing unpaid-leave deduction instead. `scheduledHoursPerDay` is the tenant's
+// single office-hours window, or the employee's own assigned shift when multiShift is on.
 async function computeOvertimeUndertime(
   tenantId: string,
   employeeId: string,
   monthStart: string,
   monthEnd: string,
-  settings: HrmSettingsDTO
+  weeklyOffDays: number[],
+  scheduledHoursPerDay: number
 ): Promise<{ overtimeHours: number; undertimeHours: number }> {
-  const scheduledHoursPerDay = Math.max(0, parseTimeToHours(settings.officeEndTime) - parseTimeToHours(settings.officeStartTime));
   const records = await getDb()
     .collection('hrmAttendance')
     .find({ tenantId, employeeId, date: { $gte: monthStart, $lte: monthEnd }, hoursWorked: { $ne: null } })
@@ -123,7 +128,7 @@ async function computeOvertimeUndertime(
   for (const record of records) {
     const hoursWorked = record.hoursWorked ?? 0;
     const dayOfWeek = new Date(`${record.date}T00:00:00.000Z`).getUTCDay();
-    if (settings.weeklyOffDays.includes(dayOfWeek)) {
+    if (weeklyOffDays.includes(dayOfWeek)) {
       overtimeHours += hoursWorked;
     } else if (hoursWorked > scheduledHoursPerDay) {
       overtimeHours += hoursWorked - scheduledHoursPerDay;
@@ -135,6 +140,58 @@ async function computeOvertimeUndertime(
     overtimeHours: Math.round(overtimeHours * 100) / 100,
     undertimeHours: Math.round(undertimeHours * 100) / 100,
   };
+}
+
+// --- Shifts (used when hrmSettings.multiShift is on) ---
+
+function toShiftDTO(doc: any): HrmShiftDTO {
+  return {
+    id: doc._id.toString(),
+    name: doc.name,
+    startTime: doc.startTime,
+    endTime: doc.endTime,
+    createdAt: doc.createdAt?.toISOString?.() ?? new Date(doc.createdAt).toISOString(),
+  };
+}
+
+export async function listShifts(req: AuthenticatedRequest, res: Response) {
+  const tenantId = req.user!.tenantId!;
+  const docs = await getDb().collection('hrmShifts').find({ tenantId }).sort({ startTime: 1 }).toArray();
+  res.json({ success: true, shifts: docs.map(toShiftDTO) });
+}
+
+export async function createShift(req: AuthenticatedRequest, res: Response) {
+  const tenantId = req.user!.tenantId!;
+  const { name, startTime, endTime } = (req.body ?? {}) as { name?: string; startTime?: string; endTime?: string };
+  if (!name?.trim() || !startTime || !endTime) {
+    res.status(400).json({ success: false, message: 'name, startTime, and endTime are required.' });
+    return;
+  }
+  const doc = { tenantId, name: name.trim(), startTime, endTime, createdAt: new Date() };
+  const result = await getDb().collection('hrmShifts').insertOne(doc);
+  res.status(201).json({ success: true, shift: toShiftDTO({ ...doc, _id: result.insertedId }) });
+}
+
+export async function updateShift(req: AuthenticatedRequest, res: Response) {
+  const tenantId = req.user!.tenantId!;
+  const { name, startTime, endTime } = (req.body ?? {}) as { name?: string; startTime?: string; endTime?: string };
+  const update: Record<string, unknown> = {};
+  if (name !== undefined) update.name = name.trim();
+  if (startTime !== undefined) update.startTime = startTime;
+  if (endTime !== undefined) update.endTime = endTime;
+  await getDb()
+    .collection('hrmShifts')
+    .updateOne({ _id: new ObjectId(req.params.id), tenantId }, { $set: update });
+  res.json({ success: true });
+}
+
+export async function deleteShift(req: AuthenticatedRequest, res: Response) {
+  const tenantId = req.user!.tenantId!;
+  await getDb().collection('hrmShifts').deleteOne({ _id: new ObjectId(req.params.id), tenantId });
+  await getDb()
+    .collection('hrmEmployees')
+    .updateMany({ tenantId, shiftId: req.params.id }, { $set: { shiftId: null, shiftName: null } });
+  res.json({ success: true });
 }
 
 // --- Departments ---
@@ -209,6 +266,8 @@ function toEmployeeDTO(doc: any): HrmEmployeeDTO {
     phone: doc.phone ?? null,
     departmentId: doc.departmentId ?? null,
     departmentName: doc.departmentName ?? null,
+    shiftId: doc.shiftId ?? null,
+    shiftName: doc.shiftName ?? null,
     designation: doc.designation,
     status: doc.status,
     joinDate: doc.joinDate,
@@ -226,11 +285,13 @@ export async function listEmployees(req: AuthenticatedRequest, res: Response) {
   const tenantId = req.user!.tenantId!;
   const status = typeof req.query.status === 'string' ? (req.query.status as HrmEmployeeStatus) : undefined;
   const departmentId = typeof req.query.departmentId === 'string' ? req.query.departmentId : undefined;
+  const shiftId = typeof req.query.shiftId === 'string' ? req.query.shiftId : undefined;
   const search = typeof req.query.search === 'string' ? req.query.search.trim() : undefined;
 
   const match: Record<string, unknown> = { tenantId };
   if (status) match.status = status;
   if (departmentId) match.departmentId = departmentId;
+  if (shiftId) match.shiftId = shiftId;
   if (search) {
     const rx = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
     match.$or = [{ name: rx }, { employeeCode: rx }, { designation: rx }, { email: rx }, { phone: rx }];
@@ -258,6 +319,11 @@ export async function createEmployee(req: AuthenticatedRequest, res: Response) {
     const dept = await getDb().collection('hrmDepartments').findOne({ _id: new ObjectId(body.departmentId), tenantId });
     departmentName = dept?.name ?? null;
   }
+  let shiftName: string | null = null;
+  if (body.shiftId) {
+    const shift = await getDb().collection('hrmShifts').findOne({ _id: new ObjectId(body.shiftId), tenantId });
+    shiftName = shift?.name ?? null;
+  }
 
   const now = new Date();
   const doc = {
@@ -268,6 +334,8 @@ export async function createEmployee(req: AuthenticatedRequest, res: Response) {
     phone: body.phone?.trim() || null,
     departmentId: body.departmentId ?? null,
     departmentName,
+    shiftId: body.shiftId ?? null,
+    shiftName,
     designation: body.designation.trim(),
     status: (body.status as HrmEmployeeStatus) ?? 'active',
     joinDate: body.joinDate ?? todayStr(),
@@ -304,6 +372,15 @@ export async function updateEmployee(req: AuthenticatedRequest, res: Response) {
       update.departmentName = dept?.name ?? null;
     } else {
       update.departmentName = null;
+    }
+  }
+  if (body.shiftId !== undefined) {
+    update.shiftId = body.shiftId || null;
+    if (body.shiftId) {
+      const shift = await getDb().collection('hrmShifts').findOne({ _id: new ObjectId(body.shiftId), tenantId });
+      update.shiftName = shift?.name ?? null;
+    } else {
+      update.shiftName = null;
     }
   }
 
@@ -603,7 +680,9 @@ export async function generatePayroll(req: AuthenticatedRequest, res: Response) 
   const [y, m] = month.split('-').map(Number);
   const monthEnd = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
   const settings = toSettingsDTO(await getSettingsDoc(tenantId));
-  const scheduledHoursPerDay = Math.max(0, parseTimeToHours(settings.officeEndTime) - parseTimeToHours(settings.officeStartTime));
+  const defaultScheduledHoursPerDay = Math.max(0, parseTimeToHours(settings.officeEndTime) - parseTimeToHours(settings.officeStartTime));
+  const shifts = await db.collection('hrmShifts').find({ tenantId }).toArray();
+  const shiftById = new Map(shifts.map((s) => [s._id.toString(), s]));
 
   const unpaidLeaves = await db
     .collection('hrmLeaveRequests')
@@ -623,12 +702,24 @@ export async function generatePayroll(req: AuthenticatedRequest, res: Response) 
       continue;
     }
 
+    const employeeShift = settings.multiShift && employee.shiftId ? shiftById.get(employee.shiftId) : undefined;
+    const scheduledHoursPerDay = employeeShift
+      ? Math.max(0, parseTimeToHours(employeeShift.endTime) - parseTimeToHours(employeeShift.startTime))
+      : defaultScheduledHoursPerDay;
+
     const unpaidLeaveDays = unpaidDaysByEmployee.get(employeeId) ?? 0;
     const dailyRate = employee.monthlySalary / settings.workingDaysPerMonth;
     const hourlyRate = scheduledHoursPerDay > 0 ? dailyRate / scheduledHoursPerDay : 0;
     const deductions = Math.round(dailyRate * unpaidLeaveDays * 100) / 100;
 
-    const { overtimeHours, undertimeHours } = await computeOvertimeUndertime(tenantId, employeeId, monthStart, monthEnd, settings);
+    const { overtimeHours, undertimeHours } = await computeOvertimeUndertime(
+      tenantId,
+      employeeId,
+      monthStart,
+      monthEnd,
+      settings.weeklyOffDays,
+      scheduledHoursPerDay
+    );
     const overtimePay = Math.round(overtimeHours * hourlyRate * settings.overtimeMultiplier * 100) / 100;
     const undertimeDeduction = Math.round(undertimeHours * hourlyRate * 100) / 100;
 

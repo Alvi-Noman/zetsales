@@ -1210,6 +1210,8 @@ export interface HrmEmployeeDTO {
     phone: string | null;
     departmentId: string | null;
     departmentName: string | null;
+    shiftId: string | null;
+    shiftName: string | null;
     designation: string;
     status: HrmEmployeeStatus;
     joinDate: string;
@@ -1311,10 +1313,19 @@ export interface HrmSettingsDTO {
     overtimeMultiplier: number;
     workingDaysPerMonth: number;
     payrollNotes: string;
+    multiShift: boolean;
     onboardedAt: string | null;
     updatedAt: string;
 }
 export type HrmSettingsInput = Partial<Omit<HrmSettingsDTO, 'updatedAt' | 'onboardedAt'>> & {
     markOnboarded?: boolean;
 };
+export interface HrmShiftDTO {
+    id: string;
+    name: string;
+    startTime: string;
+    endTime: string;
+    createdAt: string;
+}
+export declare const HRM_SHIFT_PRESETS: readonly ["Morning Shift", "Day Shift", "Evening Shift", "Night Shift"];
 export declare const HRM_DEPARTMENT_PRESETS: readonly ["Sales", "Marketing", "Warehouse Operations", "Customer Support", "Finance & Accounts", "Human Resources", "IT", "Delivery & Logistics", "Procurement", "Management"];

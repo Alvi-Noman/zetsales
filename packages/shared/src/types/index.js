@@ -245,3 +245,4 @@ export const HRM_DEPARTMENT_PRESETS = [
     'Procurement',
     'Management',
 ];
+export const HRM_SHIFT_PRESETS = ['Morning Shift', 'Day Shift', 'Evening Shift', 'Night Shift'];

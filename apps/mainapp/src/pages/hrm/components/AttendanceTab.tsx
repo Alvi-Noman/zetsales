@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { CalendarDays, CalendarRange, ChevronDown, ChevronRight, Clock, LogIn, LogOut } from "lucide-react";
 import clsx from "clsx";
-import type { HrmAttendanceDTO, HrmAttendanceStatus, HrmEmployeeDTO } from "@zetsales/shared";
+import type { HrmAttendanceDTO, HrmAttendanceStatus, HrmEmployeeDTO, HrmShiftDTO } from "@zetsales/shared";
 import { hrmCheckIn, hrmCheckOut, listHrmAttendance, markHrmAttendance } from "../../../lib/hrmApi";
 import { useToast } from "../../../components/ui/ToastProvider";
 
@@ -54,6 +54,8 @@ function DailyView({
   date,
   onDateChange,
   onChanged,
+  shifts,
+  multiShift,
 }: {
   employees: HrmEmployeeDTO[];
   attendance: HrmAttendanceDTO[];
@@ -61,13 +63,19 @@ function DailyView({
   date: string;
   onDateChange: (date: string) => void;
   onChanged: () => void;
+  shifts: HrmShiftDTO[];
+  multiShift: boolean;
 }) {
   const toast = useToast();
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [shiftFilter, setShiftFilter] = useState("");
   const isToday = date === todayStr();
 
   const byEmployee = useMemo(() => new Map(attendance.map((a) => [a.employeeId, a])), [attendance]);
-  const activeEmployees = useMemo(() => employees.filter((e) => e.status !== "terminated"), [employees]);
+  const activeEmployees = useMemo(
+    () => employees.filter((e) => e.status !== "terminated" && (!shiftFilter || e.shiftId === shiftFilter)),
+    [employees, shiftFilter]
+  );
 
   const withBusy = async (employeeId: string, fn: () => Promise<unknown>) => {
     setBusyId(employeeId);
@@ -93,6 +101,20 @@ function DailyView({
             onChange={(e) => onDateChange(e.target.value)}
             className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none focus:border-indigo-400"
           />
+          {multiShift && shifts.length > 0 && (
+            <select
+              value={shiftFilter}
+              onChange={(e) => setShiftFilter(e.target.value)}
+              className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-400"
+            >
+              <option value="">All shifts</option>
+              {shifts.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
         <p className="text-xs text-slate-400">Check-in/out only applies to today. Past dates can be marked manually.</p>
       </div>
@@ -380,6 +402,8 @@ export function AttendanceTab({
   date,
   onDateChange,
   onChanged,
+  shifts,
+  multiShift,
 }: {
   employees: HrmEmployeeDTO[];
   attendance: HrmAttendanceDTO[];
@@ -387,6 +411,8 @@ export function AttendanceTab({
   date: string;
   onDateChange: (date: string) => void;
   onChanged: () => void;
+  shifts: HrmShiftDTO[];
+  multiShift: boolean;
 }) {
   const [mode, setMode] = useState<"daily" | "history">("daily");
 
@@ -414,7 +440,16 @@ export function AttendanceTab({
       </div>
 
       {mode === "daily" ? (
-        <DailyView employees={employees} attendance={attendance} loading={loading} date={date} onDateChange={onDateChange} onChanged={onChanged} />
+        <DailyView
+          employees={employees}
+          attendance={attendance}
+          loading={loading}
+          date={date}
+          onDateChange={onDateChange}
+          onChanged={onChanged}
+          shifts={shifts}
+          multiShift={multiShift}
+        />
       ) : (
         <HistoryView employees={employees} />
       )}

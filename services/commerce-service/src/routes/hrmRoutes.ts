@@ -25,6 +25,10 @@ import {
   markPayrollPaid,
   getHrmSettings,
   updateHrmSettings,
+  listShifts,
+  createShift,
+  updateShift,
+  deleteShift,
 } from '../controllers/hrmController.js';
 
 const router: Router = Router();
@@ -34,6 +38,11 @@ router.get('/hrm/dashboard', ...guard, getHrmDashboard);
 
 router.get('/hrm/settings', ...guard, getHrmSettings);
 router.patch('/hrm/settings', ...guard, updateHrmSettings);
+
+router.get('/hrm/shifts', ...guard, listShifts);
+router.post('/hrm/shifts', ...guard, createShift);
+router.patch('/hrm/shifts/:id', ...guard, updateShift);
+router.delete('/hrm/shifts/:id', ...guard, deleteShift);
 
 router.get('/hrm/departments', ...guard, listDepartments);
 router.post('/hrm/departments', ...guard, createDepartment);

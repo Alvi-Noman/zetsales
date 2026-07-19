@@ -1867,6 +1867,8 @@ export interface HrmEmployeeDTO {
   phone: string | null;
   departmentId: string | null;
   departmentName: string | null;
+  shiftId: string | null;
+  shiftName: string | null;
   designation: string;
   status: HrmEmployeeStatus;
   joinDate: string;
@@ -1981,12 +1983,15 @@ export interface HrmDashboardDTO {
 // tab's sense of what a "full day" is. `weeklyOffDays` uses JS's Date#getDay() convention
 // (0=Sunday..6=Saturday); an empty array means the business never has a weekly off day.
 export interface HrmSettingsDTO {
+  // Single office-hours window — ignored for scheduling once multiShift is on, but kept as the
+  // fallback for any employee not assigned to a specific shift.
   officeStartTime: string; // "HH:mm", 24h
   officeEndTime: string; // "HH:mm", 24h
   weeklyOffDays: number[];
   overtimeMultiplier: number; // e.g. 1.5 = time-and-a-half
   workingDaysPerMonth: number; // used to derive a daily/hourly rate from monthlySalary
   payrollNotes: string; // free-form wage terms, e.g. pay date, approval rules
+  multiShift: boolean; // when true, each employee's own assigned shift defines their scheduled hours
   // null until the setup wizard is finished or explicitly skipped — drives whether HrmPage
   // auto-opens the onboarding wizard. Never cleared by a later settings edit.
   onboardedAt: string | null;
@@ -1994,6 +1999,17 @@ export interface HrmSettingsDTO {
 }
 
 export type HrmSettingsInput = Partial<Omit<HrmSettingsDTO, 'updatedAt' | 'onboardedAt'>> & { markOnboarded?: boolean };
+
+// --- Shifts (used when HrmSettingsDTO.multiShift is on) ---
+export interface HrmShiftDTO {
+  id: string;
+  name: string;
+  startTime: string; // "HH:mm", 24h
+  endTime: string; // "HH:mm", 24h
+  createdAt: string;
+}
+
+export const HRM_SHIFT_PRESETS = ['Morning Shift', 'Day Shift', 'Evening Shift', 'Night Shift'] as const;
 
 // Common department names offered as one-click add suggestions during HRM setup — purely a
 // frontend convenience list, not enforced or referenced anywhere server-side.

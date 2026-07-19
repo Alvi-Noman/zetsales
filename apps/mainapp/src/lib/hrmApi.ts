@@ -11,6 +11,7 @@ import type {
   HrmPayrollDTO,
   HrmSettingsDTO,
   HrmSettingsInput,
+  HrmShiftDTO,
 } from "@zetsales/shared";
 import { api } from "./api";
 
@@ -29,6 +30,26 @@ export async function getHrmSettings() {
 export async function updateHrmSettings(input: HrmSettingsInput) {
   const res = await api.patch("/commerce/hrm/settings", input);
   return res.data.settings as HrmSettingsDTO;
+}
+
+// --- Shifts ---
+
+export async function listHrmShifts() {
+  const res = await api.get("/commerce/hrm/shifts");
+  return res.data.shifts as HrmShiftDTO[];
+}
+
+export async function createHrmShift(input: { name: string; startTime: string; endTime: string }) {
+  const res = await api.post("/commerce/hrm/shifts", input);
+  return res.data.shift as HrmShiftDTO;
+}
+
+export async function updateHrmShift(id: string, input: { name?: string; startTime?: string; endTime?: string }) {
+  await api.patch(`/commerce/hrm/shifts/${id}`, input);
+}
+
+export async function deleteHrmShift(id: string) {
+  await api.delete(`/commerce/hrm/shifts/${id}`);
 }
 
 // --- Departments ---
@@ -56,6 +77,7 @@ export async function deleteHrmDepartment(id: string) {
 export interface HrmEmployeeFilters {
   status?: HrmEmployeeStatus;
   departmentId?: string;
+  shiftId?: string;
   search?: string;
 }
 
@@ -71,6 +93,7 @@ export type HrmEmployeeInput = Partial<
     | "email"
     | "phone"
     | "departmentId"
+    | "shiftId"
     | "designation"
     | "status"
     | "joinDate"

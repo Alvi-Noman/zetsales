@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { Building2, Check, Clock, Copy, ExternalLink, KeyRound, PartyPopper, Plus, Smartphone } from "lucide-react";
 import clsx from "clsx";
-import { HRM_DEPARTMENT_PRESETS, type HrmDepartmentDTO, type HrmSettingsDTO } from "@zetsales/shared";
+import { HRM_DEPARTMENT_PRESETS, type HrmDepartmentDTO, type HrmSettingsDTO, type HrmShiftDTO } from "@zetsales/shared";
 import { createHrmDepartment, updateHrmSettings } from "../../../lib/hrmApi";
 import { Modal } from "../../../components/ui/Modal";
 import { useToast } from "../../../components/ui/ToastProvider";
+import { ShiftsEditor } from "./ShiftsEditor";
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const STEP_LABELS = ["Welcome", "Office hours", "Weekly off", "Wages & overtime", "Departments", "Employee portal"];
@@ -13,17 +14,22 @@ export function HrmOnboardingWizard({
   open,
   departments,
   onDepartmentAdded,
+  shifts,
+  onShiftAdded,
   onFinished,
 }: {
   open: boolean;
   departments: HrmDepartmentDTO[];
   onDepartmentAdded: () => void;
+  shifts: HrmShiftDTO[];
+  onShiftAdded: () => void;
   onFinished: () => void;
 }) {
   const toast = useToast();
   const [step, setStep] = useState(0);
   const [officeStartTime, setOfficeStartTime] = useState("09:00");
   const [officeEndTime, setOfficeEndTime] = useState("18:00");
+  const [multiShift, setMultiShift] = useState(false);
   const [weeklyOffDays, setWeeklyOffDays] = useState<number[]>([5]);
   const [overtimeMultiplier, setOvertimeMultiplier] = useState(1.5);
   const [workingDaysPerMonth, setWorkingDaysPerMonth] = useState(26);
@@ -65,6 +71,7 @@ export function HrmOnboardingWizard({
       await updateHrmSettings({
         officeStartTime,
         officeEndTime,
+        multiShift,
         weeklyOffDays,
         overtimeMultiplier,
         workingDaysPerMonth,
@@ -122,19 +129,34 @@ export function HrmOnboardingWizard({
             <Clock size={16} className="text-slate-400" />
             <p className="text-sm">When is your office open?</p>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+
+          <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
+            <input type="checkbox" checked={multiShift} onChange={(e) => setMultiShift(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+            I have multiple shifts (e.g. Morning, Evening, Night)
+          </label>
+
+          {multiShift ? (
             <div>
-              <label className={labelClass}>Start time</label>
-              <input type="time" value={officeStartTime} onChange={(e) => setOfficeStartTime(e.target.value)} className={inputClass} />
+              <p className="mb-2 text-xs text-slate-500">Set up your shifts — each employee will be assigned one under Employees.</p>
+              <ShiftsEditor shifts={shifts} onChanged={onShiftAdded} />
             </div>
-            <div>
-              <label className={labelClass}>End time</label>
-              <input type="time" value={officeEndTime} onChange={(e) => setOfficeEndTime(e.target.value)} className={inputClass} />
-            </div>
-          </div>
-          <p className="text-xs text-slate-400">
-            Hours worked beyond this window count as overtime; falling short counts as undertime — both adjust payroll automatically.
-          </p>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelClass}>Start time</label>
+                  <input type="time" value={officeStartTime} onChange={(e) => setOfficeStartTime(e.target.value)} className={inputClass} />
+                </div>
+                <div>
+                  <label className={labelClass}>End time</label>
+                  <input type="time" value={officeEndTime} onChange={(e) => setOfficeEndTime(e.target.value)} className={inputClass} />
+                </div>
+              </div>
+              <p className="text-xs text-slate-400">
+                Hours worked beyond this window count as overtime; falling short counts as undertime — both adjust payroll automatically.
+              </p>
+            </>
+          )}
         </div>
       )}
 

@@ -83,6 +83,7 @@ async function ensureIndexes(db: ReturnType<typeof client.db>) {
   // phone number itself, shared across every tenant that ever checks it.
   await db.collection('courierFraudHistory').createIndex({ phone: 1 }, { unique: true });
   await db.collection('hrmDepartments').createIndex({ tenantId: 1, name: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });
+  await db.collection('hrmShifts').createIndex({ tenantId: 1, name: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });
   await db.collection('hrmEmployees').createIndex({ tenantId: 1, status: 1 });
   await db.collection('hrmEmployees').createIndex({ tenantId: 1, employeeCode: 1 }, { unique: true });
   await db.collection('hrmAttendance').createIndex({ tenantId: 1, employeeId: 1, date: 1 }, { unique: true });

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Banknote, Building2, CalendarCheck2, ClipboardList, LayoutGrid, Settings as SettingsIcon, UserRound } from "lucide-react";
 import clsx from "clsx";
-import type { HrmAttendanceDTO, HrmDashboardDTO, HrmDepartmentDTO, HrmEmployeeDTO, HrmLeaveRequestDTO, HrmPayrollDTO, HrmSettingsDTO } from "@zetsales/shared";
+import type { HrmAttendanceDTO, HrmDashboardDTO, HrmDepartmentDTO, HrmEmployeeDTO, HrmLeaveRequestDTO, HrmPayrollDTO, HrmSettingsDTO, HrmShiftDTO } from "@zetsales/shared";
 import {
   getHrmDashboard,
   getHrmSettings,
@@ -10,6 +10,7 @@ import {
   listHrmEmployees,
   listHrmLeaveRequests,
   listHrmPayroll,
+  listHrmShifts,
 } from "../../lib/hrmApi";
 import { useToast } from "../../components/ui/ToastProvider";
 import { OverviewTab } from "./components/OverviewTab";
@@ -48,6 +49,7 @@ export function HrmPage() {
   const [leaveRequests, setLeaveRequests] = useState<HrmLeaveRequestDTO[]>([]);
   const [payroll, setPayroll] = useState<HrmPayrollDTO[]>([]);
   const [settings, setSettings] = useState<HrmSettingsDTO | null>(null);
+  const [shifts, setShifts] = useState<HrmShiftDTO[]>([]);
   const [wizardOpen, setWizardOpen] = useState(false);
 
   const [attendanceDate, setAttendanceDate] = useState(todayStr());
@@ -56,7 +58,7 @@ export function HrmPage() {
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [dashboardRes, employeesRes, departmentsRes, attendanceRes, leaveRes, payrollRes, settingsRes] = await Promise.all([
+      const [dashboardRes, employeesRes, departmentsRes, attendanceRes, leaveRes, payrollRes, settingsRes, shiftsRes] = await Promise.all([
         getHrmDashboard(),
         listHrmEmployees(),
         listHrmDepartments(),
@@ -64,6 +66,7 @@ export function HrmPage() {
         listHrmLeaveRequests(),
         listHrmPayroll({ month: payrollMonth }),
         getHrmSettings(),
+        listHrmShifts(),
       ]);
       setDashboard(dashboardRes);
       setEmployees(employeesRes);
@@ -72,6 +75,7 @@ export function HrmPage() {
       setLeaveRequests(leaveRes);
       setPayroll(payrollRes);
       setSettings(settingsRes);
+      setShifts(shiftsRes);
       if (!settingsRes.onboardedAt) setWizardOpen(true);
     } catch {
       toast.push("Could not load HRM data.", "info");
@@ -116,7 +120,14 @@ export function HrmPage() {
       <div className="zs-page-body">
         {tab === "overview" && <OverviewTab dashboard={dashboard} />}
         {tab === "employees" && (
-          <EmployeesTab employees={employees} departments={departments} loading={loading} onChanged={() => void loadAll()} />
+          <EmployeesTab
+            employees={employees}
+            departments={departments}
+            shifts={shifts}
+            multiShift={settings?.multiShift ?? false}
+            loading={loading}
+            onChanged={() => void loadAll()}
+          />
         )}
         {tab === "departments" && <DepartmentsTab departments={departments} loading={loading} onChanged={() => void loadAll()} />}
         {tab === "attendance" && (
@@ -127,6 +138,8 @@ export function HrmPage() {
             date={attendanceDate}
             onDateChange={setAttendanceDate}
             onChanged={() => void loadAll()}
+            shifts={shifts}
+            multiShift={settings?.multiShift ?? false}
           />
         )}
         {tab === "leave" && (
@@ -136,7 +149,13 @@ export function HrmPage() {
           <PayrollTab payroll={payroll} loading={loading} month={payrollMonth} onMonthChange={setPayrollMonth} onChanged={() => void loadAll()} />
         )}
         {tab === "settings" && (
-          <SettingsTab settings={settings} loading={loading} onChanged={() => void loadAll()} onRunSetupGuide={() => setWizardOpen(true)} />
+          <SettingsTab
+            settings={settings}
+            shifts={shifts}
+            loading={loading}
+            onChanged={() => void loadAll()}
+            onRunSetupGuide={() => setWizardOpen(true)}
+          />
         )}
       </div>
 
@@ -144,6 +163,8 @@ export function HrmPage() {
         open={wizardOpen}
         departments={departments}
         onDepartmentAdded={() => void loadAll()}
+        shifts={shifts}
+        onShiftAdded={() => void loadAll()}
         onFinished={() => {
           setWizardOpen(false);
           void loadAll();

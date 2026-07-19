@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { KeyRound, Plus, Search, Trash2, UserRound } from "lucide-react";
 import clsx from "clsx";
-import type { HrmDepartmentDTO, HrmEmployeeDTO, HrmEmployeeStatus } from "@zetsales/shared";
+import type { HrmDepartmentDTO, HrmEmployeeDTO, HrmEmployeeStatus, HrmShiftDTO } from "@zetsales/shared";
 import {
   clearHrmEmployeePin,
   createHrmDepartment,
@@ -43,6 +43,8 @@ function EmployeeFormModal({
   departments,
   onDepartmentCreated,
   designationOptions,
+  shifts,
+  multiShift,
   employee,
 }: {
   open: boolean;
@@ -51,6 +53,8 @@ function EmployeeFormModal({
   departments: HrmDepartmentDTO[];
   onDepartmentCreated: () => void;
   designationOptions: string[];
+  shifts: HrmShiftDTO[];
+  multiShift: boolean;
   employee: HrmEmployeeDTO | null;
 }) {
   const toast = useToast();
@@ -77,6 +81,7 @@ function EmployeeFormModal({
               email: employee.email ?? "",
               phone: employee.phone ?? "",
               departmentId: employee.departmentId ?? "",
+              shiftId: employee.shiftId ?? "",
               designation: employee.designation,
               status: employee.status,
               joinDate: employee.joinDate,
@@ -241,6 +246,20 @@ function EmployeeFormModal({
               </select>
             )}
           </div>
+          {multiShift && (
+            <div>
+              <label className={labelClass}>Shift</label>
+              <select value={form.shiftId ?? ""} onChange={(e) => set("shiftId", e.target.value)} className={inputClass}>
+                <option value="">Unassigned</option>
+                {shifts.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+              {shifts.length === 0 && <p className="mt-1.5 text-[11px] text-slate-400">Add shifts from Settings first.</p>}
+            </div>
+          )}
           <div>
             <label className={labelClass}>Status</label>
             <select value={form.status ?? "active"} onChange={(e) => set("status", e.target.value as HrmEmployeeStatus)} className={inputClass}>
@@ -407,16 +426,21 @@ function SetPinModal({
 export function EmployeesTab({
   employees,
   departments,
+  shifts,
+  multiShift,
   loading,
   onChanged,
 }: {
   employees: HrmEmployeeDTO[];
   departments: HrmDepartmentDTO[];
+  shifts: HrmShiftDTO[];
+  multiShift: boolean;
   loading: boolean;
   onChanged: () => void;
 }) {
   const toast = useToast();
   const [search, setSearch] = useState("");
+  const [shiftFilter, setShiftFilter] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<HrmEmployeeDTO | null>(null);
   const [pinTarget, setPinTarget] = useState<HrmEmployeeDTO | null>(null);
@@ -427,10 +451,12 @@ export function EmployeesTab({
   );
 
   const rows = useMemo(() => {
-    if (!search.trim()) return employees;
+    let list = employees;
+    if (shiftFilter) list = list.filter((e) => e.shiftId === shiftFilter);
+    if (!search.trim()) return list;
     const q = search.trim().toLowerCase();
-    return employees.filter((e) => e.name.toLowerCase().includes(q) || e.employeeCode.toLowerCase().includes(q) || e.designation.toLowerCase().includes(q));
-  }, [employees, search]);
+    return list.filter((e) => e.name.toLowerCase().includes(q) || e.employeeCode.toLowerCase().includes(q) || e.designation.toLowerCase().includes(q));
+  }, [employees, search, shiftFilter]);
 
   const remove = async (employee: HrmEmployeeDTO) => {
     if (!window.confirm(`Remove ${employee.name} from HRM? This cannot be undone.`)) return;
@@ -446,9 +472,25 @@ export function EmployeesTab({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="zs-search">
-          <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search employees" className="zs-search-input" />
+        <div className="flex items-center gap-2">
+          <div className="zs-search">
+            <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search employees" className="zs-search-input" />
+          </div>
+          {multiShift && shifts.length > 0 && (
+            <select
+              value={shiftFilter}
+              onChange={(e) => setShiftFilter(e.target.value)}
+              className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-400"
+            >
+              <option value="">All shifts</option>
+              {shifts.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
         <button
           onClick={() => {
@@ -477,6 +519,7 @@ export function EmployeesTab({
                 <tr>
                   <th className="px-4 py-2.5 text-left font-semibold">Employee</th>
                   <th className="px-4 py-2.5 text-left font-semibold">Department</th>
+                  {multiShift && <th className="px-4 py-2.5 text-left font-semibold">Shift</th>}
                   <th className="px-4 py-2.5 text-left font-semibold">Status</th>
                   <th className="px-4 py-2.5 text-right font-semibold">Salary</th>
                   <th className="px-4 py-2.5 text-left font-semibold">Joined</th>
@@ -501,6 +544,7 @@ export function EmployeesTab({
                       </p>
                     </td>
                     <td className="px-4 py-3 text-slate-600">{e.departmentName || "Unassigned"}</td>
+                    {multiShift && <td className="px-4 py-3 text-slate-600">{e.shiftName || "Unassigned"}</td>}
                     <td className="px-4 py-3">
                       <span className={clsx("inline-flex rounded-full px-2 py-0.5 text-xs font-semibold", STATUS_TONE[e.status])}>
                         {STATUS_LABEL[e.status]}
@@ -549,6 +593,8 @@ export function EmployeesTab({
         departments={departments}
         onDepartmentCreated={onChanged}
         designationOptions={designationOptions}
+        shifts={shifts}
+        multiShift={multiShift}
         employee={editing}
       />
       <SetPinModal open={!!pinTarget} onClose={() => setPinTarget(null)} onSaved={onChanged} employee={pinTarget} />
