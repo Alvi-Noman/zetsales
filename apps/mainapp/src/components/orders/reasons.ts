@@ -7,12 +7,11 @@ export const CALL_OUTCOMES: CallOutcome[] = ['Confirmed', 'Rescheduled', 'Custom
 // Before the confirmation call has happened — these are exactly the things you're verifying on
 // that call, so they're also exactly why you'd hold instead of confirming outright.
 export const PRE_CONFIRM_HOLD_REASONS: HoldReason[] = [
-  'Payment verification pending',
+  'Payment needs verification',
   'Address needs confirmation',
   'Stock check needed',
-  'Customer requested reschedule',
-  'Awaiting customer response',
-  'Other',
+  'Customer rescheduled call',
+  "Customer didn't respond",
 ];
 
 // Once confirmed, the problems that come up are internal (packing/fulfillment) or need looping the
@@ -20,9 +19,9 @@ export const PRE_CONFIRM_HOLD_REASONS: HoldReason[] = [
 // verification questions above, which are already settled by this point.
 export const PACKING_HOLD_REASONS: HoldReason[] = [
   'Stock shortfall found',
-  'Payment verification pending',
-  'Awaiting customer response',
-  'Customer requested reschedule',
+  'Payment needs verification',
+  "Customer didn't respond",
+  'Customer rescheduled call',
   'Other',
 ];
 
@@ -32,7 +31,7 @@ export const PACKING_HOLD_REASONS: HoldReason[] = [
 export const IN_TRANSIT_HOLD_REASONS: HoldReason[] = [
   'Customer unreachable for delivery',
   'Address unclear to courier',
-  'Customer requested reschedule',
+  'Customer rescheduled call',
   'Courier delay',
   'Other',
 ];
@@ -50,11 +49,11 @@ export const RETURN_LEG_HOLD_REASONS: HoldReason[] = [
 // The full enum, in a stable order — used where a hold reason needs to be picked without regard
 // to the order's current stage, e.g. filtering the Orders list by "why is this held".
 export const ALL_HOLD_REASONS: HoldReason[] = [
-  'Payment verification pending',
+  'Payment needs verification',
   'Address needs confirmation',
   'Stock check needed',
-  'Customer requested reschedule',
-  'Awaiting customer response',
+  'Customer rescheduled call',
+  "Customer didn't respond",
   'Stock shortfall found',
   'Customer unreachable for delivery',
   'Address unclear to courier',
@@ -131,7 +130,7 @@ export function canCancel(stage: OrderStage): boolean {
 export function inferCancelReason(order: OrderDTO): CancelReason {
   if (order.stage === 'Flagged') return 'Fraud suspected';
   if (order.holdReason === 'Address needs confirmation') return 'Wrong address';
-  if (order.holdReason === 'Payment verification pending') return 'Price/payment dispute';
+  if (order.holdReason === 'Payment needs verification') return 'Price/payment dispute';
   if (order.callAttempts >= 3) return 'Customer unreachable';
   return 'Other';
 }

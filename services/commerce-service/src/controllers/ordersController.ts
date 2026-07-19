@@ -1680,8 +1680,8 @@ const ORDER_STAGES = [
   'RTO Initiated', 'QC Pending', 'Delivered', 'Partial Delivered', 'Returned', 'Cancelled', 'On Hold',
 ] as const;
 const HOLD_REASONS = [
-  'Payment verification pending', 'Address needs confirmation', 'Stock check needed',
-  'Customer requested reschedule', 'Awaiting customer response',
+  'Payment needs verification', 'Address needs confirmation', 'Stock check needed',
+  'Customer rescheduled call', "Customer didn't respond",
   'Stock shortfall found', 'Customer unreachable for delivery', 'Address unclear to courier', 'Courier delay',
   'Attempting redelivery', 'Courier dispute', 'Customer says they never refused it',
   'Other',

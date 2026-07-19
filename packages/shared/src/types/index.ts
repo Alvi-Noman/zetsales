@@ -585,11 +585,11 @@ export type OrderPaymentStatus = 'COD Pending' | 'Advance Paid' | 'Paid' | 'Coll
 export type CallOutcome = 'Confirmed' | 'Rescheduled' | 'Customer Cancelled' | 'No Answer' | 'Wrong Number' | 'Switched Off' | 'Busy';
 
 export type HoldReason =
-  | 'Payment verification pending'
+  | 'Payment needs verification'
   | 'Address needs confirmation'
   | 'Stock check needed'
-  | 'Customer requested reschedule'
-  | 'Awaiting customer response'
+  | 'Customer rescheduled call'
+  | "Customer didn't respond"
   | 'Stock shortfall found'
   | 'Customer unreachable for delivery'
   | 'Address unclear to courier'
@@ -797,7 +797,7 @@ export interface OrderDTO {
   splitIntoOrderId: string | null;
   splitIntoOrderNumber: string | null;
   note: string | null;
-  // Set only when holdReason is 'Customer requested reschedule' and a date/time was picked — the
+  // Set only when holdReason is 'Customer rescheduled call' and a date/time was picked — the
   // structured instant a "Priority calls" queue can filter/sort on. `note` carries the same
   // information as human-readable text for display; this is the machine-comparable copy of it.
   rescheduledFor: string | null;

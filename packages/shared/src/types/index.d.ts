@@ -329,7 +329,7 @@ export interface ProductPushResultDTO {
 export type OrderStage = 'Pending' | 'Flagged' | 'Confirmed' | 'Processing' | 'Ready for Pickup' | 'Shipped' | 'Out for Delivery' | 'RTO Initiated' | 'QC Pending' | 'Delivered' | 'Partial Delivered' | 'Returned' | 'Cancelled' | 'On Hold';
 export type OrderPaymentStatus = 'COD Pending' | 'Advance Paid' | 'Paid' | 'Collected' | 'Refunded' | 'Failed';
 export type CallOutcome = 'Confirmed' | 'Rescheduled' | 'Customer Cancelled' | 'No Answer' | 'Wrong Number' | 'Switched Off' | 'Busy';
-export type HoldReason = 'Payment verification pending' | 'Address needs confirmation' | 'Stock check needed' | 'Customer requested reschedule' | 'Awaiting customer response' | 'Stock shortfall found' | 'Customer unreachable for delivery' | 'Address unclear to courier' | 'Courier delay' | 'Attempting redelivery' | 'Courier dispute' | 'Customer says they never refused it' | 'Other';
+export type HoldReason = 'Payment needs verification' | 'Address needs confirmation' | 'Stock check needed' | 'Customer rescheduled call' | "Customer didn't respond" | 'Stock shortfall found' | 'Customer unreachable for delivery' | 'Address unclear to courier' | 'Courier delay' | 'Attempting redelivery' | 'Courier dispute' | 'Customer says they never refused it' | 'Other';
 export type CancelReason = 'Customer unreachable' | 'Customer changed mind' | 'Duplicate order' | 'Out of stock' | 'Fraud suspected' | 'Spam' | 'Wrong address' | 'Price/payment dispute' | 'Blocked customer' | 'Other';
 export type RiskLabel = 'Trusted' | 'Normal' | 'Risky' | 'New Customer';
 export type PaymentMethod = 'Cash on Delivery' | 'bKash' | 'Nagad' | 'Rocket' | 'Card' | 'Other';

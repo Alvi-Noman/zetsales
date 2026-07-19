@@ -48,7 +48,7 @@ function Detail({ query }: AnalyticsCardComponentProps) {
   return (
     <div className="space-y-6">
       <p className="text-xs text-slate-400">
-        Orders that went On Hold for "Customer requested reschedule" at some point — what actually happened to them afterward.
+        Orders that went On Hold for "Customer rescheduled call" at some point — what actually happened to them afterward.
       </p>
       <div className="rounded-xl border border-slate-200 bg-white p-5">
         <DonutChart slices={data.breakdown.rows.map((r) => ({ key: r.key, label: r.label, value: r.count }))} formatValue={formatCount} />

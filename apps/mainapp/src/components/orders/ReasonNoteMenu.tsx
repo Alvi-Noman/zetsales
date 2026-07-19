@@ -30,7 +30,7 @@ export function ReasonNoteMenu<TReason extends string>({
   const [reason, setReason] = useState<TReason>(defaultReason ?? reasons[0]);
   const [note, setNote] = useState('');
   const [rescheduleAt, setRescheduleAt] = useState('');
-  const needsRescheduleTime = reason === 'Customer requested reschedule';
+  const needsRescheduleTime = reason === 'Customer rescheduled call';
 
   useEffect(() => {
     if (defaultReason) {

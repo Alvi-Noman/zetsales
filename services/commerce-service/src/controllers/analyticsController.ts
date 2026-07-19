@@ -2379,7 +2379,7 @@ export async function getRescheduleEffectiveness(req: AuthenticatedRequest, res:
   // holdReason/rescheduledFor both clear on resume, so the durable signal that an order was ever
   // rescheduled lives in its history — buildOrderUpdate writes the hold reason into the entry's
   // detail the moment it goes On Hold for that reason.
-  match.history = { $elemMatch: { label: 'On Hold', detail: { $regex: '^Customer requested reschedule' } } };
+  match.history = { $elemMatch: { label: 'On Hold', detail: { $regex: '^Customer rescheduled call' } } };
 
   const rows = await db.collection('orders').aggregate([{ $match: match }, { $group: { _id: '$stage', count: { $sum: 1 }, value: { $sum: '$total' } } }]).toArray();
 
