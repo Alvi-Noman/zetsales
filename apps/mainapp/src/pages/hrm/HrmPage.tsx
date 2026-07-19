@@ -165,6 +165,8 @@ export function HrmPage() {
         onDepartmentAdded={() => void loadAll()}
         shifts={shifts}
         onShiftAdded={() => void loadAll()}
+        employees={employees}
+        onEmployeeUpdated={() => void loadAll()}
         onFinished={() => {
           setWizardOpen(false);
           void loadAll();

@@ -1,14 +1,27 @@
-import { useState } from "react";
-import { Building2, Check, Clock, Copy, ExternalLink, KeyRound, PartyPopper, Plus, Smartphone } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Building2, Check, Clock, Copy, ExternalLink, KeyRound, PartyPopper, Plus, Smartphone, Users } from "lucide-react";
 import clsx from "clsx";
-import { HRM_DEPARTMENT_PRESETS, type HrmDepartmentDTO, type HrmSettingsDTO, type HrmShiftDTO } from "@zetsales/shared";
-import { createHrmDepartment, updateHrmSettings } from "../../../lib/hrmApi";
+import { HRM_DEPARTMENT_PRESETS, type HrmDepartmentDTO, type HrmEmployeeDTO, type HrmShiftDTO } from "@zetsales/shared";
+import { createHrmDepartment, updateHrmEmployee, updateHrmSettings } from "../../../lib/hrmApi";
 import { Modal } from "../../../components/ui/Modal";
 import { useToast } from "../../../components/ui/ToastProvider";
 import { ShiftsEditor } from "./ShiftsEditor";
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const STEP_LABELS = ["Welcome", "Office hours", "Weekly off", "Wages & overtime", "Departments", "Employee portal"];
+
+// The step list is dynamic, not fixed — "Assign shifts" only exists when there's both a
+// multi-shift setup and actual employees to assign, so it never shows as an empty, pointless step.
+type StepKey = "welcome" | "hours" | "assignShifts" | "weeklyOff" | "wages" | "departments" | "portal";
+
+const STEP_LABEL: Record<StepKey, string> = {
+  welcome: "Welcome",
+  hours: "Office hours",
+  assignShifts: "Assign shifts",
+  weeklyOff: "Weekly off",
+  wages: "Wages & overtime",
+  departments: "Departments",
+  portal: "Employee portal",
+};
 
 export function HrmOnboardingWizard({
   open,
@@ -16,6 +29,8 @@ export function HrmOnboardingWizard({
   onDepartmentAdded,
   shifts,
   onShiftAdded,
+  employees,
+  onEmployeeUpdated,
   onFinished,
 }: {
   open: boolean;
@@ -23,6 +38,8 @@ export function HrmOnboardingWizard({
   onDepartmentAdded: () => void;
   shifts: HrmShiftDTO[];
   onShiftAdded: () => void;
+  employees: HrmEmployeeDTO[];
+  onEmployeeUpdated: () => void;
   onFinished: () => void;
 }) {
   const toast = useToast();
@@ -37,6 +54,23 @@ export function HrmOnboardingWizard({
   const [addingPreset, setAddingPreset] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [savingEmployeeId, setSavingEmployeeId] = useState<string | null>(null);
+
+  const activeEmployees = useMemo(() => employees.filter((e) => e.status !== "terminated"), [employees]);
+
+  const steps = useMemo<StepKey[]>(() => {
+    const list: StepKey[] = ["welcome", "hours"];
+    if (multiShift && activeEmployees.length > 0) list.push("assignShifts");
+    list.push("weeklyOff", "wages", "departments", "portal");
+    return list;
+  }, [multiShift, activeEmployees.length]);
+
+  // If the step list shrinks out from under the current position (e.g. multiShift got toggled
+  // back off after going past it), snap back to a valid index instead of rendering nothing.
+  useEffect(() => {
+    if (step >= steps.length) setStep(steps.length - 1);
+  }, [step, steps.length]);
+  const stepKey = steps[step] ?? steps[steps.length - 1];
 
   const punchUrl = `${window.location.origin}/punch`;
   const toggleDay = (day: number) => setWeeklyOffDays((days) => (days.includes(day) ? days.filter((d) => d !== day) : [...days, day]));
@@ -65,6 +99,37 @@ export function HrmOnboardingWizard({
     }
   };
 
+  // Picking a shift here defaults the employee's own start/end time to that shift's hours, same
+  // as doing it from the Employees tab — those fields become editable right below once assigned.
+  const assignShift = async (employee: HrmEmployeeDTO, shiftId: string) => {
+    const shift = shifts.find((s) => s.id === shiftId);
+    setSavingEmployeeId(employee.id);
+    try {
+      await updateHrmEmployee(employee.id, {
+        shiftId: shiftId || null,
+        shiftStartTime: shift?.startTime ?? null,
+        shiftEndTime: shift?.endTime ?? null,
+      });
+      onEmployeeUpdated();
+    } catch (err) {
+      toast.push((err as Error).message || "Could not assign this shift.", "info");
+    } finally {
+      setSavingEmployeeId(null);
+    }
+  };
+
+  const updateEmployeeShiftTime = async (employee: HrmEmployeeDTO, field: "shiftStartTime" | "shiftEndTime", value: string) => {
+    setSavingEmployeeId(employee.id);
+    try {
+      await updateHrmEmployee(employee.id, { [field]: value });
+      onEmployeeUpdated();
+    } catch (err) {
+      toast.push((err as Error).message || "Could not update this employee's shift time.", "info");
+    } finally {
+      setSavingEmployeeId(null);
+    }
+  };
+
   const finish = async () => {
     setFinishing(true);
     try {
@@ -90,39 +155,34 @@ export function HrmOnboardingWizard({
   const inputClass =
     "h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15";
   const labelClass = "mb-1.5 block text-xs font-semibold text-slate-600";
-  const isLastStep = step === STEP_LABELS.length - 1;
+  const isLastStep = step === steps.length - 1;
 
   // Each step must actually be filled in before moving on — this wizard has no "Skip" escape
   // hatch, so a step with nothing valid to submit would otherwise let someone click straight
   // through without office hours/shifts or a sane overtime rate ever being set.
   const canProceed =
-    step === 1
+    stepKey === "hours"
       ? multiShift
         ? shifts.length > 0
         : !!officeStartTime && !!officeEndTime
-      : step === 3
+      : stepKey === "wages"
         ? overtimeMultiplier >= 1 && workingDaysPerMonth >= 1 && workingDaysPerMonth <= 31
         : true;
 
   return (
     <Modal open={open} onClose={() => {}} dismissible={false} title="Set up HRM" widthClass="max-w-lg" bodyClassName="max-h-[75vh] overflow-y-auto px-6 py-5">
       <div className="mb-5 flex items-center gap-1.5">
-        {STEP_LABELS.map((label, i) => (
-          <div key={label} className="flex flex-1 items-center gap-1.5">
-            <div
-              className={clsx(
-                "h-1.5 flex-1 rounded-full transition-colors",
-                i <= step ? "bg-indigo-500" : "bg-slate-150 bg-slate-200"
-              )}
-            />
+        {steps.map((key, i) => (
+          <div key={key} className="flex flex-1 items-center gap-1.5">
+            <div className={clsx("h-1.5 flex-1 rounded-full transition-colors", i <= step ? "bg-indigo-500" : "bg-slate-200")} />
           </div>
         ))}
       </div>
       <p className="mb-4 text-[11px] font-semibold uppercase tracking-wide text-indigo-500">
-        Step {step + 1} of {STEP_LABELS.length} · {STEP_LABELS[step]}
+        Step {step + 1} of {steps.length} · {STEP_LABEL[stepKey]}
       </p>
 
-      {step === 0 && (
+      {stepKey === "welcome" && (
         <div className="space-y-4 text-center">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-indigo-50">
             <PartyPopper size={26} className="text-indigo-500" />
@@ -135,7 +195,7 @@ export function HrmOnboardingWizard({
         </div>
       )}
 
-      {step === 1 && (
+      {stepKey === "hours" && (
         <div className="space-y-4">
           <div className="flex items-center gap-2 text-slate-700">
             <Clock size={16} className="text-slate-400" />
@@ -149,7 +209,11 @@ export function HrmOnboardingWizard({
 
           {multiShift ? (
             <div>
-              <p className="mb-2 text-xs text-slate-500">Set up your shifts — each employee will be assigned one under Employees.</p>
+              <p className="mb-2 text-xs text-slate-500">
+                {activeEmployees.length > 0
+                  ? "Set up your shifts — you'll assign your employees to them next."
+                  : "Set up your shifts — you can assign employees to them anytime from the Employees tab once you've added some."}
+              </p>
               <ShiftsEditor shifts={shifts} onChanged={onShiftAdded} />
               {shifts.length === 0 && <p className="mt-2 text-[11px] font-medium text-amber-600">Add at least one shift to continue.</p>}
             </div>
@@ -173,7 +237,59 @@ export function HrmOnboardingWizard({
         </div>
       )}
 
-      {step === 2 && (
+      {stepKey === "assignShifts" && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 text-slate-700">
+            <Users size={16} className="text-slate-400" />
+            <p className="text-sm">Assign each employee to a shift — optional, you can change this anytime from Employees.</p>
+          </div>
+          <div className="max-h-80 space-y-2 overflow-y-auto">
+            {activeEmployees.map((employee) => {
+              const busy = savingEmployeeId === employee.id;
+              return (
+                <div key={employee.id} className="rounded-lg border border-slate-200 bg-white p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="min-w-0 truncate text-sm font-medium text-slate-800">{employee.name}</span>
+                    <select
+                      value={employee.shiftId ?? ""}
+                      disabled={busy}
+                      onChange={(e) => void assignShift(employee, e.target.value)}
+                      className="h-8 shrink-0 rounded-md border border-slate-200 bg-slate-50 px-2 text-xs text-slate-700 outline-none focus:border-indigo-400 disabled:opacity-50"
+                    >
+                      <option value="">Unassigned</option>
+                      {shifts.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {employee.shiftId && (
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <input
+                        type="time"
+                        value={employee.shiftStartTime ?? ""}
+                        disabled={busy}
+                        onChange={(e) => void updateEmployeeShiftTime(employee, "shiftStartTime", e.target.value)}
+                        className="h-8 rounded-md border border-slate-200 bg-slate-50 px-2 text-xs text-slate-700 outline-none focus:border-indigo-400 disabled:opacity-50"
+                      />
+                      <input
+                        type="time"
+                        value={employee.shiftEndTime ?? ""}
+                        disabled={busy}
+                        onChange={(e) => void updateEmployeeShiftTime(employee, "shiftEndTime", e.target.value)}
+                        className="h-8 rounded-md border border-slate-200 bg-slate-50 px-2 text-xs text-slate-700 outline-none focus:border-indigo-400 disabled:opacity-50"
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {stepKey === "weeklyOff" && (
         <div className="space-y-4">
           <p className="text-sm text-slate-700">Which day(s) are never a working day?</p>
           <div className="flex flex-wrap gap-1.5">
@@ -199,7 +315,7 @@ export function HrmOnboardingWizard({
         </div>
       )}
 
-      {step === 3 && (
+      {stepKey === "wages" && (
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -240,7 +356,7 @@ export function HrmOnboardingWizard({
         </div>
       )}
 
-      {step === 4 && (
+      {stepKey === "departments" && (
         <div className="space-y-4">
           <div className="flex items-center gap-2 text-slate-700">
             <Building2 size={16} className="text-slate-400" />
@@ -277,7 +393,7 @@ export function HrmOnboardingWizard({
         </div>
       )}
 
-      {step === 5 && (
+      {stepKey === "portal" && (
         <div className="space-y-4">
           <div className="flex items-center gap-2 text-slate-700">
             <Smartphone size={16} className="text-slate-400" />
