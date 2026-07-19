@@ -135,6 +135,8 @@ function EmployeeFormModal({
               email: employee.email ?? "",
               phone: employee.phone ?? "",
               shiftId: employee.shiftId ?? "",
+              shiftStartTime: employee.shiftStartTime,
+              shiftEndTime: employee.shiftEndTime,
               designation: employee.designation,
               status: employee.status,
               joinDate: employee.joinDate,
@@ -265,7 +267,22 @@ function EmployeeFormModal({
           {multiShift && (
             <div>
               <label className={labelClass}>Shift</label>
-              <select value={form.shiftId ?? ""} onChange={(e) => set("shiftId", e.target.value)} className={inputClass}>
+              <select
+                value={form.shiftId ?? ""}
+                onChange={(e) => {
+                  const shiftId = e.target.value;
+                  const shift = shifts.find((s) => s.id === shiftId);
+                  setForm((f) => ({
+                    ...f,
+                    shiftId,
+                    // Defaults to the shift's own hours whenever the shift selection changes —
+                    // still freely editable afterward via the fields below.
+                    shiftStartTime: shift?.startTime ?? null,
+                    shiftEndTime: shift?.endTime ?? null,
+                  }));
+                }}
+                className={inputClass}
+              >
                 <option value="">Unassigned</option>
                 {shifts.map((s) => (
                   <option key={s.id} value={s.id}>
@@ -287,6 +304,28 @@ function EmployeeFormModal({
             </select>
           </div>
         </div>
+        {multiShift && form.shiftId && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelClass}>Shift start (for this employee)</label>
+              <input
+                type="time"
+                value={form.shiftStartTime ?? ""}
+                onChange={(e) => set("shiftStartTime", e.target.value)}
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Shift end (for this employee)</label>
+              <input
+                type="time"
+                value={form.shiftEndTime ?? ""}
+                onChange={(e) => set("shiftEndTime", e.target.value)}
+                className={inputClass}
+              />
+            </div>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className={labelClass}>Join date</label>

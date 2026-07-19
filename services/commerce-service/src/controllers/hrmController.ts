@@ -268,6 +268,8 @@ function toEmployeeDTO(doc: any): HrmEmployeeDTO {
     departmentName: doc.departmentName ?? null,
     shiftId: doc.shiftId ?? null,
     shiftName: doc.shiftName ?? null,
+    shiftStartTime: doc.shiftStartTime ?? null,
+    shiftEndTime: doc.shiftEndTime ?? null,
     designation: doc.designation,
     status: doc.status,
     joinDate: doc.joinDate,
@@ -336,6 +338,8 @@ export async function createEmployee(req: AuthenticatedRequest, res: Response) {
     departmentName,
     shiftId: body.shiftId ?? null,
     shiftName,
+    shiftStartTime: body.shiftStartTime ?? null,
+    shiftEndTime: body.shiftEndTime ?? null,
     designation: body.designation.trim(),
     status: (body.status as HrmEmployeeStatus) ?? 'active',
     joinDate: body.joinDate ?? todayStr(),
@@ -383,6 +387,8 @@ export async function updateEmployee(req: AuthenticatedRequest, res: Response) {
       update.shiftName = null;
     }
   }
+  if (body.shiftStartTime !== undefined) update.shiftStartTime = body.shiftStartTime || null;
+  if (body.shiftEndTime !== undefined) update.shiftEndTime = body.shiftEndTime || null;
 
   await getDb()
     .collection('hrmEmployees')
@@ -702,10 +708,15 @@ export async function generatePayroll(req: AuthenticatedRequest, res: Response) 
       continue;
     }
 
+    // Priority: this employee's own custom start/end time override, then their assigned shift's
+    // default times, then the tenant's single office-hours window.
     const employeeShift = settings.multiShift && employee.shiftId ? shiftById.get(employee.shiftId) : undefined;
-    const scheduledHoursPerDay = employeeShift
-      ? Math.max(0, parseTimeToHours(employeeShift.endTime) - parseTimeToHours(employeeShift.startTime))
-      : defaultScheduledHoursPerDay;
+    const effectiveStartTime = employee.shiftStartTime || employeeShift?.startTime;
+    const effectiveEndTime = employee.shiftEndTime || employeeShift?.endTime;
+    const scheduledHoursPerDay =
+      effectiveStartTime && effectiveEndTime
+        ? Math.max(0, parseTimeToHours(effectiveEndTime) - parseTimeToHours(effectiveStartTime))
+        : defaultScheduledHoursPerDay;
 
     const unpaidLeaveDays = unpaidDaysByEmployee.get(employeeId) ?? 0;
     const dailyRate = employee.monthlySalary / settings.workingDaysPerMonth;

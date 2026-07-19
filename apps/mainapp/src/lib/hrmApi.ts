@@ -94,6 +94,8 @@ export type HrmEmployeeInput = Partial<
     | "phone"
     | "departmentId"
     | "shiftId"
+    | "shiftStartTime"
+    | "shiftEndTime"
     | "designation"
     | "status"
     | "joinDate"

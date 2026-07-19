@@ -1212,6 +1212,8 @@ export interface HrmEmployeeDTO {
     departmentName: string | null;
     shiftId: string | null;
     shiftName: string | null;
+    shiftStartTime: string | null;
+    shiftEndTime: string | null;
     designation: string;
     status: HrmEmployeeStatus;
     joinDate: string;

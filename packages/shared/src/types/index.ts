@@ -1869,6 +1869,11 @@ export interface HrmEmployeeDTO {
   departmentName: string | null;
   shiftId: string | null;
   shiftName: string | null;
+  // Defaults to the assigned shift's own times when a shift is picked, but can be customized per
+  // employee from there — e.g. two people on "Morning Shift" who actually start 30 minutes apart.
+  // Falls back to the shift's times (or the tenant's default office hours) when null.
+  shiftStartTime: string | null; // "HH:mm", 24h
+  shiftEndTime: string | null; // "HH:mm", 24h
   designation: string;
   status: HrmEmployeeStatus;
   joinDate: string;
