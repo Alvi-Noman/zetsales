@@ -32,10 +32,6 @@ function money(value: number) {
   return `৳${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 }
 
-const ADD_NEW_DESIGNATION = "__add_new__";
-
-const ADD_NEW_DEPARTMENT = "__add_new_department__";
-
 function EmployeeFormModal({
   open,
   onClose,
@@ -59,28 +55,24 @@ function EmployeeFormModal({
 }) {
   const toast = useToast();
   const [form, setForm] = useState<HrmEmployeeInput>({});
-  const [newDepartmentName, setNewDepartmentName] = useState("");
+  // Plain text, not the department's id — resolved to an id (existing match, or a freshly created
+  // department) only at save time. A native <select>'s built-in type-ahead search silently jumps
+  // to an existing option the moment you start typing, so a free-text field with a <datalist> for
+  // suggestions is the only way "pick existing or type a new one" reliably works — the same reason
+  // Designation below is a plain input too, not a select.
+  const [departmentName, setDepartmentName] = useState("");
   const [saving, setSaving] = useState(false);
-  // Starts in "typing a new designation/department" mode only if the current value isn't one of
-  // the known ones — otherwise the dropdown (with its own "+ Add new..." option) is shown first,
-  // even when the options list is empty. Both fields work identically: type a new value, and it's
-  // only actually created when the whole employee form is saved below.
-  const [addingDesignation, setAddingDesignation] = useState(false);
-  const [addingDepartment, setAddingDepartment] = useState(false);
   const isEdit = !!employee;
 
   useEffect(() => {
     if (open) {
-      const initialDesignation = employee?.designation ?? "";
-      setNewDepartmentName("");
-      setAddingDepartment(false);
+      setDepartmentName(employee?.departmentName ?? "");
       setForm(
         employee
           ? {
               name: employee.name,
               email: employee.email ?? "",
               phone: employee.phone ?? "",
-              departmentId: employee.departmentId ?? "",
               shiftId: employee.shiftId ?? "",
               designation: employee.designation,
               status: employee.status,
@@ -92,28 +84,31 @@ function EmployeeFormModal({
             }
           : { status: "active", joinDate: new Date().toISOString().slice(0, 10), monthlySalary: 0 }
       );
-      setAddingDesignation(!!initialDesignation && !designationOptions.includes(initialDesignation));
     }
-  }, [open, employee, designationOptions]);
+  }, [open, employee]);
 
   const set = <K extends keyof HrmEmployeeInput>(key: K, value: HrmEmployeeInput[K]) => setForm((f) => ({ ...f, [key]: value }));
 
-  const canSave =
-    (form.name?.trim().length ?? 0) > 0 &&
-    (form.designation?.trim().length ?? 0) > 0 &&
-    (!addingDepartment || newDepartmentName.trim().length > 0) &&
-    !saving;
+  const canSave = (form.name?.trim().length ?? 0) > 0 && (form.designation?.trim().length ?? 0) > 0 && !saving;
+
+  // Case-insensitive match against existing departments so typing the name of one that already
+  // exists reuses it instead of creating a duplicate; an unrecognized name creates a new one.
+  const resolveDepartmentId = async (): Promise<string | null> => {
+    const trimmed = departmentName.trim();
+    if (!trimmed) return null;
+    const existing = departments.find((d) => d.name.toLowerCase() === trimmed.toLowerCase());
+    if (existing) return existing.id;
+    const dept = await createHrmDepartment({ name: trimmed });
+    onDepartmentCreated();
+    return dept.id;
+  };
 
   const save = async () => {
     if (!canSave) return;
     setSaving(true);
     try {
-      let payload = form;
-      if (addingDepartment && newDepartmentName.trim()) {
-        const dept = await createHrmDepartment({ name: newDepartmentName.trim() });
-        payload = { ...form, departmentId: dept.id };
-        onDepartmentCreated();
-      }
+      const departmentId = await resolveDepartmentId();
+      const payload = { ...form, departmentId };
       if (isEdit) {
         await updateHrmEmployee(employee!.id, payload);
         toast.push("Employee updated.", "success");
@@ -144,50 +139,18 @@ function EmployeeFormModal({
           </div>
           <div>
             <label className={labelClass}>Designation</label>
-            {addingDesignation ? (
-              <div className="flex gap-1.5">
-                <input
-                  autoFocus
-                  value={form.designation ?? ""}
-                  onChange={(e) => set("designation", e.target.value)}
-                  placeholder="e.g. Warehouse Associate"
-                  className={inputClass}
-                />
-                {designationOptions.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setAddingDesignation(false)}
-                    className="shrink-0 rounded-lg border border-slate-200 px-2.5 text-xs font-semibold text-slate-500 hover:bg-slate-50"
-                    title="Choose from existing designations"
-                  >
-                    List
-                  </button>
-                )}
-              </div>
-            ) : (
-              <select
-                value={form.designation ?? ""}
-                onChange={(e) => {
-                  if (e.target.value === ADD_NEW_DESIGNATION) {
-                    set("designation", "");
-                    setAddingDesignation(true);
-                  } else {
-                    set("designation", e.target.value);
-                  }
-                }}
-                className={inputClass}
-              >
-                <option value="" disabled>
-                  Select designation
-                </option>
-                {designationOptions.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-                <option value={ADD_NEW_DESIGNATION}>+ Add new designation</option>
-              </select>
-            )}
+            <input
+              list="hrm-designation-options"
+              value={form.designation ?? ""}
+              onChange={(e) => set("designation", e.target.value)}
+              placeholder="e.g. Warehouse Associate"
+              className={inputClass}
+            />
+            <datalist id="hrm-designation-options">
+              {designationOptions.map((d) => (
+                <option key={d} value={d} />
+              ))}
+            </datalist>
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -203,48 +166,18 @@ function EmployeeFormModal({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className={labelClass}>Department</label>
-            {addingDepartment ? (
-              <div className="flex gap-1.5">
-                <input
-                  autoFocus
-                  value={newDepartmentName}
-                  onChange={(e) => setNewDepartmentName(e.target.value)}
-                  placeholder="e.g. Warehouse Operations"
-                  className={inputClass}
-                />
-                {departments.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setAddingDepartment(false)}
-                    className="shrink-0 rounded-lg border border-slate-200 px-2.5 text-xs font-semibold text-slate-500 hover:bg-slate-50"
-                    title="Choose from existing departments"
-                  >
-                    List
-                  </button>
-                )}
-              </div>
-            ) : (
-              <select
-                value={form.departmentId ?? ""}
-                onChange={(e) => {
-                  if (e.target.value === ADD_NEW_DEPARTMENT) {
-                    set("departmentId", "");
-                    setAddingDepartment(true);
-                  } else {
-                    set("departmentId", e.target.value);
-                  }
-                }}
-                className={inputClass}
-              >
-                <option value="">Unassigned</option>
-                {departments.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-                <option value={ADD_NEW_DEPARTMENT}>+ Add new department</option>
-              </select>
-            )}
+            <input
+              list="hrm-department-options"
+              value={departmentName}
+              onChange={(e) => setDepartmentName(e.target.value)}
+              placeholder="e.g. Warehouse Operations (optional)"
+              className={inputClass}
+            />
+            <datalist id="hrm-department-options">
+              {departments.map((d) => (
+                <option key={d.id} value={d.name} />
+              ))}
+            </datalist>
           </div>
           {multiShift && (
             <div>
