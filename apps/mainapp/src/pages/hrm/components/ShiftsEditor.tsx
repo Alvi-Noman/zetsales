@@ -7,7 +7,7 @@ import { useToast } from "../../../components/ui/ToastProvider";
 // Sensible default start/end for each preset name — user can add it as-is or add a custom shift
 // with their own times right after.
 const PRESET_TIMES: Record<(typeof HRM_SHIFT_PRESETS)[number], { startTime: string; endTime: string }> = {
-  "Morning Shift": { startTime: "06:00", endTime: "14:00" },
+  "Morning Shift": { startTime: "10:00", endTime: "18:00" },
   "Day Shift": { startTime: "09:00", endTime: "17:00" },
   "Evening Shift": { startTime: "14:00", endTime: "22:00" },
   "Night Shift": { startTime: "22:00", endTime: "06:00" },
