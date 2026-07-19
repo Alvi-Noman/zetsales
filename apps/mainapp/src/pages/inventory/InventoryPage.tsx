@@ -5096,28 +5096,32 @@ export function InventoryPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_360px]">
             <div className="flex min-w-0 flex-col">
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-0 table-fixed border-collapse text-sm xl:min-w-[1040px]">
+              <div className="min-w-0">
+                <table className="w-full min-w-0 table-fixed border-collapse text-sm">
                   <colgroup>
-                    <col className="w-[29%]" />
-                    <col className="w-[15%]" />
-                    <col className="w-[22%]" />
+                    <col className="w-[27%]" />
+                    <col className="w-[14%]" />
+                    <col className="w-[24%]" />
                     <col className="w-[14%]" />
                     <col className="w-[12%]" />
-                    <col className="w-[8%]" />
+                    <col className="w-[9%]" />
                   </colgroup>
                   <thead>
                     <tr className="zs-table-head">
-                      <th className="py-3.5 pl-6 pr-5">Item</th>
-                      <th className="px-5 py-3.5">Location</th>
-                      <th className="px-5 py-3.5">Availability</th>
-                      <th className="px-5 py-3.5 text-center">
+                      <th className="py-3.5 pl-4 pr-3 xl:pl-6 xl:pr-5">
+                        Item
+                      </th>
+                      <th className="px-3 py-3.5 xl:px-5">Location</th>
+                      <th className="px-3 py-3.5 xl:px-5">Availability</th>
+                      <th className="px-3 py-3.5 text-center xl:px-5">
                         Low Stock Alert
                       </th>
-                      <th className="px-5 py-3.5">Status</th>
-                      <th className="py-3.5 pl-3 pr-6 text-right">Value</th>
+                      <th className="px-3 py-3.5 xl:px-5">Status</th>
+                      <th className="py-3.5 pl-2 pr-4 text-right xl:pl-3 xl:pr-6">
+                        Value
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -5132,16 +5136,16 @@ export function InventoryPage() {
                           key={level.id}
                           className="zs-data-row border-b border-slate-100"
                         >
-                          <td className="py-4 pl-6 pr-5">
-                            <div className="flex min-w-0 items-center gap-4">
+                          <td className="py-4 pl-4 pr-3 xl:pl-6 xl:pr-5">
+                            <div className="flex min-w-0 items-center gap-3 xl:gap-4">
                               {level.productImage ? (
                                 <img
                                   src={level.productImage}
                                   alt={level.productTitle ?? ""}
-                                  className="h-14 w-14 shrink-0 rounded-lg border border-slate-200 object-cover"
+                                  className="h-11 w-11 shrink-0 rounded-lg border border-slate-200 object-cover xl:h-14 xl:w-14"
                                 />
                               ) : (
-                                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-300">
+                                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-300 xl:h-14 xl:w-14">
                                   <Package size={18} />
                                 </div>
                               )}
@@ -5171,9 +5175,9 @@ export function InventoryPage() {
                               </div>
                             </div>
                           </td>
-                          <td className="px-5 py-4">
+                          <td className="px-3 py-4 xl:px-5">
                             <div className="flex flex-col">
-                              <span className="font-medium text-slate-700">
+                              <span className="truncate font-medium text-slate-700">
                                 {level.warehouseName}
                               </span>
                               {warehousesWithRealBins.has(
@@ -5185,8 +5189,8 @@ export function InventoryPage() {
                               )}
                             </div>
                           </td>
-                          <td className="px-5 py-4">
-                            <div className="grid grid-cols-3 gap-x-6 gap-y-1 text-xs">
+                          <td className="px-3 py-4 xl:px-5">
+                            <div className="grid grid-cols-3 gap-x-2 gap-y-1 text-xs xl:gap-x-4">
                               <div>
                                 <p className="font-semibold tabular-nums text-slate-900">
                                   {level.onHand}
@@ -5210,7 +5214,7 @@ export function InventoryPage() {
                               />
                             </div>
                           </td>
-                          <td className="px-5 py-4 text-center">
+                          <td className="px-2 py-4 text-center xl:px-5">
                             <ReorderPointCell
                               level={level}
                               unitsPerDay={
@@ -5222,7 +5226,7 @@ export function InventoryPage() {
                               canEdit={canWriteInventory}
                             />
                           </td>
-                          <td className="px-5 py-4">
+                          <td className="px-3 py-4 xl:px-5">
                             {status === "out" ? (
                               <span className="inline-flex rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 ring-1 ring-inset ring-rose-600/20">
                                 Out of stock
@@ -5241,7 +5245,7 @@ export function InventoryPage() {
                               </span>
                             )}
                           </td>
-                          <td className="py-4 pl-3 pr-6 text-right font-semibold tabular-nums text-slate-800">
+                          <td className="py-4 pl-2 pr-4 text-right font-semibold tabular-nums text-slate-800 xl:pl-3 xl:pr-6">
                             {value != null ? money(value) : "—"}
                           </td>
                         </tr>
@@ -5301,7 +5305,7 @@ export function InventoryPage() {
               )}
             </div>
 
-            <aside className="border-t border-slate-200 bg-slate-50 p-4 xl:border-l xl:border-t-0">
+            <aside className="border-t border-slate-200 bg-slate-50 p-4 2xl:border-l 2xl:border-t-0">
               <div className="space-y-4">
                 <section className="zs-surface p-4">
                   <div className="flex items-center justify-between">
