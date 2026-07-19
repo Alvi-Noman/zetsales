@@ -1622,8 +1622,16 @@ export function OrderDetailDrawer({
                       className="flex items-center justify-between text-sm"
                     >
                       <div className="flex items-center gap-3">
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-400">
-                          <Package size={15} />
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-100 text-slate-400">
+                          {li.image ? (
+                            <img
+                              src={li.image}
+                              alt=""
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <Package size={15} />
+                          )}
                         </div>
                         <div>
                           <p className="font-medium text-slate-700">
