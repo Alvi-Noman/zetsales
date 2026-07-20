@@ -33,7 +33,7 @@ export function ReportPrintView({ title, periodLabel, table, onClose }: ReportPr
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4 print:hidden">
           <div>
             <h2 className="text-base font-bold text-slate-900">Print preview</h2>
-            <p className="mt-0.5 text-sm text-slate-500">A4, one table per page. Preview below, then print.</p>
+            <p className="mt-0.5 text-sm text-slate-500">A4 landscape, one table per page. Preview below, then print.</p>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -48,9 +48,9 @@ export function ReportPrintView({ title, periodLabel, table, onClose }: ReportPr
             </button>
           </div>
         </div>
-        <style>{`@media print { @page { size: A4; } }`}</style>
+        <style>{`@media print { @page { size: A4 landscape; } }`}</style>
         <div className="print-area overflow-y-auto bg-slate-50 print:overflow-visible print:bg-white">
-          <div className="print-page-break mx-auto w-full max-w-[210mm] bg-white p-8 text-slate-900">
+          <div className="print-page-break mx-auto w-full max-w-[297mm] bg-white p-8 text-slate-900">
             <div className="mb-6 flex items-start justify-between border-b border-slate-200 pb-4">
               <div>
                 <p className="text-lg font-bold">{user?.businessName || "Your Business"}</p>
