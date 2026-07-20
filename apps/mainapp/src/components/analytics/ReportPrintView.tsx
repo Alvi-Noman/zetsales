@@ -29,7 +29,7 @@ export function ReportPrintView({ title, periodLabel, table, onClose }: ReportPr
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4 print:static print:block print:h-auto print:p-0">
       <div className="absolute inset-0 bg-slate-900/40 print:hidden" onClick={onClose} />
-      <div className="relative flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl print:static print:block print:h-auto print:max-h-none print:w-full print:max-w-none print:overflow-visible print:rounded-none print:shadow-none">
+      <div className="relative flex max-h-[90vh] w-full max-w-[1200px] flex-col overflow-hidden rounded-lg bg-white shadow-2xl print:static print:block print:h-auto print:max-h-none print:w-full print:max-w-none print:overflow-visible print:rounded-none print:shadow-none">
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4 print:hidden">
           <div>
             <h2 className="text-base font-bold text-slate-900">Print preview</h2>
@@ -48,7 +48,12 @@ export function ReportPrintView({ title, periodLabel, table, onClose }: ReportPr
             </button>
           </div>
         </div>
-        <style>{`@media print { @page { size: A4 landscape; } }`}</style>
+        <style>{`
+          @media print { @page { size: A4 landscape; } }
+          .zs-report-table td:first-child, .zs-report-table th:first-child { min-width: 200px; }
+          .zs-report-table td, .zs-report-table th { white-space: nowrap; }
+          .zs-report-table td:first-child, .zs-report-table th:first-child { white-space: normal; }
+        `}</style>
         <div className="print-area overflow-y-auto bg-slate-50 print:overflow-visible print:bg-white">
           <div className="print-page-break mx-auto w-full max-w-[297mm] bg-white p-8 text-slate-900">
             <div className="mb-6 flex items-start justify-between border-b border-slate-200 pb-4">
@@ -61,7 +66,7 @@ export function ReportPrintView({ title, periodLabel, table, onClose }: ReportPr
                 <p>Generated {new Date().toLocaleString()}</p>
               </div>
             </div>
-            <table className="w-full border-collapse text-xs">
+            <table className="zs-report-table w-full border-collapse text-xs">
               <thead>
                 <tr className="border-b-2 border-slate-800">
                   {table.columns.map((col) => (
