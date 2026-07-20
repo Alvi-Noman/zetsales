@@ -1740,6 +1740,35 @@ export interface CourierHandoverItemsReportDTO {
   rows: CourierHandoverItemsReportRowDTO[];
 }
 
+// Per (order, line item) financial breakdown for every handover manifest in the date range —
+// subTotal/discount/totalAmount/advance/deliveryCharge/cod repeat on every line-item row of a
+// multi-item order (flat export table, not a nested invoice). `cod` is what's actually left to
+// collect on delivery (order total minus any advance already taken), zero for non-COD orders.
+export interface CourierHandoverFinancialReportRowDTO {
+  date: string;
+  brand: string;
+  source: string;
+  customerName: string;
+  customerPhone: string;
+  orderNumber: string;
+  sku: string;
+  price: number;
+  qty: number;
+  lineTotal: number;
+  totalQty: number;
+  subTotal: number;
+  discount: number;
+  totalAmount: number;
+  advance: number;
+  deliveryCharge: number;
+  cod: number;
+  courier: string;
+}
+
+export interface CourierHandoverFinancialReportDTO {
+  rows: CourierHandoverFinancialReportRowDTO[];
+}
+
 export interface MarginWaterfallStepDTO {
   label: string;
   value: number;

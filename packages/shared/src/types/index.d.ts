@@ -1100,6 +1100,29 @@ export interface CourierHandoverItemsReportRowDTO {
 export interface CourierHandoverItemsReportDTO {
     rows: CourierHandoverItemsReportRowDTO[];
 }
+export interface CourierHandoverFinancialReportRowDTO {
+    date: string;
+    brand: string;
+    source: string;
+    customerName: string;
+    customerPhone: string;
+    orderNumber: string;
+    sku: string;
+    price: number;
+    qty: number;
+    lineTotal: number;
+    totalQty: number;
+    subTotal: number;
+    discount: number;
+    totalAmount: number;
+    advance: number;
+    deliveryCharge: number;
+    cod: number;
+    courier: string;
+}
+export interface CourierHandoverFinancialReportDTO {
+    rows: CourierHandoverFinancialReportRowDTO[];
+}
 export interface MarginWaterfallStepDTO {
     label: string;
     value: number;

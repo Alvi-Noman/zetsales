@@ -10,6 +10,8 @@ import type {
   CourierHandoverOrdersReportRowDTO,
   CourierHandoverItemsReportDTO,
   CourierHandoverItemsReportRowDTO,
+  CourierHandoverFinancialReportDTO,
+  CourierHandoverFinancialReportRowDTO,
 } from '@zetsales/shared';
 
 function parseDateRange(req: AuthenticatedRequest): { from: Date; to: Date } {
@@ -65,6 +67,10 @@ export async function getStockReport(req: AuthenticatedRequest, res: Response) {
   const { from, to } = parseDateRange(req);
   const rawWarehouseId = typeof req.query.warehouseId === 'string' ? req.query.warehouseId.trim() : '';
   const warehouseId = rawWarehouseId && rawWarehouseId !== 'all' ? rawWarehouseId : null;
+  // "Stock Report — Changed Items" reuses this same endpoint with changedOnly=true rather than a
+  // separate handler — it's the identical ledger, just filtered to rows where something actually
+  // moved (or an opening/closing mismatch exists) in the period.
+  const changedOnly = req.query.changedOnly === 'true';
 
   const levelMatch: Record<string, unknown> = { tenantId };
   if (warehouseId) levelMatch.warehouseId = warehouseId;
@@ -127,7 +133,7 @@ export async function getStockReport(req: AuthenticatedRequest, res: Response) {
   const futureByKey = new Map(futureAgg.map((r: any) => [keyOf(r._id.productId, r._id.variantId), r.delta as number]));
   const periodByKey = new Map(periodAgg.map((r: any) => [keyOf(r._id.productId, r._id.variantId), r]));
 
-  const rows: StockReportRowDTO[] = levelRows.map((r: any) => {
+  let rows: StockReportRowDTO[] = levelRows.map((r: any) => {
     const key = keyOf(r._id.productId, r._id.variantId);
     const future = futureByKey.get(key) ?? 0;
     const period = periodByKey.get(key);
@@ -150,6 +156,10 @@ export async function getStockReport(req: AuthenticatedRequest, res: Response) {
       close,
     };
   });
+
+  if (changedOnly) {
+    rows = rows.filter((r) => r.open !== r.close || r.buyUnit > 0 || r.saleUnit > 0 || r.returnUnit > 0 || r.lossUnit > 0);
+  }
 
   const dto: StockReportDTO = { warehouseName, rows };
   res.json({ success: true, report: dto });
@@ -257,5 +267,75 @@ export async function getCourierHandoverItemsReport(req: AuthenticatedRequest, r
     .map((r) => ({ itemName: r.itemName, sku: r.sku, size: r.size, color: r.color, quality: '-', unit: r.unit }));
 
   const dto: CourierHandoverItemsReportDTO = { rows };
+  res.json({ success: true, report: dto });
+}
+
+// Financial breakdown per (order, line item) in every handover manifest in the range — the
+// per-order money fields (subTotal/discount/totalAmount/advance/deliveryCharge/cod) repeat on
+// every line-item row of a multi-item order, same as productName/productSku repeat conceptually;
+// this is a flat, spreadsheet-style export, not a nested invoice. `cod` is what's actually left to
+// collect on delivery: order.total minus any advance already taken, and only for COD orders —
+// zero for orders paid up front by bKash/Nagad/Card.
+export async function getCourierHandoverFinancialReport(req: AuthenticatedRequest, res: Response) {
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const { from, to } = parseDateRange(req);
+
+  const handovers = await db
+    .collection('courierHandovers')
+    .find({ tenantId, handoverDate: { $gte: from, $lt: to } })
+    .sort({ handoverDate: 1 })
+    .toArray();
+
+  if (handovers.length === 0) {
+    const dto: CourierHandoverFinancialReportDTO = { rows: [] };
+    res.json({ success: true, report: dto });
+    return;
+  }
+
+  const orderIds = handovers.flatMap((h) => h.orderIds as ObjectId[]);
+  const [orders, stores] = await Promise.all([
+    db.collection('orders').find({ _id: { $in: orderIds }, tenantId }).toArray(),
+    db.collection('stores').find({ tenantId }).project({ displayName: 1 }).toArray(),
+  ]);
+  const orderById = new Map(orders.map((o) => [o._id.toString(), o]));
+  const storeNameById = new Map(stores.map((s) => [s._id.toString(), s.displayName as string]));
+
+  const rows: CourierHandoverFinancialReportRowDTO[] = [];
+  for (const h of handovers) {
+    const label = courierLabel(h.provider);
+    for (const oid of h.orderIds as ObjectId[]) {
+      const o = orderById.get(oid.toString());
+      if (!o) continue;
+      const lineItems = o.lineItems ?? [];
+      const totalQty = lineItems.reduce((s: number, li: any) => s + li.quantity, 0);
+      const storeName = storeNameById.get(o.storeId) ?? 'Store';
+      const cod = o.paymentMethod === 'Cash on Delivery' ? Math.max(0, o.total - (o.advanceAmount ?? 0)) : 0;
+      for (const li of lineItems.length > 0 ? lineItems : [{ sku: null, quantity: 0, price: 0 }]) {
+        rows.push({
+          date: new Date(h.handoverDate).toISOString(),
+          brand: storeName,
+          source: storeName,
+          customerName: o.customerName ?? 'No customer',
+          customerPhone: o.customerPhone ?? '-',
+          orderNumber: o.number,
+          sku: li.sku ?? '-',
+          price: li.price ?? 0,
+          qty: li.quantity ?? 0,
+          lineTotal: (li.price ?? 0) * (li.quantity ?? 0),
+          totalQty,
+          subTotal: o.subtotal ?? 0,
+          discount: o.discount ?? 0,
+          totalAmount: o.total ?? 0,
+          advance: o.advanceAmount ?? 0,
+          deliveryCharge: o.courierCharge ?? 0,
+          cod,
+          courier: label,
+        });
+      }
+    }
+  }
+
+  const dto: CourierHandoverFinancialReportDTO = { rows };
   res.json({ success: true, report: dto });
 }
