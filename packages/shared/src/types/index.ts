@@ -1676,6 +1676,70 @@ export interface OrderReturnReportDTO {
   byStore: AnalyticsBreakdownDTO;
 }
 
+// --- Reports (Analytics > Reports) ---
+// A small, fixed set of print/export-oriented reports, distinct from the Analytics dashboard
+// cards above — these render as flat tables meant for CSV/A4-PDF export, not charts.
+
+// Opening/closing stock ledger per product variant for a date range. `open`/`close` are derived
+// (current onHand minus movements after the range, minus movements within it — see
+// getStockReport), not stored balances; ZetSales has no daily stock-snapshot table. `poReturn` is
+// always 0 — there's no movement reason representing stock returned to a supplier yet. `quality`
+// is always '-' — no such attribute exists in the product/variant schema.
+export interface StockReportRowDTO {
+  itemName: string;
+  sku: string | null;
+  size: string;
+  color: string;
+  quality: string;
+  open: number;
+  proSale: number;
+  buyUnit: number;
+  saleUnit: number;
+  returnUnit: number;
+  lossUnit: number;
+  poReturn: number;
+  close: number;
+}
+
+export interface StockReportDTO {
+  warehouseName: string;
+  rows: StockReportRowDTO[];
+}
+
+// One row per (order, line item) within confirmed/pending courier handovers in the date range —
+// productName/productSku are ';'-joined when an order has multiple line items, since this is a
+// flat export table rather than a nested manifest view.
+export interface CourierHandoverOrdersReportRowDTO {
+  date: string;
+  brand: string;
+  source: string;
+  customerName: string;
+  orderNumber: string;
+  courier: string;
+  productName: string;
+  productSku: string;
+  qty: number;
+  totalQty: number;
+}
+
+export interface CourierHandoverOrdersReportDTO {
+  rows: CourierHandoverOrdersReportRowDTO[];
+}
+
+// Units handed over to couriers in the date range, aggregated per SKU across every handover.
+export interface CourierHandoverItemsReportRowDTO {
+  itemName: string;
+  sku: string | null;
+  size: string;
+  color: string;
+  quality: string;
+  unit: number;
+}
+
+export interface CourierHandoverItemsReportDTO {
+  rows: CourierHandoverItemsReportRowDTO[];
+}
+
 export interface MarginWaterfallStepDTO {
   label: string;
   value: number;

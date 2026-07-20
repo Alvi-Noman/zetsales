@@ -1055,6 +1055,51 @@ export interface OrderReturnReportDTO {
     byCourier: AnalyticsBreakdownDTO;
     byStore: AnalyticsBreakdownDTO;
 }
+export interface StockReportRowDTO {
+    itemName: string;
+    sku: string | null;
+    size: string;
+    color: string;
+    quality: string;
+    open: number;
+    proSale: number;
+    buyUnit: number;
+    saleUnit: number;
+    returnUnit: number;
+    lossUnit: number;
+    poReturn: number;
+    close: number;
+}
+export interface StockReportDTO {
+    warehouseName: string;
+    rows: StockReportRowDTO[];
+}
+export interface CourierHandoverOrdersReportRowDTO {
+    date: string;
+    brand: string;
+    source: string;
+    customerName: string;
+    orderNumber: string;
+    courier: string;
+    productName: string;
+    productSku: string;
+    qty: number;
+    totalQty: number;
+}
+export interface CourierHandoverOrdersReportDTO {
+    rows: CourierHandoverOrdersReportRowDTO[];
+}
+export interface CourierHandoverItemsReportRowDTO {
+    itemName: string;
+    sku: string | null;
+    size: string;
+    color: string;
+    quality: string;
+    unit: number;
+}
+export interface CourierHandoverItemsReportDTO {
+    rows: CourierHandoverItemsReportRowDTO[];
+}
 export interface MarginWaterfallStepDTO {
     label: string;
     value: number;

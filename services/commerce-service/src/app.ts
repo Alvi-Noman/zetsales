@@ -18,6 +18,7 @@ import suppliersRoutes from './routes/suppliersRoutes.js';
 import purchaseOrdersRoutes from './routes/purchaseOrdersRoutes.js';
 import customerRoutes from './routes/customerRoutes.js';
 import analyticsRoutes from './routes/analyticsRoutes.js';
+import reportsRoutes from './routes/reportsRoutes.js';
 import callCenterRoutes from './routes/callCenterRoutes.js';
 import adPerformanceRoutes from './routes/adPerformanceRoutes.js';
 import adAccountsRoutes from './routes/adAccountsRoutes.js';
@@ -110,6 +111,7 @@ const commerceRouters = [
   customerRoutes,
   ordersRoutes,
   analyticsRoutes,
+  reportsRoutes,
   callCenterRoutes,
   adPerformanceRoutes,
   adAccountsRoutes,

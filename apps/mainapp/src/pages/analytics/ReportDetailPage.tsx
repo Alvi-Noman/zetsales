@@ -1,17 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Download, Printer } from "lucide-react";
-import type { AnalyticsCardKey, StoreDTO } from "@zetsales/shared";
-import { listStores } from "../../lib/commerceApi";
+import type { StoreDTO } from "@zetsales/shared";
+import { listStores, listWarehouses, type WarehouseDTO } from "../../lib/commerceApi";
 import { AnalyticsFilterBar } from "../../components/analytics/AnalyticsFilterBar";
 import { RankedTable } from "../../components/analytics/charts/RankedTable";
 import { ReportPrintView } from "../../components/analytics/ReportPrintView";
-import {
-  REPORTS_LIST,
-  getReportFetcher,
-  getReportTable,
-  type ReportTable,
-} from "../../analytics/reportsRegistry";
+import { REPORTS_LIST, fetchReportTable, type ReportKey, type ReportTable } from "../../analytics/reportsRegistry";
 import { toAnalyticsQuery } from "../../analytics/query";
 import { downloadCsv } from "../../lib/csvExport";
 import { formatRangeLabel, type CustomDateRange, type DateRangeKey } from "../../components/orders/dateRange";
@@ -22,12 +17,17 @@ export function ReportDetailPage() {
   const [dateRange, setDateRange] = useState<DateRangeKey>("last30");
   const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
   const [storeId, setStoreId] = useState("all");
+  const [warehouseId, setWarehouseId] = useState("all");
   const [stores, setStores] = useState<StoreDTO[]>([]);
+  const [warehouses, setWarehouses] = useState<WarehouseDTO[]>([]);
   const [table, setTable] = useState<ReportTable | null>(null);
   const [printOpen, setPrintOpen] = useState(false);
 
+  const entry = REPORTS_LIST.find((r) => r.key === reportKey);
+
   useEffect(() => {
     void listStores().then(setStores);
+    void listWarehouses().then((res) => setWarehouses(res.warehouses));
   }, []);
 
   const query = useMemo(
@@ -35,17 +35,14 @@ export function ReportDetailPage() {
     [dateRange, customRange, storeId],
   );
 
-  const entry = REPORTS_LIST.find((r) => r.key === reportKey);
-  const fetcher = entry ? getReportFetcher(entry.key) : null;
-
   useEffect(() => {
-    if (!entry || !fetcher) return;
+    if (!entry) return;
     setTable(null);
-    void fetcher(query).then((data) => setTable(getReportTable(entry.key, data)));
+    void fetchReportTable(entry.key as ReportKey, entry.needsWarehouseFilter ? { ...query, warehouseId } : query).then(setTable);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entry?.key, query.range, query.from, query.to, query.storeId]);
+  }, [entry?.key, query.range, query.from, query.to, query.storeId, warehouseId]);
 
-  if (!entry || !fetcher) {
+  if (!entry) {
     return (
       <div className="zs-page flex items-center justify-center gap-2 text-center">
         <p className="text-sm font-medium text-slate-600">This report doesn't exist.</p>
@@ -79,18 +76,18 @@ export function ReportDetailPage() {
               disabled={!table || table.rows.length === 0}
               className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <Download size={14} /> Export CSV
+              <Download size={14} /> Excel Download
             </button>
             <button
               onClick={() => setPrintOpen(true)}
               disabled={!table}
               className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <Printer size={14} /> Print / PDF (A4)
+              <Printer size={14} /> PDF Download
             </button>
           </div>
         </div>
-        <div className="mt-4">
+        <div className="mt-4 flex flex-wrap items-center gap-2.5">
           <AnalyticsFilterBar
             dateRange={dateRange}
             onDateRangeChange={setDateRange}
@@ -100,6 +97,20 @@ export function ReportDetailPage() {
             onStoreIdChange={setStoreId}
             stores={stores}
           />
+          {entry.needsWarehouseFilter && (
+            <select
+              value={warehouseId}
+              onChange={(e) => setWarehouseId(e.target.value)}
+              className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700"
+            >
+              <option value="all">All Warehouse</option>
+              {warehouses.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
 
