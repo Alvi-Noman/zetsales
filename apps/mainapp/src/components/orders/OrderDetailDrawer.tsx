@@ -136,6 +136,16 @@ const TERMINAL_STAGES = [
   "Cancelled",
 ];
 const CALL_LOCK_STAGES: OrderStage[] = ["Pending", "Flagged", "On Hold"];
+// Matches LINE_ITEM_EDITABLE_STAGES server-side (ordersController.ts) — editable while the order
+// still physically lives in the warehouse, before or after confirmation, but not once it's shipped
+// and its contents are physically fixed.
+const LINE_ITEM_EDITABLE_STAGES: OrderStage[] = [
+  "Pending",
+  "Flagged",
+  "Confirmed",
+  "Processing",
+  "Ready for Pickup",
+];
 const PRIORITY_ELIGIBLE_STAGES: OrderStage[] = [
   "Pending",
   "Flagged",
@@ -1677,8 +1687,7 @@ export function OrderDetailDrawer({
                           {detail.currency}{" "}
                           {(li.price * li.quantity).toLocaleString()}
                         </span>
-                        {(detail.stage === "Pending" ||
-                          detail.stage === "Flagged") &&
+                        {LINE_ITEM_EDITABLE_STAGES.includes(detail.stage) &&
                           detail.lineItems.length > 1 && (
                             <button
                               onClick={() => void removeLineItem(i)}
@@ -1699,7 +1708,7 @@ export function OrderDetailDrawer({
                     </div>
                   ))}
                 </div>
-                {(detail.stage === "Pending" || detail.stage === "Flagged") && (
+                {LINE_ITEM_EDITABLE_STAGES.includes(detail.stage) && (
                   <button
                     onClick={openAddProduct}
                     disabled={!!lockedByOther}

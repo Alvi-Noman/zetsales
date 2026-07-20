@@ -2035,11 +2035,18 @@ const upsellSchema = z.object({
   quantity: z.number().int().min(1).max(50),
 });
 
-// Restricted to Pending/Flagged — before stock ever gets reserved for this order (that only starts
-// happening at confirm time, see applyOutOfStockPolicy above). Adding a product here just means the
-// existing fresh-reservation check already re-reads lineItems fresh at confirm time, so the upsold
-// item gets correctly stock-gated for free the moment the agent does confirm; retroactively
-// reserving stock for an *already*-confirmed order is a materially harder problem this sidesteps.
+// Editable while an order still physically lives in the warehouse — before confirmation
+// (Pending/Flagged) or after, while it's still sitting there waiting to be packed and handed to a
+// courier (Confirmed/Processing/Ready for Pickup). Once it's actually Shipped or later, the parcel
+// is out the door and its contents are physically fixed — editing at that point wouldn't reflect
+// what's really in the box.
+const LINE_ITEM_EDITABLE_STAGES: OrderStage[] = ['Pending', 'Flagged', 'Confirmed', 'Processing', 'Ready for Pickup'];
+
+// Adding a product to an order that already has stock reserved (Confirmed and later, see
+// resolveInventoryState) must reserve stock for the new line item too, the same way confirming
+// reserves every line item — otherwise `reserved` would silently undercount what this order is
+// actually holding, and the upsold item would look "free" to every other order competing for the
+// same stock. Pending/Flagged orders have nothing reserved yet, so nothing to do there.
 export async function upsellOrder(req: AuthenticatedRequest, res: Response) {
   const parsed = upsellSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -2054,8 +2061,8 @@ export async function upsellOrder(req: AuthenticatedRequest, res: Response) {
     res.status(404).json({ success: false, message: 'Order not found' });
     return;
   }
-  if (!['Pending', 'Flagged'].includes(current.stage)) {
-    res.status(400).json({ success: false, message: 'Products can only be added before the order is confirmed.' });
+  if (!LINE_ITEM_EDITABLE_STAGES.includes(current.stage)) {
+    res.status(400).json({ success: false, message: 'Products can only be added before the order ships.' });
     return;
   }
 
@@ -2085,6 +2092,11 @@ export async function upsellOrder(req: AuthenticatedRequest, res: Response) {
   const total = Math.max(0, subtotal + (current.shippingFee ?? 0) - (current.discount ?? 0));
   const now = new Date();
 
+  const inventoryState = resolveInventoryState(current.stage, current.heldFromStage);
+  if (inventoryState === 'reserved') {
+    await applyInventoryStageEffect(tenantId, [{ sku: lineItem.sku, variant: lineItem.variant, quantity: lineItem.quantity }], 'none', 'reserved');
+  }
+
   const update: Record<string, unknown> = {
     $push: {
       lineItems: lineItem,
@@ -2105,13 +2117,13 @@ export async function upsellOrder(req: AuthenticatedRequest, res: Response) {
   res.json({ success: true, order: dto });
 }
 
-// The removal counterpart to upsellOrder — same Pending/Flagged-only gate (stock isn't reserved
-// yet, so there's nothing to release), same server-recomputed subtotal/total. Line items have no
-// stable id of their own (see OrderLineItemDTO), so the index the drawer is already keying its
-// list by is the only handle available; re-reading the order fresh here means that index is always
-// resolved against the current array, not a stale client copy. Always leaves at least one item —
-// removing the last one isn't "edit the order," it's "cancel the order," which already has its own
-// flow.
+// The removal counterpart to upsellOrder — same editable-stages gate, and symmetrically releases
+// whatever reservation the removed line item was holding (see upsellOrder for why the reserve side
+// exists). Line items have no stable id of their own (see OrderLineItemDTO), so the index the
+// drawer is already keying its list by is the only handle available; re-reading the order fresh
+// here means that index is always resolved against the current array, not a stale client copy.
+// Always leaves at least one item — removing the last one isn't "edit the order," it's "cancel the
+// order," which already has its own flow.
 export async function removeOrderLineItem(req: AuthenticatedRequest, res: Response) {
   const index = Number(req.params.index);
   if (!Number.isInteger(index) || index < 0) {
@@ -2126,8 +2138,8 @@ export async function removeOrderLineItem(req: AuthenticatedRequest, res: Respon
     res.status(404).json({ success: false, message: 'Order not found' });
     return;
   }
-  if (!['Pending', 'Flagged'].includes(current.stage)) {
-    res.status(400).json({ success: false, message: 'Products can only be removed before the order is confirmed.' });
+  if (!LINE_ITEM_EDITABLE_STAGES.includes(current.stage)) {
+    res.status(400).json({ success: false, message: 'Products can only be removed before the order ships.' });
     return;
   }
   const lineItems: any[] = current.lineItems ?? [];
@@ -2144,6 +2156,11 @@ export async function removeOrderLineItem(req: AuthenticatedRequest, res: Respon
   const subtotal = lineItems.reduce((sum, li) => sum + li.price * li.quantity, 0);
   const total = Math.max(0, subtotal + (current.shippingFee ?? 0) - (current.discount ?? 0));
   const now = new Date();
+
+  const inventoryState = resolveInventoryState(current.stage, current.heldFromStage);
+  if (inventoryState === 'reserved') {
+    await applyInventoryStageEffect(tenantId, [{ sku: removed.sku, variant: removed.variant, quantity: removed.quantity }], 'reserved', 'none');
+  }
 
   const update: Record<string, unknown> = {
     $set: { lineItems, subtotal, total, updatedAt: now },
