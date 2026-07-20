@@ -23,6 +23,7 @@ import type {
   OrderStatsDTO,
   OrderTabKey,
   OrderTrendsDTO,
+  ProductRankingRowDTO,
   StoreDTO,
 } from "@zetsales/shared";
 import {
@@ -32,10 +33,12 @@ import {
   listProducts,
   listStores,
 } from "../../lib/commerceApi";
+import { getTopProducts } from "../../lib/analyticsApi";
 import { useAuth } from "../../context/AuthContext";
 import { HomeKpiCard } from "../../components/home/HomeKpiCard";
 import { ChannelOverviewCard } from "../../components/home/ChannelOverviewCard";
 import { InitialStoreEmptyState } from "../../components/home/InitialStoreEmptyState";
+import { TopProductsCard } from "../../components/home/TopProductsCard";
 import { AppBlock } from "../../components/apps/AppBlock";
 import { STAGE_TONE, STAGE_LABEL } from "../../components/orders/orderTone";
 import { DateRangeMenu } from "../../components/orders/DateRangeMenu";
@@ -127,6 +130,9 @@ export function HomePage() {
   const [attentionOrders, setAttentionOrders] = useState<OrderDTO[] | null>(
     null,
   );
+  const [topProducts, setTopProducts] = useState<ProductRankingRowDTO[] | null>(
+    null,
+  );
   const [dateRange, setDateRange] = useState<DateRangeKey>("today");
   const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
   const [storeFilter, setStoreFilter] = useState<string>("all");
@@ -197,6 +203,21 @@ export function HomePage() {
         setAttentionOrders(res.orders);
       } catch {
         setAttentionOrders([]);
+      }
+    })();
+    void (async () => {
+      setTopProducts(null);
+      try {
+        const ranking = await getTopProducts({
+          range: dateRange,
+          from: dateRange === "custom" ? customRange?.from : undefined,
+          to: dateRange === "custom" ? customRange?.to : undefined,
+          storeId,
+          limit: 6,
+        });
+        setTopProducts(ranking.rows);
+      } catch {
+        setTopProducts([]);
       }
     })();
   }, [dateRange, customRange, storeFilter]);
@@ -471,6 +492,13 @@ export function HomePage() {
             ))}
           </div>
         </section>
+
+        <TopProductsCard
+          rows={topProducts}
+          formatMoney={formatMoney}
+          formatCount={formatCount}
+          onViewAll={() => navigate("/analytics/topProducts")}
+        />
 
         <div className="grid grid-cols-1 gap-5 xl:grid-cols-5">
           <section className="xl:col-span-3">
