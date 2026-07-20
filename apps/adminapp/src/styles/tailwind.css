@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  .zs-card {
+    @apply rounded-xl border border-slate-800 bg-slate-900/60;
+  }
+
+  .zs-card-hover {
+    @apply transition-colors hover:border-slate-700 hover:bg-slate-900;
+  }
+}
+
+html {
+  overflow-x: hidden;
+  color-scheme: dark;
+}

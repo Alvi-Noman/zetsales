@@ -12,6 +12,7 @@
     "postinstall": "node -e \"if(!process.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD) require('child_process').execSync('playwright install chromium', {stdio: 'inherit'})\""
   },
   "dependencies": {
+    "@sentry/node": "^8.40.0",
     "@zetsales/config": "workspace:*",
     "@zetsales/shared": "workspace:*",
     "axios": "^1.11.0",
@@ -29,6 +30,7 @@
     "playwright-extra": "^4.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
     "winston": "^3.17.0",
+    "winston-transport": "^4.9.0",
     "zod": "^4.0.14"
   },
   "devDependencies": {

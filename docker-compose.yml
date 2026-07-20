@@ -11,6 +11,7 @@ services:
       COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
       FRONTEND_URL: ${PUBLIC_APP_URL:-http://localhost:3000}
       WORKSPACE_ROOT_DOMAIN: ${WORKSPACE_ROOT_DOMAIN:-}
+      ADMIN_API_TOKEN: ${ADMIN_API_TOKEN:-}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000,http://localhost:8081,http://127.0.0.1:3000,http://149.28.135.115:3000}
     working_dir: /app/services/auth-service
     ports:
@@ -110,6 +111,39 @@ services:
       - api-gateway
     restart: unless-stopped
 
+  adminapp:
+    build:
+      context: .
+      dockerfile: apps/adminapp/Dockerfile
+      args:
+        VITE_ADMIN_API_TOKEN: ${ADMIN_API_TOKEN:-}
+    environment:
+      NODE_ENV: production
+    depends_on:
+      - api-gateway
+    restart: unless-stopped
+
+  uptime-monitor:
+    build:
+      context: .
+      dockerfile: services/uptime-monitor/Dockerfile
+    environment:
+      NODE_ENV: production
+      CHECK_INTERVAL_MS: ${MONITOR_CHECK_INTERVAL_MS:-300000}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      AUTH_SERVICE_HEALTH_URL: http://auth-service:3001/health
+      COMMERCE_SERVICE_HEALTH_URL: http://commerce-service:3002/health
+      MESSAGING_SERVICE_HEALTH_URL: http://messaging-service:3003/health
+      MAINAPP_URL: http://mainapp/login
+      ADMINAPP_URL: http://adminapp
+    depends_on:
+      - mainapp
+      - adminapp
+      - auth-service
+      - commerce-service
+      - messaging-service
+    restart: unless-stopped
+
   caddy:
     image: caddy:2-alpine
     ports:
@@ -121,6 +155,7 @@ services:
       - caddy_config:/config
     depends_on:
       - mainapp
+      - adminapp
     restart: unless-stopped
 
 volumes:

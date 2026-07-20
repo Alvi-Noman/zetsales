@@ -6,6 +6,7 @@ import cors from 'cors';
 
 import authRoutes from './routes/authRoutes.js';
 import teamRoutes from './routes/teamRoutes.js';
+import adminRoutes from './routes/adminRoutes.js';
 import logger from './utils/logger.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -13,7 +14,7 @@ const app: Application = express();
 
 app.set('trust proxy', 1);
 
-const CORS_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://localhost:8080')
+const CORS_ORIGINS = (process.env.CORS_ORIGIN || 'http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://localhost:8080,http://localhost:3010,http://127.0.0.1:3010')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
@@ -103,6 +104,7 @@ app.use('/api/v1', apiLimiter);
 // Mount routes
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/auth/team', teamRoutes);
+app.use('/api/v1/admin', adminRoutes);
 
 if (!isProd) {
   app.use('/api/v1', (req: Request, res: Response) => {

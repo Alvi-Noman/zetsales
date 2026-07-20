@@ -9,6 +9,15 @@ zetsales.com, www.zetsales.com, app.zetsales.com, zetsales.online, www.zetsales.
   reverse_proxy mainapp:80
 }
 
+# Platform-operator console — a literal, explicitly-listed hostname (not part of the *.zetsales.com
+# wildcard below), so it gets its own normal ACME certificate rather than going through the
+# per-tenant on-demand TLS gate. "admin" is already reserved in workspaceDomain.ts's
+# RESERVED_SUBDOMAINS list, so no real tenant can ever claim this slug and collide with it.
+admin.zetsales.com {
+  encode zstd gzip
+  reverse_proxy adminapp:80
+}
+
 :80 {
   @tenant host *.zetsales.com
   handle @tenant {

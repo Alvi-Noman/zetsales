@@ -109,6 +109,7 @@ app.use('/api/v1/commerce/webhooks', makeProxy(COMMERCE_TARGET, 'commerce-servic
 app.use('/api/v1/messaging/webhooks', makeProxy(MESSAGING_TARGET, 'messaging-service-webhooks', false));
 
 app.use('/api/v1/auth', makeProxy(AUTH_TARGET, 'auth-service', false));
+app.use('/api/v1/admin', makeProxy(AUTH_TARGET, 'auth-service-admin', false));
 app.use('/api/v1/commerce', makeProxy(COMMERCE_TARGET, 'commerce-service', false));
 app.use('/api/v1/messaging', makeProxy(MESSAGING_TARGET, 'messaging-service', false));
 // OAuth 2.0 authorization/token endpoints for the app platform — served by commerce-service but
