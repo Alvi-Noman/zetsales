@@ -19,6 +19,7 @@ import {
   Settings,
   Rocket,
   UserRound,
+  Blocks,
   type LucideIcon,
 } from 'lucide-react';
 import type { ModuleKey } from '@zetsales/shared';
@@ -99,15 +100,6 @@ export const NAV_ITEMS: NavItem[] = [
 export const NAV_FOOTER_ITEMS: NavItem[] = [
   { label: 'Team', path: '/team', icon: ShieldCheck, module: 'team' },
   { label: 'Integrations', path: '/integrations', icon: Puzzle, module: 'integrations' },
-  {
-    label: 'Settings',
-    path: '/settings',
-    icon: Settings,
-    module: 'settings',
-    children: [
-      { label: 'General', path: '/settings/general' },
-      { label: 'Branding', path: '/settings/branding' },
-      { label: 'Plugins', path: '/settings/apps' },
-    ],
-  },
+  { label: 'Plugins', path: '/plugins', icon: Blocks, module: 'settings' },
+  { label: 'Settings', path: '/settings/general', icon: Settings, module: 'settings' },
 ];

@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { AppShell } from "./layouts/AppShell";
+import { SettingsLayout } from "./layouts/SettingsLayout";
 import { OrdersPage } from "./pages/orders/OrdersPage";
 import { DispatchPage } from "./pages/dispatch/DispatchPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
@@ -39,6 +40,8 @@ import { AppsPage } from "./pages/settings/AppsPage";
 import { AppDetailPage } from "./pages/settings/AppDetailPage";
 import { GeneralSettingsPage } from "./pages/settings/GeneralSettingsPage";
 import { BrandingSettingsPage } from "./pages/settings/BrandingSettingsPage";
+import { StoreDomainSettingsPage } from "./pages/settings/StoreDomainSettingsPage";
+import { SecuritySettingsPage } from "./pages/settings/SecuritySettingsPage";
 import { ZetSalesAdsPage } from "./pages/zetsalesAds/ZetSalesAdsPage";
 import { HrmPage } from "./pages/hrm/HrmPage";
 import { PunchPage } from "./pages/hrm/PunchPage";
@@ -66,9 +69,11 @@ routeEntries.delete("/analytics");
 routeEntries.delete("/ad-performance");
 routeEntries.delete("/call-center");
 routeEntries.delete("/delivery-partners");
-routeEntries.delete("/settings/apps");
+routeEntries.delete("/plugins");
 routeEntries.delete("/settings/general");
 routeEntries.delete("/settings/branding");
+routeEntries.delete("/settings/domain");
+routeEntries.delete("/settings/security");
 routeEntries.delete("/zetsales-ads");
 routeEntries.delete("/hrm");
 
@@ -185,10 +190,8 @@ function AppRoutes() {
         <Route path="/call-center" element={<CallCenterPage />} />
         <Route path="/zetsales-ads" element={<ZetSalesAdsPage />} />
         <Route path="/hrm" element={<HrmPage />} />
-        <Route path="/settings/general" element={<GeneralSettingsPage />} />
-        <Route path="/settings/branding" element={<BrandingSettingsPage />} />
-        <Route path="/settings/apps" element={<AppsPage />} />
-        <Route path="/settings/apps/:appKey" element={<AppDetailPage />} />
+        <Route path="/plugins" element={<AppsPage />} />
+        <Route path="/plugins/:appKey" element={<AppDetailPage />} />
         <Route path="/apps/:appKey" element={<AppHostPage />} />
         {[...routeEntries.entries()].map(([path, label]) => (
           <Route
@@ -198,6 +201,13 @@ function AppRoutes() {
           />
         ))}
         <Route path="*" element={<Navigate to="/home" replace />} />
+      </Route>
+      <Route element={<SettingsLayout />}>
+        <Route path="/settings" element={<Navigate to="/settings/general" replace />} />
+        <Route path="/settings/general" element={<GeneralSettingsPage />} />
+        <Route path="/settings/branding" element={<BrandingSettingsPage />} />
+        <Route path="/settings/domain" element={<StoreDomainSettingsPage />} />
+        <Route path="/settings/security" element={<SecuritySettingsPage />} />
       </Route>
     </Routes>
   );

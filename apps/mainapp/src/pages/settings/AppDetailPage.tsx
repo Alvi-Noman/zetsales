@@ -234,7 +234,7 @@ export function AppDetailPage() {
     <div className="zs-page">
       <div className="zs-page-header">
         <button
-          onClick={() => navigate("/settings/apps")}
+          onClick={() => navigate("/plugins")}
           className="flex items-center gap-1.5 text-xs font-medium text-slate-400 hover:text-slate-700"
         >
           <ArrowLeft size={13} /> All plugins

@@ -75,7 +75,7 @@ export function AppsPage() {
                     </p>
                   </div>
                   <button
-                    onClick={() => navigate(`/settings/apps/${manifest.key}`)}
+                    onClick={() => navigate(`/plugins/${manifest.key}`)}
                     className="mt-4 inline-flex w-fit items-center gap-1.5 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
                   >
                     <Eye size={13} /> View details

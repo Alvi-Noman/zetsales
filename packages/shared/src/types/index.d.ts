@@ -133,6 +133,19 @@ export interface BusinessDTO {
     currency: string;
     installedPlugins: ModuleKey[];
 }
+export interface BusinessProfileDTO {
+    id: string;
+    name: string;
+    businessType: BusinessType | null;
+    phone: string | null;
+    channels: SalesChannel[];
+    monthlyOrders: string | null;
+    teamSize: string | null;
+    currency: string;
+    businessSlug: string | null;
+    businessUrl: string | null;
+}
+export type UpdateBusinessProfileInput = Partial<Pick<BusinessProfileDTO, 'name' | 'businessType' | 'phone' | 'channels' | 'monthlyOrders' | 'teamSize'>>;
 export type StorePlatform = 'shopify' | 'woocommerce' | 'csv';
 export type StoreStatus = 'connected' | 'error' | 'pending';
 export type StoreConnectionMethod = 'oauth' | 'token' | 'keys' | 'manual';

@@ -327,6 +327,30 @@ export interface BusinessDTO {
   installedPlugins: ModuleKey[];
 }
 
+// The editable business-profile shape shown in Settings → General — a superset of the fields
+// UserDTO exposes (which only has businessType, for role/plugin-gating purposes elsewhere), all of
+// which are captured once at onboarding but weren't editable again anywhere until this settings
+// redesign. currency/businessSlug/businessUrl are shown but not editable here — there's no
+// multi-currency support anywhere in the system (every order/product hardcodes BDT), and changing
+// a live subdomain has no supporting endpoint (it's baked into auth cookies, DNS, and every tenant
+// URL elsewhere) — both would be fake controls with nothing real behind them.
+export interface BusinessProfileDTO {
+  id: string;
+  name: string;
+  businessType: BusinessType | null;
+  phone: string | null;
+  channels: SalesChannel[];
+  monthlyOrders: string | null;
+  teamSize: string | null;
+  currency: string;
+  businessSlug: string | null;
+  businessUrl: string | null;
+}
+
+export type UpdateBusinessProfileInput = Partial<
+  Pick<BusinessProfileDTO, 'name' | 'businessType' | 'phone' | 'channels' | 'monthlyOrders' | 'teamSize'>
+>;
+
 // 'csv' is a synthetic platform for the generic "CSV Import" bucket a tenant gets when they import
 // orders not tied to any real storefront — see getOrCreateCsvImportStore in storesController.ts.
 export type StorePlatform = 'shopify' | 'woocommerce' | 'csv';

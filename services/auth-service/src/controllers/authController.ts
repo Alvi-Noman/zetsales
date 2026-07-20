@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { env } from '@zetsales/config/validateEnv';
 import { getDb } from '../utils/db.js';
 import type { AuthenticatedRequest } from '../middleware/authMiddleware.js';
-import type { TeamRole, UserDTO } from '@zetsales/shared';
+import type { BusinessProfileDTO, TeamRole, UserDTO } from '@zetsales/shared';
 import {
   isReservedSubdomain,
   slugifyBusinessName,
@@ -218,9 +218,21 @@ export async function getMe(req: AuthenticatedRequest, res: Response) {
   }
 }
 
-const updateBusinessSchema = z.object({
-  name: z.string().trim().min(2, 'Store name is required').max(80),
-});
+// Every field optional (a PATCH can touch just one), but at least one must actually be present —
+// enforced with .refine below rather than in the route, so the "nothing to update" case gets a
+// real validation message instead of silently no-op'ing.
+const updateBusinessSchema = z
+  .object({
+    name: z.string().trim().min(2, 'Store name is required').max(80).optional(),
+    businessType: z
+      .enum(['I manufacture my own products', 'I import my products', 'I buy from local wholesalers', 'I dropship — I never hold stock'])
+      .optional(),
+    phone: z.string().trim().min(6, 'Enter a valid phone number').optional(),
+    channels: z.array(z.enum(['Facebook', 'Instagram', 'WhatsApp', 'Website', 'Physical Store'])).min(1, 'Select at least one channel').optional(),
+    monthlyOrders: z.string().trim().min(1).optional(),
+    teamSize: z.string().trim().min(1).optional(),
+  })
+  .refine((data) => Object.keys(data).length > 0, { message: 'Nothing to update' });
 
 export async function updateBusiness(req: AuthenticatedRequest, res: Response) {
   try {
@@ -232,14 +244,14 @@ export async function updateBusiness(req: AuthenticatedRequest, res: Response) {
 
     const parsed = updateBusinessSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ success: false, message: parsed.error.issues[0]?.message ?? 'Invalid store name' });
+      res.status(400).json({ success: false, message: parsed.error.issues[0]?.message ?? 'Invalid update' });
       return;
     }
 
     const db = getDb();
     await db.collection('businesses').updateOne(
       { _id: new ObjectId(authUser.tenantId) },
-      { $set: { name: parsed.data.name, updatedAt: new Date() } }
+      { $set: { ...parsed.data, updatedAt: new Date() } }
     );
 
     const user = await db.collection('users').findOne({ _id: new ObjectId(authUser.id) });
@@ -250,6 +262,80 @@ export async function updateBusiness(req: AuthenticatedRequest, res: Response) {
 
     const userDto = await toUserDto(user as any);
     res.status(200).json({ success: true, user: userDto });
+  } catch (error) {
+    res.status(500).json({ success: false, message: (error as Error).message });
+  }
+}
+
+export async function getBusinessProfile(req: AuthenticatedRequest, res: Response) {
+  try {
+    const authUser = req.user;
+    if (!authUser?.tenantId) {
+      res.status(401).json({ success: false, message: 'Unauthorized' });
+      return;
+    }
+
+    const business = await getDb().collection('businesses').findOne({ _id: new ObjectId(authUser.tenantId) });
+    if (!business) {
+      res.status(404).json({ success: false, message: 'Business not found' });
+      return;
+    }
+
+    const profile: BusinessProfileDTO = {
+      id: business._id.toString(),
+      name: business.name,
+      businessType: business.businessType ?? null,
+      phone: business.phone ?? null,
+      channels: business.channels ?? [],
+      monthlyOrders: business.monthlyOrders ?? null,
+      teamSize: business.teamSize ?? null,
+      currency: business.currency ?? 'BDT',
+      businessSlug: business.slug ?? null,
+      businessUrl: business.slug ? workspaceUrlForSlug(business.slug) : null,
+    };
+    res.status(200).json({ success: true, profile });
+  } catch (error) {
+    res.status(500).json({ success: false, message: (error as Error).message });
+  }
+}
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, 'Current password is required'),
+  newPassword: z.string().min(8, 'New password must be at least 8 characters'),
+});
+
+export async function changePassword(req: AuthenticatedRequest, res: Response) {
+  try {
+    const authUser = req.user;
+    if (!authUser) {
+      res.status(401).json({ success: false, message: 'Unauthorized' });
+      return;
+    }
+
+    const parsed = changePasswordSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ success: false, message: parsed.error.issues[0]?.message ?? 'Invalid password' });
+      return;
+    }
+
+    const db = getDb();
+    const user = await db.collection('users').findOne({ _id: new ObjectId(authUser.id) });
+    if (!user) {
+      res.status(401).json({ success: false, message: 'Unauthorized' });
+      return;
+    }
+
+    const match = await bcrypt.compare(parsed.data.currentPassword, user.password);
+    if (!match) {
+      res.status(400).json({ success: false, message: 'Current password is incorrect' });
+      return;
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(parsed.data.newPassword, salt);
+    await db.collection('users').updateOne({ _id: user._id }, { $set: { password: hashedPassword, updatedAt: new Date() } });
+
+    res.status(200).json({ success: true, message: 'Password updated.' });
   } catch (error) {
     res.status(500).json({ success: false, message: (error as Error).message });
   }
