@@ -9,7 +9,11 @@ import type {
   PrintPaperSize,
 } from "@zetsales/shared";
 import { useAuth } from "../../context/AuthContext";
-import { ensureOrderInvoices, getBrandingSettings } from "../../lib/commerceApi";
+import {
+  ensureOrderInvoices,
+  getBrandingSettings,
+  markOrdersPrinted,
+} from "../../lib/commerceApi";
 import { useToast } from "../ui/ToastProvider";
 import { formatAbsoluteDateTime } from "./time";
 import { resolveBin, type BinLookup } from "./binLookup";
@@ -999,7 +1003,7 @@ export function PrintOrderModal({
     if (printableOrders.length === 0) return;
     setPrinting(true);
     try {
-      const { orders: printedOrders } = await ensureOrderInvoices(
+      const { orders: printedOrders } = await markOrdersPrinted(
         printableOrders.map((o) => o.id),
       );
       const byId = new Map(printedOrders.map((order) => [order.id, order]));

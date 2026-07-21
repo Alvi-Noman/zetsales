@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import type { OrderDTO } from "@zetsales/shared";
 import {
+  bulkUpdateOrders,
   getBrandingSettings,
   getOrderInventorySnapshot,
   listOrders,
@@ -221,6 +222,7 @@ export function PrintOutPage() {
   const [labelModalOpen, setLabelModalOpen] = useState(false);
   const [invoiceFormatModalOpen, setInvoiceFormatModalOpen] = useState(false);
   const [preparingPrint, setPreparingPrint] = useState(false);
+  const [markingReadyForPickup, setMarkingReadyForPickup] = useState(false);
   const [printingPo, setPrintingPo] = useState<PurchaseOrderDTO | null>(null);
   const [invoiceFormat, setInvoiceFormat] = useState<InvoiceFormat>(
     readStoredInvoiceFormat,
@@ -432,6 +434,29 @@ export function PrintOutPage() {
     setOrderModalOpen(true);
   };
 
+  // Only meaningful for the "packing" source of the packing-slip/combined tasks — those rows are
+  // already filtered to orders in the Processing (packing) stage, so every selected id here is
+  // guaranteed eligible for this exact transition, same as stageFlow.ts's own Processing action.
+  const handleReadyForPickup = async () => {
+    const ids = selectedOrders.map((order) => order.id);
+    if (ids.length === 0) return;
+    setMarkingReadyForPickup(true);
+    try {
+      const res = await bulkUpdateOrders(ids, { stage: "Ready for Pickup" });
+      const successCount = res.results.filter((r) => r.success).length;
+      toast.push(
+        `Marked ${successCount} of ${ids.length} order${ids.length === 1 ? "" : "s"} ready for pickup.`,
+        successCount > 0 ? "success" : "info",
+      );
+      setSelectedIds(new Set());
+      void loadTaskRows(task);
+    } catch {
+      toast.push("Could not mark orders ready for pickup.", "info");
+    } finally {
+      setMarkingReadyForPickup(false);
+    }
+  };
+
   const selectedPoCount = purchaseOrders.filter((po) =>
     selectedIds.has(po.id),
   ).length;
@@ -534,6 +559,19 @@ export function PrintOutPage() {
                 }
                 options={PO_STATUS_OPTIONS}
               />
+            )}
+            {isPackingPrintTask && packingSource === "packing" && (
+              <button
+                type="button"
+                onClick={() => void handleReadyForPickup()}
+                disabled={selectedOrders.length === 0 || markingReadyForPickup}
+                className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Truck size={14} />
+                {markingReadyForPickup
+                  ? "Updating..."
+                  : `Ready for pickup (${selectedOrders.length})`}
+              </button>
             )}
             <button
               onClick={() => void handlePrimaryPrint()}
