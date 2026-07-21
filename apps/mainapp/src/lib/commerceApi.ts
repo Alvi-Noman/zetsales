@@ -919,8 +919,12 @@ export async function listOrders(params: ListOrdersParams = {}) {
   return res.data as { success: boolean; orders: OrderDTO[]; total: number; page: number; pageSize: number };
 }
 
-export async function listReadyToPrintOrders() {
-  const res = await api.get('/commerce/orders/ready-to-print');
+export async function listReadyToPrintOrders(
+  source?: 'packing' | 'readyForPickup' | 'both',
+) {
+  const res = await api.get('/commerce/orders/ready-to-print', {
+    params: source ? { source } : undefined,
+  });
   return res.data as { success: boolean; orders: OrderDTO[]; total: number };
 }
 

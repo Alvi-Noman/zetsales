@@ -82,7 +82,7 @@ const PRINT_TASKS: {
   {
     key: "invoice",
     title: "Only Print Invoice",
-    detail: "Packing orders that need invoices.",
+    detail: "Packing and ready-for-pickup orders that need invoices.",
     icon: FileText,
   },
   {
@@ -261,7 +261,7 @@ export function PrintOutPage() {
 
       const res =
         nextTask === "invoice"
-          ? await listReadyToPrintOrders()
+          ? await listReadyToPrintOrders(packingSource)
           : nextTask === "courierLabel"
             ? await listOrders({
                 tab: "courierBooked",
@@ -434,9 +434,9 @@ export function PrintOutPage() {
     setOrderModalOpen(true);
   };
 
-  // Both the invoice tab (listReadyToPrintOrders) and the packing-slip/combined tasks' "packing"
-  // source only ever show Processing-stage orders, so this filter is normally a no-op — kept as an
-  // explicit guard rather than trusting every selected id, in case that ever changes.
+  // Both the invoice tab and packing-slip/combined tasks share the same packing/readyForPickup/
+  // both source selector, so their lists can include Ready for Pickup orders too — only the
+  // Processing-stage ones within the current selection are actually eligible for this transition.
   const readyForPickupEligible = selectedOrders.filter(
     (order) => order.stage === "Processing",
   );
@@ -537,7 +537,7 @@ export function PrintOutPage() {
           </div>
 
           <div className="zs-toolbox-right">
-            {isPackingPrintTask && (
+            {(isPackingPrintTask || isInvoiceTask) && (
               <Select
                 value={packingSource}
                 onChange={(value) =>
@@ -564,8 +564,8 @@ export function PrintOutPage() {
                 options={PO_STATUS_OPTIONS}
               />
             )}
-            {(isInvoiceTask ||
-              (isPackingPrintTask && packingSource !== "readyForPickup")) && (
+            {(isInvoiceTask || isPackingPrintTask) &&
+              packingSource !== "readyForPickup" && (
               <button
                 type="button"
                 onClick={() => void handleReadyForPickup()}
@@ -749,14 +749,13 @@ export function PrintOutPage() {
                   helper={
                     isCourierLabelTask
                       ? "Ready-for-pickup parcels only."
-                      : isPackingPrintTask && packingSource === "packing"
-                        ? "Packing orders only."
-                        : isPackingPrintTask &&
-                            packingSource === "readyForPickup"
-                          ? "Ready-for-pickup orders only."
-                          : isPackingPrintTask
-                            ? "Packing and ready-for-pickup orders."
-                      : "Selected rows will print together."
+                      : isPackingPrintTask || isInvoiceTask
+                        ? packingSource === "packing"
+                          ? "Packing orders only."
+                          : packingSource === "readyForPickup"
+                            ? "Ready-for-pickup orders only."
+                            : "Packing and ready-for-pickup orders."
+                        : "Selected rows will print together."
                   }
                 />
                 <div className="grid grid-cols-[44px_1fr_1.3fr_0.9fr_0.7fr_0.8fr_0.8fr] border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
