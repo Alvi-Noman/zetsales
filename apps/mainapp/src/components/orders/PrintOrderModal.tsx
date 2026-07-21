@@ -158,8 +158,8 @@ function DocHeader({
           className={clsx(
             logoAspect === "horizontal"
               ? compact
-                ? "h-16 w-auto max-w-[140px]"
-                : "h-28 w-auto max-w-[240px]"
+                ? "h-12 w-auto max-w-[110px]"
+                : "h-20 w-auto max-w-[180px]"
               : compact
                 ? "h-14 w-14"
                 : "h-24 w-24",
