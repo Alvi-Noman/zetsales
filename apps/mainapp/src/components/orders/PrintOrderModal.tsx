@@ -97,11 +97,11 @@ const DOC_LABEL: Record<PrintDocType, string> = {
 };
 
 // Letterhead-style header shared by both documents — a business's own name is the one thing that
-// A square logo (the common case — most brand marks are drawn square) keeps today's fixed box
-// size. A horizontal/wordmark-style logo looks cramped at that same square box, since most of its
-// width goes unused — sized up instead so it reads at a comparable visual weight. Detected from the
-// image's own intrinsic dimensions once it loads (no such flag exists in Settings/Branding today),
-// defaulting to the square sizing until then so there's never a layout regression while unknown.
+// A square (or taller-than-wide) logo keeps today's fixed box size. Any logo wider than it is
+// tall looks cramped at that same square box, since most of its width goes unused — sized up
+// instead so it reads at a comparable visual weight. Detected from the image's own intrinsic
+// dimensions once it loads (no such flag exists in Settings/Branding today), defaulting to the
+// square sizing until then so there's never a layout regression while unknown.
 function useLogoAspect(src: string | null | undefined) {
   const [aspect, setAspect] = useState<"square" | "horizontal">("square");
   useEffect(() => {
@@ -109,7 +109,7 @@ function useLogoAspect(src: string | null | undefined) {
     let cancelled = false;
     const img = new Image();
     img.onload = () => {
-      if (!cancelled && img.naturalWidth / img.naturalHeight > 1.3) {
+      if (!cancelled && img.naturalWidth > img.naturalHeight) {
         setAspect("horizontal");
       }
     };
