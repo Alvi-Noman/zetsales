@@ -434,11 +434,18 @@ export function PrintOutPage() {
     setOrderModalOpen(true);
   };
 
-  // Only meaningful for the "packing" source of the packing-slip/combined tasks — those rows are
-  // already filtered to orders in the Processing (packing) stage, so every selected id here is
-  // guaranteed eligible for this exact transition, same as stageFlow.ts's own Processing action.
+  // The invoice tab's own list already mixes Confirmed and Processing (packing) orders together
+  // (listReadyToPrintOrders matches both, whichever hasn't had an invoice yet), and the packing-
+  // slip/combined tasks' "packing" source is Processing-only by construction — either way, only
+  // the Processing-stage orders within the current selection are eligible for this transition, so
+  // filter down to those rather than trusting every selected id (a Confirmed order selected
+  // alongside packing ones on the invoice tab must not get bulk-advanced by mistake).
+  const readyForPickupEligible = selectedOrders.filter(
+    (order) => order.stage === "Processing",
+  );
+
   const handleReadyForPickup = async () => {
-    const ids = selectedOrders.map((order) => order.id);
+    const ids = readyForPickupEligible.map((order) => order.id);
     if (ids.length === 0) return;
     setMarkingReadyForPickup(true);
     try {
@@ -560,17 +567,20 @@ export function PrintOutPage() {
                 options={PO_STATUS_OPTIONS}
               />
             )}
-            {isPackingPrintTask && packingSource === "packing" && (
+            {(isInvoiceTask ||
+              (isPackingPrintTask && packingSource !== "readyForPickup")) && (
               <button
                 type="button"
                 onClick={() => void handleReadyForPickup()}
-                disabled={selectedOrders.length === 0 || markingReadyForPickup}
+                disabled={
+                  readyForPickupEligible.length === 0 || markingReadyForPickup
+                }
                 className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Truck size={14} />
                 {markingReadyForPickup
                   ? "Updating..."
-                  : `Ready for pickup (${selectedOrders.length})`}
+                  : `Ready for pickup (${readyForPickupEligible.length})`}
               </button>
             )}
             <button
