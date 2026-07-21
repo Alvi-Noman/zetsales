@@ -13,6 +13,8 @@ services:
       WORKSPACE_ROOT_DOMAIN: ${WORKSPACE_ROOT_DOMAIN:-}
       ADMIN_API_TOKEN: ${ADMIN_API_TOKEN:-}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000,http://localhost:8081,http://127.0.0.1:3000,http://149.28.135.115:3000}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
     working_dir: /app/services/auth-service
     ports:
       - "3011:3001"
