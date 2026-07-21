@@ -47,7 +47,6 @@ import classicPdf from "../../assets/PDFs/Classic.pdf";
 import modernPdf from "../../assets/PDFs/Modern.pdf";
 import minimalPdf from "../../assets/PDFs/Minimal.pdf";
 import compactPdf from "../../assets/PDFs/Compact.pdf";
-import boldPdf from "../../assets/PDFs/Bold.pdf";
 import retailPdf from "../../assets/PDFs/Retail.pdf";
 import statementPdf from "../../assets/PDFs/Statement.pdf";
 
@@ -59,7 +58,6 @@ const FORMAT_PDF_URLS: Record<InvoiceFormat, string> = {
   Modern: modernPdf,
   Minimal: minimalPdf,
   Compact: compactPdf,
-  Bold: boldPdf,
   Retail: retailPdf,
   Statement: statementPdf,
 };
@@ -153,10 +151,6 @@ const INVOICE_FORMATS: {
   {
     value: "Compact",
     detail: "Dense spacing for batch printing and shorter paper trails.",
-  },
-  {
-    value: "Bold",
-    detail: "High-contrast headings and prominent payable amount.",
   },
   {
     value: "Retail",
@@ -1180,8 +1174,7 @@ function InvoiceFormatPreview({ format }: { format: InvoiceFormat }) {
   const fullPage = true;
   const retailLike = format === "Retail" || format === "Statement";
   const dense = format === "Compact" || retailLike;
-  const framed =
-    format === "Classic" || format === "Bold" || format === "Statement";
+  const framed = format === "Classic" || format === "Statement";
   const split = format === "Modern";
   const soft = format === "Minimal";
   const logoSide =
@@ -1190,7 +1183,6 @@ function InvoiceFormatPreview({ format }: { format: InvoiceFormat }) {
     format === "Modern" || retailLike ? "left" : "right";
   const barcodeSlot =
     format === "Compact" || retailLike ? "top" : "bottom";
-  const logoShape = format === "Bold" ? "square" : "circle";
   return (
     <div className="flex min-h-[170px] items-center justify-center rounded-md border border-white/80 bg-white p-3 shadow-sm">
       <div
@@ -1201,21 +1193,19 @@ function InvoiceFormatPreview({ format }: { format: InvoiceFormat }) {
             : barcodeSlot === "bottom"
               ? "h-28 w-36 flex-col gap-0.5"
               : "h-28 w-36 flex-col gap-1",
-          format === "Bold"
-            ? "border-slate-900 text-slate-900"
-            : "border-slate-400 text-slate-600",
+          "border-slate-400 text-slate-600",
         )}
       >
         <div className="flex shrink-0 items-start justify-between gap-2">
           {logoSide === "left" ? (
-            <LogoSkeleton shape={logoShape} />
+            <LogoSkeleton />
           ) : (
             <InvoiceLabelSkeleton align="left" />
           )}
           {titleSide === "right" ? (
             <InvoiceLabelSkeleton align="right" />
           ) : (
-            <LogoSkeleton shape={logoShape} />
+            <LogoSkeleton />
           )}
         </div>
 
@@ -1253,14 +1243,9 @@ function InvoiceFormatPreview({ format }: { format: InvoiceFormat }) {
   );
 }
 
-function LogoSkeleton({ shape }: { shape: "circle" | "square" }) {
+function LogoSkeleton() {
   return (
-    <div
-      className={clsx(
-        "h-4 w-4 shrink-0 border border-current opacity-80",
-        shape === "circle" ? "rounded-full" : "rounded-sm",
-      )}
-    />
+    <div className="h-4 w-4 shrink-0 rounded-full border border-current opacity-80" />
   );
 }
 

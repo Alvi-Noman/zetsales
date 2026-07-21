@@ -53,7 +53,6 @@ export type InvoiceFormat =
   | "Modern"
   | "Minimal"
   | "Compact"
-  | "Bold"
   | "Retail"
   | "Statement";
 
@@ -64,12 +63,11 @@ export type InvoiceFormat =
 function invoiceStyleTraits(style: InvoiceFormat) {
   const retailLike = style === "Retail" || style === "Statement";
   return {
-    framed: style === "Classic" || style === "Bold" || style === "Statement",
+    framed: style === "Classic" || style === "Statement",
     split: style === "Modern" || style === "Minimal",
     soft: style === "Minimal",
     dense: style === "Compact" || retailLike,
     logoRight: style === "Modern" || retailLike,
-    barcodeTop: style === "Compact" || retailLike,
   };
 }
 
@@ -134,8 +132,7 @@ function DocHeader({
           alt={displayName}
           className={clsx(
             compact ? "h-14 w-14" : "h-24 w-24",
-            "object-contain",
-            style === "Bold" ? "rounded-none" : "rounded",
+            "object-contain rounded",
           )}
         />
       ) : (
@@ -519,21 +516,15 @@ function CodCallout({ order }: { order: OrderDTO }) {
 function InvoiceBarcode({
   order,
   template,
-  top,
 }: {
   order: OrderDTO;
   template?: InvoiceTemplateDTO | null;
-  top?: boolean;
 }) {
   const showBarcode = template?.showBarcode !== false;
   const barcodeValue = order.invoiceNo ?? order.number;
   return (
-    <div
-      className={clsx(
-        "flex flex-col items-center border-dashed border-slate-200",
-        top ? "mb-4 border-b pb-4" : "mt-6 border-t pt-4",
-      )}
-    >
+    <div className="mt-6 flex flex-col items-center border-t border-dashed border-slate-200 pt-4">
+
       {showBarcode && (
         <>
           <div className="w-48">
@@ -604,18 +595,17 @@ function InvoiceBody({
   style: InvoiceFormat;
   logoUrl?: string | null;
 }) {
-  const { barcodeTop, split, dense } = invoiceStyleTraits(style);
+  const { split, dense } = invoiceStyleTraits(style);
   const itemsTable = split ? (
     <SplitItemsTable order={order} template={template} dense={dense} />
   ) : (
     <ItemsTable order={order} mode="price" template={template} style={style} />
   );
 
-  // Retail: barcode rides beside DocMeta's Customer/Payment grid at the top instead of anchoring
-  // the bottom, and the footer note stands alone at the very bottom instead of tagging along with
-  // the barcode — a distinct enough layout from the shared barcodeTop treatment (Compact/Statement)
-  // that it's its own composition rather than another boolean on invoiceStyleTraits.
-  if (style === "Retail") {
+  // Retail, Compact, and Statement all share this composition: barcode rides beside DocMeta's
+  // Customer/Payment grid at the top instead of anchoring the bottom, and the footer note stands
+  // alone at the very bottom instead of tagging along with the barcode.
+  if (style === "Retail" || style === "Compact" || style === "Statement") {
     return (
       <>
         <DocHeader
@@ -642,7 +632,7 @@ function InvoiceBody({
     );
   }
 
-  const content = (
+  return (
     <>
       <DocHeader
         businessName={businessName}
@@ -652,16 +642,11 @@ function InvoiceBody({
         style={style}
         logoUrl={logoUrl}
       />
-      {barcodeTop && <InvoiceBarcode order={order} template={template} top />}
       <DocMeta order={order} template={template} style={style} />
       {itemsTable}
       <InvoiceTotals order={order} />
-      {!barcodeTop && <InvoiceBarcode order={order} template={template} />}
+      <InvoiceBarcode order={order} template={template} />
     </>
-  );
-  if (style !== "Bold") return content;
-  return (
-    <div className="rounded-lg border-2 border-slate-900 p-3">{content}</div>
   );
 }
 
