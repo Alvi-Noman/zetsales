@@ -54,10 +54,12 @@ const CHANNEL_OPTIONS: {
 ];
 
 const MONTHLY_ORDERS_OPTIONS = [
-  "Under 50",
-  "50 - 200",
-  "200 - 1,000",
-  "1,000+",
+  "Under 100",
+  "100 - 300",
+  "300 - 1,000",
+  "1,000 - 3,000",
+  "3,000 - 5,000",
+  "5,000+",
 ];
 const TEAM_SIZE_OPTIONS = ["Just me", "2 - 5", "6 - 15", "16+"];
 
