@@ -9,6 +9,8 @@ import { ToastProvider } from "./components/ui/ToastProvider";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { LoginPage } from "./pages/auth/LoginPage";
 import { SignupPage } from "./pages/auth/SignupPage";
+import { ForgotPasswordPage } from "./pages/auth/ForgotPasswordPage";
+import { ResetPasswordPage } from "./pages/auth/ResetPasswordPage";
 import { OnboardingPage } from "./pages/onboarding/OnboardingPage";
 import IntegrationsPage from "./pages/integrations/IntegrationsPage";
 import { CustomerServicePage } from "./pages/customerService/CustomerServicePage";
@@ -123,6 +125,8 @@ function AppRoutes() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/invite/:token" element={<AcceptInvitePage />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>

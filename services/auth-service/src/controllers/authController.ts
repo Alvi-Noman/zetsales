@@ -1,10 +1,12 @@
 import type { Request, Response } from 'express';
+import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { ObjectId } from 'mongodb';
 import { z } from 'zod';
 import { env } from '@zetsales/config/validateEnv';
 import { getDb } from '../utils/db.js';
+import { sendPasswordResetEmail } from '../utils/mailer.js';
 import type { AuthenticatedRequest } from '../middleware/authMiddleware.js';
 import type { BusinessProfileDTO, TeamRole, UserDTO } from '@zetsales/shared';
 import {
@@ -336,6 +338,92 @@ export async function changePassword(req: AuthenticatedRequest, res: Response) {
     await db.collection('users').updateOne({ _id: user._id }, { $set: { password: hashedPassword, updatedAt: new Date() } });
 
     res.status(200).json({ success: true, message: 'Password updated.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: (error as Error).message });
+  }
+}
+
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
+
+function hashResetToken(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+const forgotPasswordSchema = z.object({
+  email: z.string().trim().email('Enter a valid email address'),
+});
+
+// Always responds success regardless of whether the email matches an account — otherwise the
+// response itself would let a caller enumerate which emails have ZetSales accounts.
+export async function requestPasswordReset(req: Request, res: Response) {
+  try {
+    const parsed = forgotPasswordSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ success: false, message: parsed.error.issues[0]?.message ?? 'Invalid email' });
+      return;
+    }
+
+    const db = getDb();
+    const email = parsed.data.email.toLowerCase();
+    const user = await db.collection('users').findOne({ email });
+
+    if (user) {
+      const token = crypto.randomBytes(32).toString('hex');
+      await db.collection('passwordResets').insertOne({
+        userId: user._id,
+        tokenHash: hashResetToken(token),
+        expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS),
+        used: false,
+        createdAt: new Date(),
+      });
+
+      const business = user.tenantId ? await db.collection('businesses').findOne({ _id: new ObjectId(user.tenantId) }) : null;
+      const base = business?.slug ? workspaceUrlForSlug(business.slug) : process.env.FRONTEND_URL || 'http://localhost:3000';
+      const resetUrl = `${base}/reset-password?token=${token}`;
+
+      try {
+        await sendPasswordResetEmail(email, resetUrl);
+      } catch (error) {
+        // Delivery failure shouldn't surface to the caller (would reveal the email exists) —
+        // logged here so it's still visible in server logs for debugging.
+        console.error('[requestPasswordReset] failed to send email:', (error as Error).message);
+      }
+    }
+
+    res.status(200).json({ success: true, message: 'If that email has an account, a reset link has been sent.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: (error as Error).message });
+  }
+}
+
+const resetPasswordSchema = z.object({
+  token: z.string().min(1, 'Reset token is required'),
+  newPassword: z.string().min(8, 'New password must be at least 8 characters'),
+});
+
+export async function resetPassword(req: Request, res: Response) {
+  try {
+    const parsed = resetPasswordSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ success: false, message: parsed.error.issues[0]?.message ?? 'Invalid request' });
+      return;
+    }
+
+    const db = getDb();
+    const tokenHash = hashResetToken(parsed.data.token);
+    const reset = await db.collection('passwordResets').findOne({ tokenHash, used: false });
+
+    if (!reset || new Date(reset.expiresAt).getTime() < Date.now()) {
+      res.status(400).json({ success: false, message: 'This reset link is invalid or has expired.' });
+      return;
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(parsed.data.newPassword, salt);
+    await db.collection('users').updateOne({ _id: reset.userId }, { $set: { password: hashedPassword, updatedAt: new Date() } });
+    await db.collection('passwordResets').updateOne({ _id: reset._id }, { $set: { used: true } });
+
+    res.status(200).json({ success: true, message: 'Password updated. You can now sign in.' });
   } catch (error) {
     res.status(500).json({ success: false, message: (error as Error).message });
   }

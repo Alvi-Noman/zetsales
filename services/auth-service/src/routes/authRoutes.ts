@@ -9,6 +9,8 @@ import {
   updateBusiness,
   getBusinessProfile,
   changePassword,
+  requestPasswordReset,
+  resetPassword,
 } from '../controllers/authController.js';
 import { requireAuth } from '../middleware/authMiddleware.js';
 
@@ -23,5 +25,7 @@ router.post('/onboarding', requireAuth, completeOnboarding);
 router.patch('/business', requireAuth, updateBusiness);
 router.get('/business/profile', requireAuth, getBusinessProfile);
 router.patch('/password', requireAuth, changePassword);
+router.post('/forgot-password', requestPasswordReset);
+router.post('/reset-password', resetPassword);
 
 export default router;

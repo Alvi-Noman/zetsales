@@ -62,13 +62,9 @@ export function LoginPage() {
         <div>
           <div className="mb-1.5 flex items-center justify-between">
             <label className="block text-sm font-medium text-slate-700">Password</label>
-            <button
-              type="button"
-              onClick={() => setError('Password reset is not set up yet — contact support.')}
-              className="text-xs font-medium text-indigo-600 hover:text-indigo-700"
-            >
+            <Link to="/forgot-password" className="text-xs font-medium text-indigo-600 hover:text-indigo-700">
               Forgot password?
-            </button>
+            </Link>
           </div>
           <div className="relative">
             <Lock size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
