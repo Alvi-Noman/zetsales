@@ -43,25 +43,6 @@ import { PrintPurchaseOrderModal } from "../../components/supplyChain/PrintPurch
 import { Select } from "../../components/ui/Select";
 import { useToast } from "../../components/ui/ToastProvider";
 import { ageLabel } from "../inventory/InventoryPage";
-import classicPdf from "../../assets/PDFs/Classic.pdf";
-import modernPdf from "../../assets/PDFs/Modern.pdf";
-import minimalPdf from "../../assets/PDFs/Minimal.pdf";
-import compactPdf from "../../assets/PDFs/Compact.pdf";
-import retailPdf from "../../assets/PDFs/Retail.pdf";
-import statementPdf from "../../assets/PDFs/Statement.pdf";
-
-// Saved, real print output for each format (see apps/mainapp/src/assets/PDFs) — shown directly in
-// the picker's preview panel instead of re-rendering the React component, since these are the
-// actual files that came out of printing, not a live approximation of them.
-const FORMAT_PDF_URLS: Record<InvoiceFormat, string> = {
-  Classic: classicPdf,
-  Modern: modernPdf,
-  Minimal: minimalPdf,
-  Compact: compactPdf,
-  Retail: retailPdf,
-  Statement: statementPdf,
-};
-
 type PrintTask =
   | "invoice"
   | "packingSlip"
@@ -1116,13 +1097,13 @@ function InvoiceFormatModal({
               <div>
                 <p className="flex items-center gap-2 text-sm font-bold text-slate-900">
                   Actual invoice preview
-                  <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-700">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
                     <FileText size={10} />
-                    Saved PDF
+                    Live
                   </span>
                 </p>
                 <p className="text-xs text-slate-500">
-                  The actual printed file for this format — not a live render.
+                  Renders the same document component real invoices print from.
                 </p>
               </div>
               <span className="shrink-0 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-bold text-slate-600">
@@ -1137,12 +1118,15 @@ function InvoiceFormatModal({
                 backgroundSize: "16px 16px",
               }}
             >
-              <div className="mx-auto h-full w-full max-w-[595px] overflow-hidden rounded-md border border-slate-200 bg-white shadow-md">
-                <iframe
+              <div className="mx-auto w-full max-w-[595px] overflow-hidden rounded-md border border-slate-200 bg-white shadow-md">
+                <DocumentPage
                   key={draftFormat}
-                  src={`${FORMAT_PDF_URLS[draftFormat]}#toolbar=0&navpanes=0&scrollbar=0`}
-                  title={`${draftFormat} invoice preview`}
-                  className="h-full min-h-[700px] w-full"
+                  order={PREVIEW_ORDER}
+                  docType="invoice"
+                  businessName="Brown Bazar"
+                  template={null}
+                  invoiceStyle={draftFormat}
+                  logoUrl={brandingLogoUrl}
                 />
               </div>
             </div>
