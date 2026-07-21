@@ -82,7 +82,7 @@ const PRINT_TASKS: {
   {
     key: "invoice",
     title: "Only Print Invoice",
-    detail: "Confirmed and packing orders that need invoices.",
+    detail: "Packing orders that need invoices.",
     icon: FileText,
   },
   {
@@ -434,12 +434,9 @@ export function PrintOutPage() {
     setOrderModalOpen(true);
   };
 
-  // The invoice tab's own list already mixes Confirmed and Processing (packing) orders together
-  // (listReadyToPrintOrders matches both, whichever hasn't had an invoice yet), and the packing-
-  // slip/combined tasks' "packing" source is Processing-only by construction — either way, only
-  // the Processing-stage orders within the current selection are eligible for this transition, so
-  // filter down to those rather than trusting every selected id (a Confirmed order selected
-  // alongside packing ones on the invoice tab must not get bulk-advanced by mistake).
+  // Both the invoice tab (listReadyToPrintOrders) and the packing-slip/combined tasks' "packing"
+  // source only ever show Processing-stage orders, so this filter is normally a no-op — kept as an
+  // explicit guard rather than trusting every selected id, in case that ever changes.
   const readyForPickupEligible = selectedOrders.filter(
     (order) => order.stage === "Processing",
   );

@@ -863,14 +863,16 @@ export async function listOrders(req: AuthenticatedRequest, res: Response) {
   res.json({ success: true, orders, total, page, pageSize });
 }
 
-// Confirmed/Processing orders nobody has printed an invoice/slip/label for yet — a fixed filter,
+// Processing (packing) orders nobody has printed an invoice/slip/label for yet — a fixed filter,
 // not a general-purpose tab, so this stays a dedicated endpoint rather than another TAB_KEYS entry.
+// Confirmed orders are deliberately excluded: an invoice is only meaningful once an order has
+// actually reached packing, same reasoning as canPrintPackingSlip on the frontend.
 // `printedAt: null` matches both "field never set" and "explicitly null" in Mongo, which is exactly
 // "never printed" for every order that existed before this field did, and every one created since.
 export async function getReadyToPrintOrders(req: AuthenticatedRequest, res: Response) {
   const db = getDb();
   const tenantId = req.user!.tenantId!;
-  const match = { tenantId, stage: { $in: ['Confirmed', 'Processing'] }, printedAt: null };
+  const match = { tenantId, stage: 'Processing', printedAt: null };
 
   const total = await db.collection('orders').countDocuments(match);
   const docs = await db.collection('orders').find(match).sort({ createdAt: 1 }).limit(300).toArray();
