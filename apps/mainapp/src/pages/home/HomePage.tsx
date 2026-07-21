@@ -208,10 +208,14 @@ export function HomePage() {
     void (async () => {
       setTopProducts(null);
       try {
+        // Passed as an explicit "custom" window (not e.g. range: "today") because the analytics
+        // backend otherwise resolves "today" against the server's own clock — which disagrees
+        // with the tenant's local day whenever they're offset from server time (Dhaka is UTC+6),
+        // silently zeroing out results that a moment ago showed up fine in the KPI cards above.
         const ranking = await getTopProducts({
-          range: dateRange,
-          from: dateRange === "custom" ? customRange?.from : undefined,
-          to: dateRange === "custom" ? customRange?.to : undefined,
+          range: "custom",
+          from: from ?? undefined,
+          to: to ?? undefined,
           storeId,
           limit: 6,
         });
