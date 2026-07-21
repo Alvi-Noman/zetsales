@@ -190,7 +190,7 @@ function readStoredInvoiceFormat(): InvoiceFormat {
 
 export function PrintOutPage() {
   const toast = useToast();
-  const [task, setTask] = useState<PrintTask>("packingSlip");
+  const [task, setTask] = useState<PrintTask>("invoice");
   const [orders, setOrders] = useState<OrderDTO[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrderDTO[]>([]);
   const [loading, setLoading] = useState(true);
