@@ -863,15 +863,15 @@ export async function listOrders(req: AuthenticatedRequest, res: Response) {
   res.json({ success: true, orders, total, page, pageSize });
 }
 
-// Packing-stage-and-beyond orders nobody has printed an invoice/slip/label for yet — a fixed
-// filter, not a general-purpose tab, so this stays a dedicated endpoint rather than another
-// TAB_KEYS entry. Confirmed orders are deliberately excluded: an invoice is only meaningful once
-// an order has actually reached packing, same reasoning as canPrintPackingSlip on the frontend.
+// Packing-stage-and-beyond orders — a fixed filter, not a general-purpose tab, so this stays a
+// dedicated endpoint rather than another TAB_KEYS entry. Confirmed orders are deliberately
+// excluded: an invoice is only meaningful once an order has actually reached packing, same
+// reasoning as canPrintPackingSlip on the frontend.
 // `?source=` mirrors the Print Out page's own packing/readyForPickup/both source selector (see
 // PrintOutPage.tsx's PACKING_SOURCE_OPTIONS) so the invoice queue can be scoped the same way the
 // packing-slip/combined tasks already are; defaults to 'packing' (Processing only) when omitted.
-// `printedAt: null` matches both "field never set" and "explicitly null" in Mongo, which is exactly
-// "never printed" for every order that existed before this field did, and every one created since.
+// Deliberately does NOT filter out already-printed orders — the frontend shows a "Printed" pill
+// on those instead, so staff can still find and reprint/reprint-a-copy without them vanishing.
 export async function getReadyToPrintOrders(req: AuthenticatedRequest, res: Response) {
   const db = getDb();
   const tenantId = req.user!.tenantId!;
@@ -882,7 +882,7 @@ export async function getReadyToPrintOrders(req: AuthenticatedRequest, res: Resp
       : source === 'both'
         ? { $in: ['Processing', 'Ready for Pickup'] }
         : 'Processing';
-  const match = { tenantId, stage, printedAt: null };
+  const match = { tenantId, stage };
 
   const total = await db.collection('orders').countDocuments(match);
   const docs = await db.collection('orders').find(match).sort({ createdAt: 1 }).limit(300).toArray();

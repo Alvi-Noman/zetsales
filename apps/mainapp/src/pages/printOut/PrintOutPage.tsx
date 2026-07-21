@@ -82,7 +82,7 @@ const PRINT_TASKS: {
   {
     key: "invoice",
     title: "Only Print Invoice",
-    detail: "Packing and ready-for-pickup orders that need invoices.",
+    detail: "Packing and ready-for-pickup orders, including already-printed ones.",
     icon: FileText,
   },
   {
