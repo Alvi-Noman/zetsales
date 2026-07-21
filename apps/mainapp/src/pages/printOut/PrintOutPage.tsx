@@ -813,14 +813,21 @@ export function PrintOutPage() {
                           </p>
                         </div>
                       ) : (
-                        <span
-                          className={clsx(
-                            "w-fit rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset",
-                            STAGE_TONE[order.stage],
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span
+                            className={clsx(
+                              "w-fit rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset",
+                              STAGE_TONE[order.stage],
+                            )}
+                          >
+                            {STAGE_LABEL[order.stage]}
+                          </span>
+                          {order.printedAt && (
+                            <span className="w-fit rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500 ring-1 ring-inset ring-slate-200">
+                              Printed
+                            </span>
                           )}
-                        >
-                          {STAGE_LABEL[order.stage]}
-                        </span>
+                        </div>
                       )}
                       <p className="text-right tabular-nums text-slate-600">
                         {itemCount(order)}
