@@ -97,6 +97,30 @@ const DOC_LABEL: Record<PrintDocType, string> = {
 };
 
 // Letterhead-style header shared by both documents — a business's own name is the one thing that
+// A square logo (the common case — most brand marks are drawn square) keeps today's fixed box
+// size. A horizontal/wordmark-style logo looks cramped at that same square box, since most of its
+// width goes unused — sized up instead so it reads at a comparable visual weight. Detected from the
+// image's own intrinsic dimensions once it loads (no such flag exists in Settings/Branding today),
+// defaulting to the square sizing until then so there's never a layout regression while unknown.
+function useLogoAspect(src: string | null | undefined) {
+  const [aspect, setAspect] = useState<"square" | "horizontal">("square");
+  useEffect(() => {
+    if (!src) return;
+    let cancelled = false;
+    const img = new Image();
+    img.onload = () => {
+      if (!cancelled && img.naturalWidth / img.naturalHeight > 1.3) {
+        setAspect("horizontal");
+      }
+    };
+    img.src = src;
+    return () => {
+      cancelled = true;
+    };
+  }, [src]);
+  return aspect;
+}
+
 // should read as the most important word on the page, so it's set larger than everything else,
 // with the document type as a small stamp-like badge next to it rather than competing for space.
 function DocHeader({
@@ -123,6 +147,7 @@ function DocHeader({
   const displayName = template?.businessNameOverride || businessName;
   const primaryNo = order.invoiceNo ?? order.number;
   const effectiveLogoUrl = template?.logoUrl || logoUrl;
+  const logoAspect = useLogoAspect(effectiveLogoUrl);
 
   const brandBlock = (
     <div className={clsx("flex items-center gap-2.5", logoRight && "flex-row-reverse")}>
@@ -131,7 +156,13 @@ function DocHeader({
           src={effectiveLogoUrl}
           alt={displayName}
           className={clsx(
-            compact ? "h-14 w-14" : "h-24 w-24",
+            logoAspect === "horizontal"
+              ? compact
+                ? "h-20 w-auto max-w-[200px]"
+                : "h-36 w-auto max-w-[360px]"
+              : compact
+                ? "h-14 w-14"
+                : "h-24 w-24",
             "object-contain rounded",
           )}
         />
