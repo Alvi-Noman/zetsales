@@ -25,13 +25,23 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
       return;
     }
 
-    const payload = jwt.verify(token, env.JWT_SECRET) as {
-      id: string;
-      email: string;
-      tenantId: string | null;
-      role?: TeamRole | null;
+    const payload = jwt.verify(token, env.JWT_SECRET) as { id: string };
+
+    // Re-resolve tenantId/role from the DB on every request rather than trusting the JWT's
+    // embedded claims — otherwise a role change or tenant removal wouldn't take effect until
+    // the (long-lived) access token naturally expires. Mirrors auth-service's own requireAuth.
+    const user = await getDb().collection('users').findOne({ _id: new ObjectId(payload.id) });
+    if (!user) {
+      res.status(401).json({ success: false, message: 'Unauthorized: User not found' });
+      return;
+    }
+
+    req.user = {
+      id: user._id.toString(),
+      email: user.email,
+      tenantId: user.tenantId ?? null,
+      role: (user.role as TeamRole | undefined) ?? null,
     };
-    req.user = { id: payload.id, email: payload.email, tenantId: payload.tenantId ?? null, role: payload.role ?? null };
     next();
   } catch {
     res.status(401).json({ success: false, message: 'Unauthorized: Invalid token' });

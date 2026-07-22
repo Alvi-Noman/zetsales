@@ -141,9 +141,19 @@ async function fetchFraudCheck(phone: string): Promise<FraudCheckAttempt> {
     return { result: null, failureReason: 'non_json_response', httpStatus: res.status, bodySnippet };
   }
 
-  const data = (await res.json()) as { data?: { customer?: { total_delivery?: unknown; successful_delivery?: unknown } } };
+  const data = (await res.json()) as {
+    data?: { customer?: { total_delivery?: unknown; successful_delivery?: unknown }; customer_rating?: unknown };
+  };
   const customer = data.data?.customer;
-  if (!customer || typeof customer.total_delivery !== 'number' || typeof customer.successful_delivery !== 'number') {
+  if (!customer) {
+    // v2 omits the `customer` object entirely for phones Pathao has never seen before, returning
+    // `customer_rating: "new_customer"` instead — that's a real "no history" result, not a failure.
+    if (data.data?.customer_rating === 'new_customer') {
+      return { result: { totalDelivered: 0, totalCancelled: 0 } };
+    }
+    return { result: null, failureReason: 'unexpected_json_shape', httpStatus: res.status, bodySnippet: JSON.stringify(data).slice(0, 300) };
+  }
+  if (typeof customer.total_delivery !== 'number' || typeof customer.successful_delivery !== 'number') {
     return { result: null, failureReason: 'unexpected_json_shape', httpStatus: res.status, bodySnippet: JSON.stringify(data).slice(0, 300) };
   }
   return {

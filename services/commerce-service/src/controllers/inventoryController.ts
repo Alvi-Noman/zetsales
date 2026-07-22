@@ -408,9 +408,10 @@ export async function listInventory(req: AuthenticatedRequest, res: Response) {
     },
   };
 
-  const movements = await db.collection('inventoryMovements').find({ tenantId }).sort({ createdAt: -1 }).limit(50).toArray();
-
-  const velocityByVariantId = await computeVelocityByVariantId(db, tenantId);
+  const [movements, velocityByVariantId] = await Promise.all([
+    db.collection('inventoryMovements').find({ tenantId }).sort({ createdAt: -1 }).limit(50).toArray(),
+    computeVelocityByVariantId(db, tenantId),
+  ]);
   const liveVariantIds = Object.entries(velocityByVariantId)
     .filter(([, unitsPerDay]) => (unitsPerDay ?? 0) > 0)
     .map(([variantId]) => variantId);

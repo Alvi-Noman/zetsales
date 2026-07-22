@@ -5,6 +5,19 @@ import { AuthLayout } from '../../components/auth/AuthLayout';
 import { useAuth } from '../../context/AuthContext';
 import { isLocalDevHost } from '../../lib/isLocalDevHost';
 
+function renderErrorMessage(message: string) {
+  const parts = message.split(/(app\.zetsales\.com)/);
+  return parts.map((part, i) =>
+    part === 'app.zetsales.com' ? (
+      <a key={i} href="https://app.zetsales.com" className="font-semibold underline hover:text-rose-800">
+        {part}
+      </a>
+    ) : (
+      part
+    ),
+  );
+}
+
 export function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -39,7 +52,9 @@ export function LoginPage() {
       </div>
 
       {error && (
-        <div className="mb-5 rounded-lg border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-sm text-rose-700">{error}</div>
+        <div className="mb-5 rounded-lg border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-sm text-rose-700">
+          {renderErrorMessage(error)}
+        </div>
       )}
 
       <form onSubmit={handleSubmit} className="space-y-4">

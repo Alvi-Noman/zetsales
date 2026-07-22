@@ -8,13 +8,14 @@ interface ReportPrintViewProps {
   title: string;
   periodLabel: string;
   table: ReportTable;
+  emptyLabel?: string;
   onClose: () => void;
 }
 
 // Same portal-outside-#root + print-area pattern as PrintOrderModal/CourierLabelModal — window.print()
 // only paginates normal-flow content, so the printable table has to render outside the app shell's
 // positioned/scrolling layout, not inside this modal's own overlay.
-export function ReportPrintView({ title, periodLabel, table, onClose }: ReportPrintViewProps) {
+export function ReportPrintView({ title, periodLabel, table, emptyLabel = "No data for this period", onClose }: ReportPrintViewProps) {
   const { user } = useAuth();
   const [printing, setPrinting] = useState(false);
 
@@ -80,7 +81,7 @@ export function ReportPrintView({ title, periodLabel, table, onClose }: ReportPr
                 {table.rows.length === 0 ? (
                   <tr>
                     <td colSpan={table.columns.length} className="py-6 text-center text-slate-400">
-                      No data for this period
+                      {emptyLabel}
                     </td>
                   </tr>
                 ) : (

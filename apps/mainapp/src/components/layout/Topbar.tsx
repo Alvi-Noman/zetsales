@@ -1,17 +1,47 @@
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Bell, HelpCircle, LogOut } from 'lucide-react';
+import type { NotificationDTO } from '@zetsales/shared';
 import { useAuth } from '../../context/AuthContext';
 import { Popover } from '../ui/Popover';
 import { AppBlock } from '../apps/AppBlock';
+import { listNotifications, markAllNotificationsRead } from '../../lib/notificationsApi';
+import { relativeTime } from '../orders/time';
 
 function initialsOf(text: string) {
   const parts = text.trim().split(/\s+/).filter(Boolean);
   return parts.slice(0, 2).map((p) => p[0]?.toUpperCase() ?? '').join('') || '?';
 }
 
+const NOTIFICATIONS_POLL_MS = 45_000;
+
 export function Topbar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+
+  const [notifications, setNotifications] = useState<NotificationDTO[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    const load = () => {
+      listNotifications()
+        .then((res) => {
+          setNotifications(res.notifications);
+          setUnreadCount(res.unreadCount);
+        })
+        .catch(() => {});
+    };
+    load();
+    const interval = setInterval(load, NOTIFICATIONS_POLL_MS);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleBellOpen = (open: boolean) => {
+    if (open && unreadCount > 0) {
+      setUnreadCount(0);
+      void markAllNotificationsRead();
+    }
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -39,10 +69,42 @@ export function Topbar() {
         <button className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors">
           <HelpCircle size={18} />
         </button>
-        <button className="relative rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors">
-          <Bell size={18} />
-          <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-rose-500 ring-2 ring-white" />
-        </button>
+        <Popover
+          align="right"
+          widthClass="w-80"
+          trigger={(open) => (
+            <button
+              onClick={() => {
+                if (!open) handleBellOpen(true);
+              }}
+              className="relative rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+            >
+              <Bell size={18} />
+              {unreadCount > 0 && (
+                <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-rose-500 ring-2 ring-white" />
+              )}
+            </button>
+          )}
+        >
+          <div className="py-1.5">
+            <div className="border-b border-slate-100 px-3.5 py-2.5">
+              <p className="text-sm font-semibold text-slate-800">Notifications</p>
+            </div>
+            {notifications.length === 0 ? (
+              <p className="px-3.5 py-6 text-center text-xs text-slate-400">No notifications yet.</p>
+            ) : (
+              <ul className="max-h-96 divide-y divide-slate-100 overflow-y-auto">
+                {notifications.map((n) => (
+                  <li key={n.id} className="px-3.5 py-2.5">
+                    <p className="text-sm font-medium text-slate-800">{n.title}</p>
+                    <p className="mt-0.5 text-xs text-slate-500">{n.body}</p>
+                    <p className="mt-1 text-[11px] text-slate-400">{relativeTime(n.createdAt)}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </Popover>
         <Popover
           align="right"
           widthClass="w-56"

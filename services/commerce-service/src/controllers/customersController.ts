@@ -50,8 +50,8 @@ export async function getCustomer(req: AuthenticatedRequest, res: Response) {
   const phone = decodeURIComponent(req.params.phone);
   const storeId = typeof req.query.storeId === 'string' ? req.query.storeId : undefined;
 
-  const stats = await computeCustomerLifetimeStats(tenantId, storeId);
-  const row = stats.find((s) => s.phone === phone);
+  const stats = await computeCustomerLifetimeStats(tenantId, storeId, phone);
+  const row = stats[0];
   if (!row) {
     res.status(404).json({ success: false, message: 'Customer not found.' });
     return;

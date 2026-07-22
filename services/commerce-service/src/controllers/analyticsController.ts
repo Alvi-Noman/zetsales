@@ -348,8 +348,9 @@ export async function getAnalyticsSummary(req: AuthenticatedRequest, res: Respon
   }
 
   const skipComparison = comparisonDisabled(q);
-  const cur = await windowTotals(current);
-  const cmp = skipComparison ? cur : await windowTotals(comparison);
+  const [cur, cmp] = skipComparison
+    ? await windowTotals(current).then((v) => [v, v] as const)
+    : await Promise.all([windowTotals(current), windowTotals(comparison)]);
   const metric = (curVal: number, cmpVal: number): MetricWithTrendDTO => ({ value: Math.round(curVal * 100) / 100, trend: skipComparison ? null : pctTrend(curVal, cmpVal) });
 
   const summary: AnalyticsSummaryDTO = {
@@ -852,9 +853,15 @@ export interface CustomerLifetimeRow {
   resolved: number;
 }
 
-export async function computeCustomerLifetimeStats(tenantId: string, storeId: string | undefined): Promise<CustomerLifetimeRow[]> {
+export async function computeCustomerLifetimeStats(
+  tenantId: string,
+  storeId: string | undefined,
+  phone?: string
+): Promise<CustomerLifetimeRow[]> {
   const db = getDb();
-  const match: Record<string, unknown> = { tenantId, customerPhone: { $ne: null } };
+  // `phone` narrows this to a single customer (see getCustomer) instead of aggregating the
+  // tenant's entire order history just to pluck one row back out of it afterward.
+  const match: Record<string, unknown> = { tenantId, customerPhone: phone ?? { $ne: null } };
   if (storeId && storeId !== 'all') match.storeId = storeId;
 
   const rows = await db

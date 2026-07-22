@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Download, Printer } from "lucide-react";
 import type { StoreDTO } from "@zetsales/shared";
-import { listStores, listWarehouses, type WarehouseDTO } from "../../lib/commerceApi";
+import { listStores, listWarehouses, listSuppliers, type WarehouseDTO, type SupplierDTO } from "../../lib/commerceApi";
 import { AnalyticsFilterBar } from "../../components/analytics/AnalyticsFilterBar";
 import { RankedTable } from "../../components/analytics/charts/RankedTable";
 import { ReportPrintView } from "../../components/analytics/ReportPrintView";
@@ -18,8 +18,11 @@ export function ReportDetailPage() {
   const [customRange, setCustomRange] = useState<CustomDateRange | null>(null);
   const [storeId, setStoreId] = useState("all");
   const [warehouseId, setWarehouseId] = useState("all");
+  const [stage, setStage] = useState("all");
+  const [supplierId, setSupplierId] = useState("all");
   const [stores, setStores] = useState<StoreDTO[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseDTO[]>([]);
+  const [suppliers, setSuppliers] = useState<SupplierDTO[]>([]);
   const [table, setTable] = useState<ReportTable | null>(null);
   const [printOpen, setPrintOpen] = useState(false);
 
@@ -28,6 +31,7 @@ export function ReportDetailPage() {
   useEffect(() => {
     void listStores().then(setStores);
     void listWarehouses().then((res) => setWarehouses(res.warehouses));
+    void listSuppliers().then((res) => setSuppliers(res.suppliers));
   }, []);
 
   const query = useMemo(
@@ -38,9 +42,15 @@ export function ReportDetailPage() {
   useEffect(() => {
     if (!entry) return;
     setTable(null);
-    void fetchReportTable(entry.key as ReportKey, entry.needsWarehouseFilter ? { ...query, warehouseId } : query).then(setTable);
+    const params = {
+      ...query,
+      ...(entry.needsWarehouseFilter ? { warehouseId } : {}),
+      ...(entry.stageFilterOptions ? { stage } : {}),
+      ...(entry.needsSupplierFilter ? { supplierId } : {}),
+    };
+    void fetchReportTable(entry.key as ReportKey, params).then(setTable);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entry?.key, query.range, query.from, query.to, query.storeId, warehouseId]);
+  }, [entry?.key, query.range, query.from, query.to, query.storeId, warehouseId, stage, supplierId]);
 
   if (!entry) {
     return (
@@ -54,6 +64,8 @@ export function ReportDetailPage() {
   }
 
   const periodLabel = formatRangeLabel(dateRange, customRange);
+  const emptyLabel =
+    entry.needsSupplierFilter && supplierId === "all" ? "Select a supplier above to view their ledger." : "No data for this period";
 
   // Rows carry a stable synthetic key since ReportTable rows are plain flat objects with no
   // guaranteed-unique field of their own to key React's list reconciliation on.
@@ -111,6 +123,34 @@ export function ReportDetailPage() {
               ))}
             </select>
           )}
+          {entry.stageFilterOptions && (
+            <select
+              value={stage}
+              onChange={(e) => setStage(e.target.value)}
+              className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700"
+            >
+              <option value="all">All Stages</option>
+              {entry.stageFilterOptions.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          )}
+          {entry.needsSupplierFilter && (
+            <select
+              value={supplierId}
+              onChange={(e) => setSupplierId(e.target.value)}
+              className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700"
+            >
+              <option value="all">Select a supplier…</option>
+              {suppliers.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
 
@@ -121,7 +161,7 @@ export function ReportDetailPage() {
           <RankedTable
             keyField={(r) => String(r.__key)}
             rows={keyedRows}
-            emptyLabel="No data for this period"
+            emptyLabel={emptyLabel}
             columns={table.columns.map((col) => ({
               key: col.key,
               header: col.header,
@@ -136,7 +176,7 @@ export function ReportDetailPage() {
       </div>
 
       {printOpen && table && (
-        <ReportPrintView title={entry.label} periodLabel={periodLabel} table={table} onClose={() => setPrintOpen(false)} />
+        <ReportPrintView title={entry.label} periodLabel={periodLabel} table={table} emptyLabel={emptyLabel} onClose={() => setPrintOpen(false)} />
       )}
     </div>
   );
