@@ -2,6 +2,7 @@ import clsx from "clsx";
 import type { LucideIcon } from "lucide-react";
 import type { OrderTrendsDTO, TrendPointDTO } from "@zetsales/shared";
 import { TrendChart, type TrendChartPoint } from "../orders/TrendChart";
+import { TrendBadge } from "../ui/TrendBadge";
 
 export type KpiTone =
   | "indigo"
@@ -94,6 +95,11 @@ interface HomeKpiCardProps {
   value: string;
   metricKey: MetricKey;
   trends: OrderTrendsDTO | null;
+  // The same rolling-7-day-vs-previous-7-day percentage already computed server-side for the
+  // sparkline below — shown as an up/down chip next to the headline number too, since a glance at
+  // the number is a lot faster than reading the graph's shape.
+  trendPct?: number | null;
+  invert?: boolean;
   formatValue: (v: number) => string;
   onClick?: () => void;
 }
@@ -105,6 +111,8 @@ export function HomeKpiCard({
   value,
   metricKey,
   trends,
+  trendPct,
+  invert,
   formatValue,
   onClick,
 }: HomeKpiCardProps) {
@@ -140,9 +148,12 @@ export function HomeKpiCard({
           <p className="truncate text-[10.5px] font-semibold uppercase tracking-wider text-slate-400">
             {label}
           </p>
-          <p className="mt-1 text-[22px] font-black leading-none tracking-tight text-slate-900 tabular-nums">
-            {value}
-          </p>
+          <div className="mt-1 flex items-baseline gap-2">
+            <p className="text-[22px] font-black leading-none tracking-tight text-slate-900 tabular-nums">
+              {value}
+            </p>
+            <TrendBadge trend={trendPct} invert={invert} />
+          </div>
         </div>
       </div>
 

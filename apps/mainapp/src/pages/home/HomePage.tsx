@@ -356,6 +356,7 @@ export function HomePage() {
             value={stats ? formatMoney(stats.totalRevenue) : "-"}
             metricKey="totalRevenue"
             trends={trends}
+            trendPct={stats?.totalRevenueTrend}
             formatValue={formatMoney}
             onClick={() => navigate("/orders")}
           />
@@ -366,6 +367,7 @@ export function HomePage() {
             value={stats ? formatCount(stats.totalOrders) : "-"}
             metricKey="totalOrders"
             trends={trends}
+            trendPct={stats?.totalOrdersTrend}
             formatValue={formatCount}
             onClick={() => navigate("/orders")}
           />
@@ -376,6 +378,7 @@ export function HomePage() {
             value={stats ? formatCount(stats.tabCounts.delivered) : "-"}
             metricKey="delivered"
             trends={trends}
+            trendPct={stats?.deliveredTrend}
             formatValue={formatCount}
             onClick={() => navigate("/orders")}
           />
@@ -386,6 +389,8 @@ export function HomePage() {
             value={stats ? formatCount(stats.cancelledOrders) : "-"}
             metricKey="cancelled"
             trends={trends}
+            trendPct={stats?.cancelledTrend}
+            invert
             formatValue={formatCount}
             onClick={() => navigate("/orders")}
           />
@@ -407,6 +412,7 @@ export function HomePage() {
               }
               metricKey="pending"
               trends={trends}
+              trendPct={stats?.pendingTrend}
               formatValue={formatCount}
               onClick={() => navigate("/orders")}
             />
@@ -417,6 +423,7 @@ export function HomePage() {
               value={stats ? formatCount(stats.tabCounts.confirmed) : "-"}
               metricKey="confirmed"
               trends={trends}
+              trendPct={stats?.confirmedTrend}
               formatValue={formatCount}
               onClick={() => navigate("/orders")}
             />
@@ -427,6 +434,7 @@ export function HomePage() {
               value={stats ? formatMoney(stats.confirmedAmount) : "-"}
               metricKey="confirmedAmount"
               trends={trends}
+              trendPct={stats?.confirmedAmountTrend}
               formatValue={formatMoney}
               onClick={() => navigate("/orders")}
             />
@@ -435,6 +443,8 @@ export function HomePage() {
               tone="rose"
               label="Cancelled Amount"
               value={stats ? formatMoney(stats.cancelledAmount) : "-"}
+              trendPct={stats?.cancelledAmountTrend}
+              invert
               metricKey="cancelledAmount"
               trends={trends}
               formatValue={formatMoney}
