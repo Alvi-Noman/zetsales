@@ -725,8 +725,14 @@ async function checkAndStorePathaoFraud(tenantId: string, orderFilter: Record<st
 // Shared by listOrders' stockStatus filter and getOrderStats' restockedReadyCount — same
 // best-stocked-location-per-SKU computation both need to agree with what the row badge/tag shows,
 // factored out once rather than drifting between two copies.
-async function computeFreeBySku(db: ReturnType<typeof getDb>, tenantId: string): Promise<Map<string, number>> {
-  const levels = await db.collection('inventoryLevels').find({ tenantId }, { projection: { sku: 1, onHand: 1, reserved: 1 } }).toArray();
+// `skus`, when given, scopes the fetch to only the SKUs the caller actually needs a free-stock
+// answer for — callers only ever look up SKUs that appear on a specific, already-known set of
+// orders' line items, so pulling every other SKU in the tenant's (potentially huge) inventory
+// table was pure waste. Omit it only for a caller that genuinely needs the full tenant map.
+async function computeFreeBySku(db: ReturnType<typeof getDb>, tenantId: string, skus?: string[]): Promise<Map<string, number>> {
+  const match: Record<string, unknown> = { tenantId };
+  if (skus) match.sku = { $in: skus };
+  const levels = await db.collection('inventoryLevels').find(match, { projection: { sku: 1, onHand: 1, reserved: 1 } }).toArray();
   const freeBySku = new Map<string, number>();
   for (const level of levels) {
     if (!level.sku) continue;
@@ -808,8 +814,9 @@ export async function listOrders(req: AuthenticatedRequest, res: Response) {
   // this narrows `match._id` up front rather than filtering after the fact.
   const stockStatus = typeof req.query.stockStatus === 'string' ? req.query.stockStatus : 'all';
   if (stockStatus === 'ready' || stockStatus === 'short') {
-    const freeBySku = await computeFreeBySku(db, tenantId);
     const candidates = await db.collection('orders').find(match, { projection: { lineItems: 1 } }).toArray();
+    const candidateSkus = [...new Set(candidates.flatMap((o) => (o.lineItems ?? []).map((li: { sku: string | null }) => li.sku).filter((s: string | null): s is string => !!s)))];
+    const freeBySku = await computeFreeBySku(db, tenantId, candidateSkus);
     const matchedIds = candidates
       .filter((o) => {
         const hasShortfall = orderHasShortfall(o.lineItems ?? [], freeBySku);
@@ -1030,7 +1037,8 @@ export async function getOrderStats(req: AuthenticatedRequest, res: Response) {
     .toArray();
   let restockedReadyCount = 0;
   if (restockedCandidates.length > 0) {
-    const freeBySku = await computeFreeBySku(db, tenantId);
+    const candidateSkus = [...new Set(restockedCandidates.flatMap((o) => (o.lineItems ?? []).map((li: { sku: string | null }) => li.sku).filter((s: string | null): s is string => !!s)))];
+    const freeBySku = await computeFreeBySku(db, tenantId, candidateSkus);
     restockedReadyCount = restockedCandidates.filter((o) => !orderHasShortfall(o.lineItems ?? [], freeBySku)).length;
   }
 
