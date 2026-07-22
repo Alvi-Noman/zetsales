@@ -8,6 +8,7 @@ import storesRoutes from './routes/storesRoutes.js';
 import courierRoutes from './routes/courierRoutes.js';
 import productsRoutes from './routes/productsRoutes.js';
 import ordersRoutes from './routes/ordersRoutes.js';
+import abandonedCheckoutsRoutes from './routes/abandonedCheckoutsRoutes.js';
 import inventoryRoutes from './routes/inventoryRoutes.js';
 import preOrdersRoutes from './routes/preOrdersRoutes.js';
 import printTemplatesRoutes from './routes/printTemplatesRoutes.js';
@@ -110,6 +111,7 @@ const commerceRouters = [
   purchaseOrdersRoutes,
   customerRoutes,
   ordersRoutes,
+  abandonedCheckoutsRoutes,
   analyticsRoutes,
   reportsRoutes,
   callCenterRoutes,

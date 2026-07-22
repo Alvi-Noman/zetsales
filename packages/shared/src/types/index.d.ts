@@ -145,6 +145,25 @@ export interface BusinessProfileDTO {
     businessSlug: string | null;
     businessUrl: string | null;
 }
+export interface SessionDTO {
+    tokenId: string;
+    userAgent: string | null;
+    ip: string | null;
+    createdAt: string;
+    current: boolean;
+}
+export interface NotificationDTO {
+    id: string;
+    type: 'new_device_login';
+    title: string;
+    body: string;
+    read: boolean;
+    createdAt: string;
+    meta: {
+        userAgent: string | null;
+        ip: string | null;
+    };
+}
 export type UpdateBusinessProfileInput = Partial<Pick<BusinessProfileDTO, 'name' | 'businessType' | 'phone' | 'channels' | 'monthlyOrders' | 'teamSize'>>;
 export type StorePlatform = 'shopify' | 'woocommerce' | 'csv';
 export type StoreStatus = 'connected' | 'error' | 'pending';
@@ -529,6 +548,29 @@ export interface BulkOrderResultDTO {
     orderId: string;
     success: boolean;
     error?: string;
+}
+export interface AbandonedCheckoutDTO {
+    id: string;
+    storeId: string;
+    platform: 'shopify' | 'woocommerce';
+    externalId: string;
+    customerName: string | null;
+    customerPhone: string | null;
+    customerEmail: string | null;
+    address: string | null;
+    lineItems: OrderLineItemDTO[];
+    subtotal: number;
+    total: number;
+    currency: string;
+    reason: string;
+    checkoutUrl: string | null;
+    createdAt: string;
+    updatedAt: string;
+}
+export interface AbandonedCheckoutStatsDTO {
+    totalCount: number;
+    totalValue: number;
+    byPlatform: Record<'shopify' | 'woocommerce', number>;
 }
 export type MessagingProvider = 'facebook' | 'instagram';
 export type SocialAccountStatus = 'connected' | 'error';
@@ -1090,7 +1132,6 @@ export interface StockReportDTO {
 export interface CourierHandoverOrdersReportRowDTO {
     date: string;
     brand: string;
-    source: string;
     customerName: string;
     orderNumber: string;
     courier: string;
@@ -1116,7 +1157,6 @@ export interface CourierHandoverItemsReportDTO {
 export interface CourierHandoverFinancialReportRowDTO {
     date: string;
     brand: string;
-    source: string;
     customerName: string;
     customerPhone: string;
     orderNumber: string;
@@ -1135,6 +1175,244 @@ export interface CourierHandoverFinancialReportRowDTO {
 }
 export interface CourierHandoverFinancialReportDTO {
     rows: CourierHandoverFinancialReportRowDTO[];
+}
+export interface CourierReturnReportRowDTO {
+    invoiceNo: string;
+    itemName: string;
+    sku: string;
+    invoiceDate: string | null;
+    returnReceivedDate: string | null;
+    courier: string;
+    quantity: number;
+    itemPrice: number;
+    itemDiscount: number;
+    deliveryCharge: number;
+    cod: number;
+    status: string;
+}
+export interface CourierReturnReportDTO {
+    rows: CourierReturnReportRowDTO[];
+}
+export interface AdvancePaymentReportRowDTO {
+    invoiceDate: string;
+    billDate: string;
+    brand: string;
+    customerName: string;
+    customerPhone: string;
+    orderNumber: string;
+    totalAmountWithDiscount: number;
+    deliveryCharge: number;
+    totalReceivableAmount: number;
+    advance: number;
+    paymentChannel: string;
+}
+export interface AdvancePaymentReportDTO {
+    rows: AdvancePaymentReportRowDTO[];
+}
+export interface ProductConfirmationReportRowDTO {
+    productTitle: string;
+    totalLead: number;
+    totalRoLead: number;
+    confirmed: number;
+    holdAndPending: number;
+    preOrder: number;
+    confirmationPercent: number;
+    confirmationCancel: number;
+    delivered: number;
+    inTransit: number;
+}
+export interface ProductConfirmationReportDTO {
+    rows: ProductConfirmationReportRowDTO[];
+}
+export interface CancelledOrdersReportRowDTO {
+    productTitle: string;
+    fakeOrder: number;
+    doubleOrder: number;
+    fraudCustomer: number;
+    noResponse: number;
+    priceIssue: number;
+    badCustomer: number;
+    otherReasons: number;
+    totalCancel: number;
+}
+export interface CancelledOrdersReportDTO {
+    rows: CancelledOrdersReportRowDTO[];
+}
+export interface CourierHandoverStatusReportRowDTO {
+    date: string;
+    totalHandover: number;
+    delivered: number;
+    cancelReturn: number;
+    partialDelivered: number;
+    inTransit: number;
+    successRate: number;
+}
+export interface CourierHandoverStatusReportDTO {
+    rows: CourierHandoverStatusReportRowDTO[];
+}
+export interface CourierProductDeliveryReportRowDTO {
+    productTitle: string;
+    totalOrders: number;
+    delivered: number;
+    returned: number;
+    cancelled: number;
+    inTransit: number;
+    totalCod: number;
+    successRate: number;
+    returnRate: number;
+}
+export interface CourierProductDeliveryReportDTO {
+    rows: CourierProductDeliveryReportRowDTO[];
+}
+export interface ConfirmDateSaleProfitReportRowDTO {
+    billDate: string | null;
+    brand: string;
+    billNumber: string;
+    receiverName: string;
+    courier: string;
+    orderStatus: string;
+    paidAmount: number;
+    deliveryFeeBill: number;
+    deliveryFeeCourier: number;
+    deliveryFeeProfit: number;
+    discountAmount: number;
+    codAmount: number;
+    saleAmount: number;
+    buyAmount: number;
+    totalProfitAmount: number;
+}
+export interface ConfirmDateSaleProfitReportDTO {
+    rows: ConfirmDateSaleProfitReportRowDTO[];
+}
+export interface EmployeeBaseReportRowDTO {
+    employee: string;
+    assignOrder: number;
+    assignUnit: number;
+    confirmedOrder: number;
+    confirmedUnit: number;
+    orderCreatedOrder: number;
+    orderCreatedUnit: number;
+    holdOrder: number;
+    holdUnit: number;
+    preOrderOrder: number;
+    preOrderUnit: number;
+    confirmationCancelOrder: number;
+    confirmationCancelUnit: number;
+    inTransitOrder: number;
+    inTransitUnit: number;
+    deliveredOrder: number;
+    deliveredUnit: number;
+    deliveryCancelOrder: number;
+    deliveryCancelUnit: number;
+    partiallyDeliveredOrder: number;
+    partiallyDeliveredUnit: number;
+}
+export interface EmployeeBaseReportDTO {
+    rows: EmployeeBaseReportRowDTO[];
+}
+export interface DistrictSalesReportRowDTO {
+    district: string;
+    orderCount: number;
+    revenue: number;
+    delivered: number;
+    rtoReturned: number;
+    rtoRate: number | null;
+}
+export interface DistrictSalesReportDTO {
+    rows: DistrictSalesReportRowDTO[];
+}
+export interface PurchaseReportRowDTO {
+    billDate: string;
+    supplierName: string;
+    billNumber: string;
+    items: number;
+    totalUnit: number;
+    billAmount: number;
+    remark: string;
+}
+export interface PurchaseReportDTO {
+    rows: PurchaseReportRowDTO[];
+}
+export interface PurchaseItemDetailsReportRowDTO {
+    poNumber: string;
+    date: string;
+    supplier: string;
+    itemName: string;
+    sku: string | null;
+    unit: number;
+    unitPrice: number;
+    lineTotal: number;
+}
+export interface PurchaseItemDetailsReportDTO {
+    rows: PurchaseItemDetailsReportRowDTO[];
+}
+export interface SupplierLedgerReportRowDTO {
+    date: string;
+    docNo: string;
+    type: string;
+    remark: string;
+    debit: number;
+    credit: number;
+    balance: number;
+}
+export interface SupplierLedgerReportDTO {
+    supplierName: string;
+    rows: SupplierLedgerReportRowDTO[];
+}
+export interface ExpenseReportRowDTO {
+    date: string;
+    category: string;
+    remark: string;
+    amount: number;
+}
+export interface ExpenseReportDTO {
+    rows: ExpenseReportRowDTO[];
+}
+export interface IncomeExpenseReportRowDTO {
+    label: string;
+    amount: number | null;
+    kind: 'section' | 'item' | 'summary';
+}
+export interface IncomeExpenseReportDTO {
+    rows: IncomeExpenseReportRowDTO[];
+}
+export interface CourierReconciliationReportRowDTO {
+    provider: string;
+    displayName: string;
+    deliveredCodAmount: number;
+    courierCharges: number;
+    returnCharges: number;
+    expectedReceivable: number;
+    paid: number;
+    due: number;
+}
+export interface CourierReconciliationReportDTO {
+    rows: CourierReconciliationReportRowDTO[];
+}
+export interface CodChangeLogReportRowDTO {
+    date: string;
+    orderNumber: string;
+    changedBy: string;
+    oldAmount: number;
+    newAmount: number;
+    delta: number;
+}
+export interface CodChangeLogReportDTO {
+    rows: CodChangeLogReportRowDTO[];
+}
+export interface InventoryAdjustmentReportRowDTO {
+    date: string;
+    itemName: string;
+    sku: string | null;
+    warehouseName: string;
+    reason: string;
+    quantity: number;
+    value: number;
+    note: string;
+    recordedBy: string;
+}
+export interface InventoryAdjustmentReportDTO {
+    rows: InventoryAdjustmentReportRowDTO[];
 }
 export interface MarginWaterfallStepDTO {
     label: string;

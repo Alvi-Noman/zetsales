@@ -36,9 +36,11 @@ import {
   shopifyOrderShippingFee,
   wooOrderSubtotal,
   wooOrderShippingFee,
+  WOO_INCOMPLETE_STATUSES,
   type ShopifyOrderWebhook,
   type WooOrderWebhook,
 } from '../integrations/orderStatusMapper.js';
+import { upsertWooAbandonedCheckout } from './abandonedCheckoutsController.js';
 
 function toOrderDto(doc: any): OrderDTO {
   return {
@@ -270,6 +272,18 @@ export async function upsertWooOrder(tenantId: string, storeId: string, order: W
   const db = getDb();
   const now = new Date();
   const existing = await db.collection('orders').findOne({ tenantId, storeId, externalId: String(order.id) }, { projection: { stageSource: 1, stage: 1, heldFromStage: 1 } });
+
+  // A brand-new order still at an incomplete status never had a successful payment — route it to
+  // Abandoned Checkouts instead of the real orders pipeline. Once-tracked orders (existing !== null)
+  // are never redirected here, even if a later webhook shows them cancelled — see
+  // WOO_INCOMPLETE_STATUSES for why only first-sight matters.
+  if (!existing && WOO_INCOMPLETE_STATUSES.includes(order.status as (typeof WOO_INCOMPLETE_STATUSES)[number])) {
+    await upsertWooAbandonedCheckout(tenantId, storeId, order);
+    return;
+  }
+  if (!existing) {
+    await db.collection('abandonedCheckouts').deleteOne({ tenantId, storeId, externalId: String(order.id) });
+  }
 
   const setFields: Record<string, unknown> = {
     number: order.number,
@@ -1040,6 +1054,8 @@ export async function getOrderStats(req: AuthenticatedRequest, res: Response) {
     codOutstandingAgg,
     confirmedAmountAgg,
     cancelledAmountAgg,
+    totalsAgg,
+    dailyAgg,
   ] = await Promise.all([
     volumeTrend(baseMatch, {}, now, d7, d14),
     volumeTrend(baseMatch, {}, now, d7, d14, 'total'),
@@ -1068,17 +1084,15 @@ export async function getOrderStats(req: AuthenticatedRequest, res: Response) {
       .collection('orders')
       .aggregate([{ $match: { ...scopedMatch, stage: 'Cancelled' } }, { $group: { _id: null, total: { $sum: '$total' } } }])
       .toArray(),
+    db.collection('orders').aggregate([{ $match: scopedMatch }, { $group: { _id: null, totalRevenue: { $sum: '$total' } } }]).toArray(),
+    db
+      .collection('orders')
+      .aggregate([
+        { $match: { ...baseMatch, createdAt: { $gte: d14 } } },
+        { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, count: { $sum: 1 } } },
+      ])
+      .toArray(),
   ]);
-
-  const totalsAgg = await db.collection('orders').aggregate([{ $match: scopedMatch }, { $group: { _id: null, totalRevenue: { $sum: '$total' } } } ]).toArray();
-
-  const dailyAgg = await db
-    .collection('orders')
-    .aggregate([
-      { $match: { ...baseMatch, createdAt: { $gte: d14 } } },
-      { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, count: { $sum: 1 } } },
-    ])
-    .toArray();
   const dailySeries: { date: string; count: number }[] = [];
   for (let i = 13; i >= 0; i--) {
     const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);

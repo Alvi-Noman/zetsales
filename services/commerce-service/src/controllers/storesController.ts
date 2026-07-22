@@ -16,8 +16,11 @@ import {
   exchangeShopifyCode,
   exchangeShopifyClientCredentials,
   registerShopifyWebhook,
+  fetchShopifyCheckouts,
 } from '../integrations/shopifyClient.js';
 import { normalizeSiteUrl, verifyWooKeys, buildWooAuthUrl, registerWooWebhook } from '../integrations/wooClient.js';
+import { getValidShopifyAccessToken } from '../integrations/shopifyAuth.js';
+import { upsertShopifyAbandonedCheckout } from './abandonedCheckoutsController.js';
 
 const APP_NAME = 'ZetSales';
 
@@ -53,6 +56,24 @@ async function registerShopifyOrderWebhooks(shopDomain: string, accessToken: str
     ]);
   } catch (err) {
     logger.warn(`[shopify] Could not register order webhooks for ${shopDomain}: ${(err as Error).message}`);
+  }
+}
+
+// Abandoned checkouts are a separate Shopify object from orders, with their own topics — without
+// this, a cart abandoned before becoming an order never reaches ZetSales at all. Requires the
+// merchant's app to have "protected customer data" access approved in Shopify's app settings, since
+// checkout payloads carry customer PII; falls back to no abandoned-checkout data (not a hard failure)
+// if Shopify rejects the registration for that reason, same best-effort pattern as the siblings above.
+async function registerShopifyCheckoutWebhooks(shopDomain: string, accessToken: string, storeId: string) {
+  const base = process.env.PUBLIC_COMMERCE_URL || 'http://localhost:8081/api/v1/commerce';
+  const address = `${base}/webhooks/shopify/${storeId}/checkouts`;
+  try {
+    await Promise.all([
+      registerShopifyWebhook(shopDomain, accessToken, 'checkouts/create', address),
+      registerShopifyWebhook(shopDomain, accessToken, 'checkouts/update', address),
+    ]);
+  } catch (err) {
+    logger.warn(`[shopify] Could not register checkout webhooks for ${shopDomain}: ${(err as Error).message}`);
   }
 }
 
@@ -185,6 +206,64 @@ export async function removeStore(req: AuthenticatedRequest, res: Response) {
   res.json({ success: true });
 }
 
+// One-time backfill for a store that connected before the checkouts/create|update subscription
+// existed — pulls whatever's currently sitting abandoned in the last 30 days so the merchant isn't
+// stuck starting from zero. 30 days, not "all time": Shopify's own abandoned-checkout recovery
+// flow gives up well before that, so anything older is no longer an actionable lead.
+async function backfillShopifyAbandonedCheckouts(tenantId: string, storeId: string, shopDomain: string, accessToken: string) {
+  const createdAtMin = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  let pageInfo: string | null = null;
+  let imported = 0;
+  do {
+    const { checkouts, nextPageInfo } = await fetchShopifyCheckouts(shopDomain, accessToken, createdAtMin, pageInfo ?? undefined);
+    for (const checkout of checkouts) {
+      if (!checkout.completed_at) imported += 1;
+      await upsertShopifyAbandonedCheckout(tenantId, storeId, checkout);
+    }
+    pageInfo = nextPageInfo;
+  } while (pageInfo);
+  return imported;
+}
+
+// Re-registers every webhook for a store (idempotent — registerShopifyWebhook/registerWooWebhook
+// both skip an already-existing registration) and, for Shopify, backfills recently-abandoned
+// checkouts. Exists for stores connected before a webhook topic existed (e.g. this feature's
+// checkouts/create|update topics) — reconnecting via the connect flow already does this, but
+// forcing a full reconnect just to pick up a new topic is unnecessary friction.
+export async function resyncStore(req: AuthenticatedRequest, res: Response) {
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const { storeId } = req.params;
+
+  const store = await db.collection('stores').findOne({ _id: new ObjectId(storeId), tenantId });
+  if (!store) {
+    res.status(404).json({ success: false, message: 'Store not found' });
+    return;
+  }
+
+  try {
+    if (store.platform === 'shopify') {
+      const accessToken = await getValidShopifyAccessToken(store);
+      await registerShopifyProductWebhooks(store.shopDomain, accessToken, storeId);
+      await registerShopifyOrderWebhooks(store.shopDomain, accessToken, storeId);
+      await registerShopifyCheckoutWebhooks(store.shopDomain, accessToken, storeId);
+      const checkoutsImported = await backfillShopifyAbandonedCheckouts(tenantId, storeId, store.shopDomain, accessToken);
+      res.json({ success: true, checkoutsImported });
+    } else if (store.platform === 'woocommerce') {
+      const consumerKey = decryptSecret(store.credentials.consumerKey);
+      const consumerSecret = decryptSecret(store.credentials.consumerSecret);
+      await registerWooProductWebhooks(store.shopDomain, consumerKey, consumerSecret, storeId);
+      await registerWooOrderWebhooks(store.shopDomain, consumerKey, consumerSecret, storeId);
+      res.json({ success: true, checkoutsImported: 0 });
+    } else {
+      res.status(400).json({ success: false, message: 'This store type has no webhooks to resync.' });
+    }
+  } catch (err) {
+    logger.warn(`[resync] Failed for store ${storeId}: ${(err as Error).message}`);
+    res.status(502).json({ success: false, message: 'Could not resync this store. Check its credentials are still valid.' });
+  }
+}
+
 // --- Shopify: self-service custom app, no Partner account needed ------------------------------
 //
 // Shopify retired the old "single static token" custom-app flow for any store setting one up
@@ -255,6 +334,7 @@ export async function connectShopifyToken(req: AuthenticatedRequest, res: Respon
 
     await registerShopifyProductWebhooks(shopDomain, accessToken, result!._id.toString());
     await registerShopifyOrderWebhooks(shopDomain, accessToken, result!._id.toString());
+    await registerShopifyCheckoutWebhooks(shopDomain, accessToken, result!._id.toString());
 
     res.json({ success: true, store: toStoreDto(result) });
   } catch (err) {
@@ -324,6 +404,7 @@ export async function shopifyOAuthCallback(req: AuthenticatedRequest, res: Respo
 
     await registerShopifyProductWebhooks(shopDomain, accessToken, result!._id.toString());
     await registerShopifyOrderWebhooks(shopDomain, accessToken, result!._id.toString());
+    await registerShopifyCheckoutWebhooks(shopDomain, accessToken, result!._id.toString());
 
     res.redirect(`${process.env.PUBLIC_APP_URL || 'http://localhost:3000'}/integrations?connected=shopify`);
   } catch (err) {

@@ -1,7 +1,7 @@
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
-import type { ShopifyOrderWebhook } from './orderStatusMapper.js';
+import type { ShopifyOrderWebhook, ShopifyCheckoutWebhook } from './orderStatusMapper.js';
 import { UPLOAD_DIR } from '../middleware/upload.js';
 import logger from '../utils/logger.js';
 
@@ -98,6 +98,27 @@ export async function fetchShopifyOrders(shopDomain: string, accessToken: string
 
   return {
     orders: res.data.orders as ShopifyOrderWebhook[],
+    nextPageInfo: nextMatch?.[1] ?? null,
+  };
+}
+
+// One-time backfill for a store that's reconnecting (or connecting after this feature shipped) —
+// webhooks only cover checkouts abandoned from here on, so this is what closes the gap for whatever
+// was already sitting abandoned before the checkouts/create|update subscription existed. Bounded to
+// createdAtMin rather than pulling full history: an abandoned checkout from months ago is no longer
+// actionable, and Shopify's own recovery emails have long since given up on it by then.
+export async function fetchShopifyCheckouts(shopDomain: string, accessToken: string, createdAtMin: string, pageInfo?: string) {
+  const res = await axios.get(adminUrl(shopDomain, '/checkouts.json'), {
+    headers: { 'X-Shopify-Access-Token': accessToken },
+    params: pageInfo ? { limit: 50, page_info: pageInfo } : { limit: 50, created_at_min: createdAtMin },
+    timeout: 15_000,
+  });
+
+  const linkHeader = res.headers['link'] as string | undefined;
+  const nextMatch = linkHeader?.match(/<[^>]*[?&]page_info=([^&>]+)[^>]*>;\s*rel="next"/);
+
+  return {
+    checkouts: res.data.checkouts as ShopifyCheckoutWebhook[],
     nextPageInfo: nextMatch?.[1] ?? null,
   };
 }

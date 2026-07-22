@@ -4,8 +4,9 @@ import { ObjectId } from 'mongodb';
 import { getDb } from '../utils/db.js';
 import { decryptSecret } from '../utils/crypto.js';
 import logger from '../utils/logger.js';
-import type { ShopifyOrderWebhook, WooOrderWebhook } from '../integrations/orderStatusMapper.js';
+import type { ShopifyOrderWebhook, WooOrderWebhook, ShopifyCheckoutWebhook } from '../integrations/orderStatusMapper.js';
 import { upsertShopifyOrder, upsertWooOrder, applyCourierStatusUpdate } from './ordersController.js';
+import { upsertShopifyAbandonedCheckout } from './abandonedCheckoutsController.js';
 import { upsertShopifyProductFromWebhook, deleteShopifyProductFromWebhook, upsertWooProductFromWebhook, deleteWooProductFromWebhook } from './productsController.js';
 import type { ShopifyProduct } from '../integrations/shopifyClient.js';
 import type { WooProduct } from '../integrations/wooClient.js';
@@ -60,6 +61,34 @@ export async function shopifyOrderWebhook(req: Request, res: Response) {
 
   const order = JSON.parse(raw.toString('utf8')) as ShopifyOrderWebhook;
   await upsertShopifyOrder(store.tenantId, storeId, order);
+
+  res.status(200).send('ok');
+}
+
+// Handles both checkouts/create and checkouts/update — same upsert either way, mirroring
+// shopifyOrderWebhook. upsertShopifyAbandonedCheckout itself decides recovered-vs-still-abandoned
+// off the payload's completed_at.
+export async function shopifyCheckoutWebhook(req: Request, res: Response) {
+  const raw = req.body as Buffer;
+  const signature = req.header('X-Shopify-Hmac-Sha256');
+  const { storeId } = req.params;
+
+  const db = getDb();
+  const store = await db.collection('stores').findOne({ _id: new ObjectId(storeId) });
+  if (!store) {
+    res.status(404).send('Unknown store');
+    return;
+  }
+
+  const secret = shopifyWebhookSecret(store);
+  if (!secret || !verifyHmac(raw, signature, secret)) {
+    logger.warn('[webhook] Shopify signature verification failed');
+    res.status(401).send('Invalid signature');
+    return;
+  }
+
+  const checkout = JSON.parse(raw.toString('utf8')) as ShopifyCheckoutWebhook;
+  await upsertShopifyAbandonedCheckout(store.tenantId, storeId, checkout);
 
   res.status(200).send('ok');
 }

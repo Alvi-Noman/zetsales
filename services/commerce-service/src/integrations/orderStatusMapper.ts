@@ -93,6 +93,37 @@ export function wooOrderAddress(order: WooOrderWebhook): string | null {
   return formatAddress([order.billing?.address_1, order.billing?.city]);
 }
 
+// A Woo order still at one of these statuses the very first time we see it never had a successful
+// payment — WooCommerce moves COD orders straight to 'processing' on placement (see isWooCod
+// below), so a *new* order sitting at pending/on-hold/failed/cancelled is really an incomplete
+// checkout, not a real order awaiting confirmation. Only checked against brand-new orders (see
+// upsertWooOrder) — an already-tracked order later cancelled by staff or in Woo admin is untouched.
+export const WOO_INCOMPLETE_STATUSES = ['pending', 'on-hold', 'failed', 'cancelled'] as const;
+
+// WooCommerce has no dedicated "abandoned cart" webhook — an incomplete order is the closest signal
+// it offers, so the same WooOrderWebhook shape doubles as the abandoned-checkout payload.
+export interface ShopifyCheckoutWebhook {
+  id: number;
+  token: string;
+  email: string | null;
+  phone: string | null;
+  total_price: string;
+  currency: string;
+  created_at: string;
+  // Set once the customer actually completes the checkout — a webhook delivery with this present
+  // means "recovered," not "still abandoned" (see upsertShopifyAbandonedCheckout).
+  completed_at: string | null;
+  // The only way to point a customer back at their unfinished cart — WooCommerce has no equivalent.
+  abandoned_checkout_url: string | null;
+  line_items: { title: string; variant_id?: number | null; variant_title?: string | null; quantity: number; price: string; sku: string | null }[];
+  customer?: { first_name?: string; last_name?: string; email?: string; phone?: string } | null;
+  billing_address?: { phone?: string; address1?: string; city?: string } | null;
+}
+
+export function shopifyCheckoutAddress(checkout: ShopifyCheckoutWebhook): string | null {
+  return formatAddress([checkout.billing_address?.address1, checkout.billing_address?.city]);
+}
+
 export function shopifyOrderSubtotal(order: ShopifyOrderWebhook): number {
   return Number(order.subtotal_price) || Number(order.total_price) || 0;
 }

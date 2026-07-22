@@ -3,6 +3,7 @@ import { requireAuth, requireTenant, requireModule } from '../middleware/authMid
 import {
   listStores,
   removeStore,
+  resyncStore,
   capabilities,
   connectShopifyToken,
   shopifyOAuthStart,
@@ -19,6 +20,7 @@ const requireIntegrations = requireModule('integrations');
 router.get('/capabilities', requireAuth, capabilities);
 router.get('/stores', requireAuth, requireTenant, listStores);
 router.delete('/stores/:storeId', requireAuth, requireTenant, requireIntegrations, removeStore);
+router.post('/stores/:storeId/resync', requireAuth, requireTenant, requireIntegrations, resyncStore);
 
 router.post('/stores/shopify/token', requireAuth, requireTenant, requireIntegrations, connectShopifyToken);
 router.get('/stores/shopify/oauth/start', requireAuth, requireTenant, requireIntegrations, shopifyOAuthStart);

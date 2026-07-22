@@ -1,4 +1,4 @@
-import type { AdAccountDTO, AdCampaignDTO, AdCreativeAssetDTO, CreateAdCampaignPayload, AdChannel, AdCostEntryDTO, AdPerformanceReportDTO, AppExtensionTarget, AppManifestDTO, BrandingSettingsDTO, BulkOrderResultDTO, CallOutcome, CancelReason, CourierAccountDTO, CourierSummaryDTO, CourierSettlementDTO, CourierHandoverDTO, CourierHandoverDetailDTO, EligibleHandoverOrderDTO, CourierShipmentStatsDTO, CustomerListDTO, CustomerDetailDTO, CustomerOrderRowDTO, HoldReason, InstalledAppDTO, InvoiceFont, InvoiceTemplateDTO, ModuleKey, OrderDTO, OrderRiskDTO, OrderStage, OrderStatsDTO, OrderTabKey, OrderTrendsDTO, PaymentMethod, PreOrderTargetDTO, PrintPaperSize, ProductCollectionDTO, ProductDTO, ProductListItemDTO, ProductPublishTargetDTO, ProductPushResultDTO, ProductWritePayload, StoreDTO, SupplierProductDraftDTO } from '@zetsales/shared';
+import type { AbandonedCheckoutDTO, AbandonedCheckoutStatsDTO, AdAccountDTO, AdCampaignDTO, AdCreativeAssetDTO, CreateAdCampaignPayload, AdChannel, AdCostEntryDTO, AdPerformanceReportDTO, AppExtensionTarget, AppManifestDTO, BrandingSettingsDTO, BulkOrderResultDTO, CallOutcome, CancelReason, CourierAccountDTO, CourierSummaryDTO, CourierSettlementDTO, CourierHandoverDTO, CourierHandoverDetailDTO, EligibleHandoverOrderDTO, CourierShipmentStatsDTO, CustomerListDTO, CustomerDetailDTO, CustomerOrderRowDTO, HoldReason, InstalledAppDTO, InvoiceFont, InvoiceTemplateDTO, ModuleKey, OrderDTO, OrderRiskDTO, OrderStage, OrderStatsDTO, OrderTabKey, OrderTrendsDTO, PaymentMethod, PreOrderTargetDTO, PrintPaperSize, ProductCollectionDTO, ProductDTO, ProductListItemDTO, ProductPublishTargetDTO, ProductPushResultDTO, ProductWritePayload, StoreDTO, SupplierProductDraftDTO } from '@zetsales/shared';
 import { api } from './api';
 
 export async function getCapabilities() {
@@ -19,6 +19,11 @@ export async function listStores() {
 
 export async function removeStore(storeId: string) {
   await api.delete(`/commerce/stores/${storeId}`);
+}
+
+export async function resyncStore(storeId: string) {
+  const res = await api.post(`/commerce/stores/${storeId}/resync`, {});
+  return res.data as { success: boolean; checkoutsImported: number; message?: string };
 }
 
 export async function connectShopifyCustomApp(
@@ -1263,6 +1268,26 @@ export async function getCourierShipmentStats(params: { storeId?: string; courie
 export async function getOrderTrends(params: { range: string; from?: string; to?: string; storeId?: string }) {
   const res = await api.get('/commerce/orders/trends', { params });
   return res.data as { success: boolean } & OrderTrendsDTO;
+}
+
+export interface ListAbandonedCheckoutsParams {
+  storeId?: string;
+  platform?: 'shopify' | 'woocommerce';
+  search?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export async function listAbandonedCheckouts(params: ListAbandonedCheckoutsParams = {}) {
+  const res = await api.get('/commerce/abandoned-checkouts', { params });
+  return res.data as { success: boolean; checkouts: AbandonedCheckoutDTO[]; total: number; page: number; pageSize: number };
+}
+
+export async function getAbandonedCheckoutStats(params: { storeId?: string } = {}) {
+  const res = await api.get('/commerce/abandoned-checkouts/stats', { params });
+  return res.data as { success: boolean } & AbandonedCheckoutStatsDTO;
 }
 
 export async function bulkUpdateOrders(orderIds: string[], patch: UpdateOrderPayload) {

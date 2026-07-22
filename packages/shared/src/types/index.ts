@@ -347,6 +347,24 @@ export interface BusinessProfileDTO {
   businessUrl: string | null;
 }
 
+export interface SessionDTO {
+  tokenId: string;
+  userAgent: string | null;
+  ip: string | null;
+  createdAt: string;
+  current: boolean;
+}
+
+export interface NotificationDTO {
+  id: string;
+  type: 'new_device_login';
+  title: string;
+  body: string;
+  read: boolean;
+  createdAt: string;
+  meta: { userAgent: string | null; ip: string | null };
+}
+
 export type UpdateBusinessProfileInput = Partial<
   Pick<BusinessProfileDTO, 'name' | 'businessType' | 'phone' | 'channels' | 'monthlyOrders' | 'teamSize'>
 >;
@@ -961,6 +979,40 @@ export interface BulkOrderResultDTO {
   orderId: string;
   success: boolean;
   error?: string;
+}
+
+// --- Abandoned checkouts (WooCommerce orders never completed + Shopify abandoned checkouts) ---
+// Deliberately separate from OrderDTO/orders: neither of these represents a placed order — a Woo
+// order stuck at pending/on-hold/failed/cancelled at creation time never had a successful payment,
+// and a Shopify checkout is by definition a cart that never became an order. Keeping them out of
+// the orders pipeline is what keeps the Orders tabs free of never-completed noise.
+export interface AbandonedCheckoutDTO {
+  id: string;
+  storeId: string;
+  platform: 'shopify' | 'woocommerce';
+  externalId: string;
+  customerName: string | null;
+  customerPhone: string | null;
+  customerEmail: string | null;
+  address: string | null;
+  lineItems: OrderLineItemDTO[];
+  subtotal: number;
+  total: number;
+  currency: string;
+  // The Woo order status that landed it here (e.g. 'pending', 'on-hold'), or 'checkout_abandoned'
+  // for a Shopify checkout — there's no equivalent status vocabulary on that side.
+  reason: string;
+  // Shopify's abandoned_checkout_url — the only source of a "resume checkout" link a staff member
+  // could send back to the customer. Always null for WooCommerce, which has no equivalent.
+  checkoutUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AbandonedCheckoutStatsDTO {
+  totalCount: number;
+  totalValue: number;
+  byPlatform: Record<'shopify' | 'woocommerce', number>;
 }
 
 // --- Messaging (unified Facebook Page + Instagram inbox) ---
@@ -1736,7 +1788,6 @@ export interface StockReportDTO {
 export interface CourierHandoverOrdersReportRowDTO {
   date: string;
   brand: string;
-  source: string;
   customerName: string;
   orderNumber: string;
   courier: string;
@@ -1771,7 +1822,6 @@ export interface CourierHandoverItemsReportDTO {
 export interface CourierHandoverFinancialReportRowDTO {
   date: string;
   brand: string;
-  source: string;
   customerName: string;
   customerPhone: string;
   orderNumber: string;
@@ -1791,6 +1841,357 @@ export interface CourierHandoverFinancialReportRowDTO {
 
 export interface CourierHandoverFinancialReportDTO {
   rows: CourierHandoverFinancialReportRowDTO[];
+}
+
+// Per (order, line item) for orders currently in the return/RTO leg (RTO Initiated, QC Pending, or
+// finalized Returned), matched by when the order most recently entered one of those stages —
+// `finalOnly=true` narrows this to Returned only, for a "confirmed back to stock" view.
+// itemDiscount is always 0 — ZetSales has no per-line-item discount, only an order-level one.
+// `cod` is what was left to collect on delivery (0 for non-COD orders).
+export interface CourierReturnReportRowDTO {
+  invoiceNo: string;
+  itemName: string;
+  sku: string;
+  invoiceDate: string | null;
+  returnReceivedDate: string | null;
+  courier: string;
+  quantity: number;
+  itemPrice: number;
+  itemDiscount: number;
+  deliveryCharge: number;
+  cod: number;
+  status: string;
+}
+
+export interface CourierReturnReportDTO {
+  rows: CourierReturnReportRowDTO[];
+}
+
+// Orders with a nonzero advance payment, created in the selected period. totalAmountWithDiscount
+// is subtotal minus discount (product value only, excluding delivery); totalReceivableAmount is
+// the full order total (includes delivery). billDate is order-creation date; invoiceDate is when
+// the invoice was issued (falls back to billDate if no invoice yet) — kept distinct since they can
+// genuinely differ.
+export interface AdvancePaymentReportRowDTO {
+  invoiceDate: string;
+  billDate: string;
+  brand: string;
+  customerName: string;
+  customerPhone: string;
+  orderNumber: string;
+  totalAmountWithDiscount: number;
+  deliveryCharge: number;
+  totalReceivableAmount: number;
+  advance: number;
+  paymentChannel: string;
+}
+
+export interface AdvancePaymentReportDTO {
+  rows: AdvancePaymentReportRowDTO[];
+}
+
+// Per-product lead/confirmation funnel for orders created in the selected period. totalLead is
+// every order containing this product; totalRoLead excludes ones cancelled as Spam/Duplicate
+// (ZetSales' closest equivalent to "real order" lead filtering). confirmed counts orders whose
+// history ever logged a 'Confirmed' entry (so a later cancellation doesn't erase that it was once
+// confirmed). confirmationPercent = confirmed / totalRoLead, as a percentage.
+export interface ProductConfirmationReportRowDTO {
+  productTitle: string;
+  totalLead: number;
+  totalRoLead: number;
+  confirmed: number;
+  holdAndPending: number;
+  preOrder: number;
+  confirmationPercent: number;
+  confirmationCancel: number;
+  delivered: number;
+  inTransit: number;
+}
+
+export interface ProductConfirmationReportDTO {
+  rows: ProductConfirmationReportRowDTO[];
+}
+
+// Per-product cancellation breakdown, pivoted by cancelReason, for orders cancelled in the
+// selected period. otherReasons folds every reason that isn't one of the other named buckets
+// ('Customer changed mind', 'Wrong address', 'Out of stock', 'Other', or unset).
+export interface CancelledOrdersReportRowDTO {
+  productTitle: string;
+  fakeOrder: number;
+  doubleOrder: number;
+  fraudCustomer: number;
+  noResponse: number;
+  priceIssue: number;
+  badCustomer: number;
+  otherReasons: number;
+  totalCancel: number;
+}
+
+export interface CancelledOrdersReportDTO {
+  rows: CancelledOrdersReportRowDTO[];
+}
+
+// Date-wise rollup of every courier handover manifest in the selected range, bucketed by each
+// order's CURRENT stage (not its stage at handover time) — Delivered, Cancel/Return (Cancelled,
+// RTO Initiated, QC Pending, or Returned), Partial Del., or still In-Transit. successRate is
+// Delivered as a share of totalHandover.
+export interface CourierHandoverStatusReportRowDTO {
+  date: string;
+  totalHandover: number;
+  delivered: number;
+  cancelReturn: number;
+  partialDelivered: number;
+  inTransit: number;
+  successRate: number;
+}
+
+export interface CourierHandoverStatusReportDTO {
+  rows: CourierHandoverStatusReportRowDTO[];
+}
+
+// Per-product delivery outcome for every order in a courier handover manifest in the selected
+// range — the courier-outcome counterpart to ProductConfirmationReportDTO (which covers the
+// pre-courier confirmation funnel instead). `totalCod` sums each order's full COD-due amount on
+// every line of that order (same convention as CourierHandoverFinancialReportDTO), not a
+// per-line-item split.
+export interface CourierProductDeliveryReportRowDTO {
+  productTitle: string;
+  totalOrders: number;
+  delivered: number;
+  returned: number;
+  cancelled: number;
+  inTransit: number;
+  totalCod: number;
+  successRate: number;
+  returnRate: number;
+}
+
+export interface CourierProductDeliveryReportDTO {
+  rows: CourierProductDeliveryReportRowDTO[];
+}
+
+// Per-order profit breakdown, scoped by CONFIRM date (the 'Confirmed' history entry's timestamp,
+// not order-creation date). `buyAmount` (COGS) is 0 until the order reaches Delivered/Partial
+// Delivered — ZetSales recognizes COGS at delivery, same convention used by getMarginWaterfall/
+// getRtoLoss elsewhere — so `totalProfitAmount` for an order still in transit only reflects the
+// delivery-fee markup, not product margin, until it's actually delivered. No exchange/return-value
+// fields — ZetSales has no product-exchange concept and no distinct tracked "value returned"
+// separate from COGS/write-off accounting, so those would only ever show as dead zero columns.
+export interface ConfirmDateSaleProfitReportRowDTO {
+  billDate: string | null;
+  brand: string;
+  billNumber: string;
+  receiverName: string;
+  courier: string;
+  orderStatus: string;
+  paidAmount: number;
+  deliveryFeeBill: number;
+  deliveryFeeCourier: number;
+  deliveryFeeProfit: number;
+  discountAmount: number;
+  codAmount: number;
+  saleAmount: number;
+  buyAmount: number;
+  totalProfitAmount: number;
+}
+
+export interface ConfirmDateSaleProfitReportDTO {
+  rows: ConfirmDateSaleProfitReportRowDTO[];
+}
+
+// Per-agent order/unit funnel for the selected period. ZetSales has no persistent "assigned
+// agent" field (its call queue uses a transient claim, not a permanent assignment — see
+// OrderClaimDTO), so `assignOrder`/`assignUnit` is the closest honest equivalent: every order this
+// agent took ANY action on (confirm, hold, cancel, note, etc.) in the period, from that order's
+// history log — the same source EmployeeActivityDTO already uses. Every bucket below except
+// `confirmedOrder` is a current-STAGE breakdown of that same "touched by this agent" order set
+// (Order Created = still Pending/Flagged, Hold = On Hold, etc.) — `confirmedOrder` alone requires
+// this specific agent to have logged the 'Confirmed' history entry, not just have touched the
+// order some other way. Percentages aren't included here — computed client-side as each row's
+// share of that column's grand total, since that's what stays correct after client-side filtering.
+export interface EmployeeBaseReportRowDTO {
+  employee: string;
+  assignOrder: number;
+  assignUnit: number;
+  confirmedOrder: number;
+  confirmedUnit: number;
+  orderCreatedOrder: number;
+  orderCreatedUnit: number;
+  holdOrder: number;
+  holdUnit: number;
+  preOrderOrder: number;
+  preOrderUnit: number;
+  confirmationCancelOrder: number;
+  confirmationCancelUnit: number;
+  inTransitOrder: number;
+  inTransitUnit: number;
+  deliveredOrder: number;
+  deliveredUnit: number;
+  deliveryCancelOrder: number;
+  deliveryCancelUnit: number;
+  partiallyDeliveredOrder: number;
+  partiallyDeliveredUnit: number;
+}
+
+export interface EmployeeBaseReportDTO {
+  rows: EmployeeBaseReportRowDTO[];
+}
+
+// Sales grouped by Bangladesh district, detected from each order's free-text address (no
+// structured district field exists on an order) — see bangladeshDistricts.ts for the keyword
+// matching. Orders whose address matched no known district land under district: 'Unknown' rather
+// than being silently dropped or guessed.
+export interface DistrictSalesReportRowDTO {
+  district: string;
+  orderCount: number;
+  revenue: number;
+  delivered: number;
+  rtoReturned: number;
+  rtoRate: number | null;
+}
+
+export interface DistrictSalesReportDTO {
+  rows: DistrictSalesReportRowDTO[];
+}
+
+// One row per purchase order in the selected period.
+export interface PurchaseReportRowDTO {
+  billDate: string;
+  supplierName: string;
+  billNumber: string;
+  items: number;
+  totalUnit: number;
+  billAmount: number;
+  remark: string;
+}
+
+export interface PurchaseReportDTO {
+  rows: PurchaseReportRowDTO[];
+}
+
+// One row per line item within each purchase order in the selected period — poNumber is included
+// so the frontend can group consecutive rows under a per-PO subtotal, same as the reference
+// report's "ORDER TOTAL" rows. lineTotal is derived (quantity × unitPrice) — purchaseOrders has no
+// stored per-line total, only the PO-level `subtotal`/`total`.
+export interface PurchaseItemDetailsReportRowDTO {
+  poNumber: string;
+  date: string;
+  supplier: string;
+  itemName: string;
+  sku: string | null;
+  unit: number;
+  unitPrice: number;
+  lineTotal: number;
+}
+
+export interface PurchaseItemDetailsReportDTO {
+  rows: PurchaseItemDetailsReportRowDTO[];
+}
+
+// Running debit/credit ledger for one supplier. `debit` (money spent) comes from real
+// inventoryMovements data (Opening balance + Incoming Stock, the only two reasons that reliably
+// carry a supplierId — see suppliersController.ts). `credit` (money actually paid to the
+// supplier) is always 0 — ZetSales has no supplier-payment feature/collection yet, so there's
+// nothing to report there; this isn't a rounding artifact, there's no data source at all.
+export interface SupplierLedgerReportRowDTO {
+  date: string;
+  docNo: string;
+  type: string;
+  remark: string;
+  debit: number;
+  credit: number;
+  balance: number;
+}
+
+export interface SupplierLedgerReportDTO {
+  supplierName: string;
+  rows: SupplierLedgerReportRowDTO[];
+}
+
+// Flat list of expenses in the selected period. There's no "code" field on an expense — category
+// is the only classifier ZetSales tracks (deliberately free text, not an enum).
+export interface ExpenseReportRowDTO {
+  date: string;
+  category: string;
+  remark: string;
+  amount: number;
+}
+
+export interface ExpenseReportDTO {
+  rows: ExpenseReportRowDTO[];
+}
+
+// A simplified income/expense statement built from the same real aggregations
+// getProfitAndLoss (accountingController.ts) already computes — revenue, COGS-derived gross
+// profit, and expenses grouped by category. There's no Assets/Liability/Capital tracking anywhere
+// in ZetSales (no such collection or field exists), so those rows are intentionally left out
+// rather than shown as a fabricated 0.00.
+export interface IncomeExpenseReportRowDTO {
+  label: string;
+  amount: number | null;
+  kind: 'section' | 'item' | 'summary';
+}
+
+export interface IncomeExpenseReportDTO {
+  rows: IncomeExpenseReportRowDTO[];
+}
+
+// Per-courier cash reconciliation — same computation as getCourierReconciliation
+// (analyticsController.ts), reused here as its own report rather than a re-shaped Analytics DTO
+// (this file's own convention). `deliveredCodAmount`/`due` are LIFETIME running balances, not
+// scoped to the report's date range — a courier's outstanding balance carries forward, so a
+// period-scoped number would misrepresent what's actually owed. `due` = deliveredCodAmount −
+// courierCharges − returnCharges − paid (settlements you've recorded in Integrations).
+export interface CourierReconciliationReportRowDTO {
+  provider: string;
+  displayName: string;
+  deliveredCodAmount: number;
+  courierCharges: number;
+  returnCharges: number;
+  expectedReceivable: number;
+  paid: number;
+  due: number;
+}
+
+export interface CourierReconciliationReportDTO {
+  rows: CourierReconciliationReportRowDTO[];
+}
+
+// One row per individual COD-amount edit in the selected period (a shippingFee/discount change
+// that moved an order's total after it was placed) — the order-level detail behind the "COD
+// change log" Analytics card, which only shows totals grouped by editor. oldAmount/newAmount are
+// parsed from the same "৳X → ৳Y" history detail string that card already reads.
+export interface CodChangeLogReportRowDTO {
+  date: string;
+  orderNumber: string;
+  changedBy: string;
+  oldAmount: number;
+  newAmount: number;
+  delta: number;
+}
+
+export interface CodChangeLogReportDTO {
+  rows: CodChangeLogReportRowDTO[];
+}
+
+// One row per individual inventory adjustment (damage, loss, cycle-count correction, receiving
+// discrepancy, etc.) in the selected period — the event-level detail behind the "Inventory
+// adjustments" Analytics card, which only shows totals grouped by reason. Routine sales/returns
+// and warehouse-to-warehouse transfers aren't included, same scope as that card.
+export interface InventoryAdjustmentReportRowDTO {
+  date: string;
+  itemName: string;
+  sku: string | null;
+  warehouseName: string;
+  reason: string;
+  quantity: number;
+  value: number;
+  note: string;
+  recordedBy: string;
+}
+
+export interface InventoryAdjustmentReportDTO {
+  rows: InventoryAdjustmentReportRowDTO[];
 }
 
 export interface MarginWaterfallStepDTO {

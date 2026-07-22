@@ -18,6 +18,7 @@ import {
   getCapabilities,
   listStores,
   removeStore,
+  resyncStore,
 } from "../../lib/commerceApi";
 import { ConnectShopifyModal } from "../../components/integrations/ConnectShopifyModal";
 import { ConnectWooCommerceModal } from "../../components/integrations/ConnectWooCommerceModal";
@@ -49,10 +50,14 @@ function StoreCard({
   store,
   onImport,
   onRemove,
+  onResync,
+  resyncing,
 }: {
   store: StoreDTO;
   onImport: (store: StoreDTO) => void;
   onRemove: (store: StoreDTO) => void;
+  onResync: (store: StoreDTO) => void;
+  resyncing: boolean;
 }) {
   const meta = PLATFORM_META[store.platform];
   return (
@@ -102,6 +107,16 @@ function StoreCard({
             <RefreshCw size={12} /> Import products
           </button>
         )}
+        {store.status === "connected" && store.platform !== "csv" && (
+          <button
+            onClick={() => onResync(store)}
+            disabled={resyncing}
+            title="Re-register webhooks and pull recently-abandoned checkouts"
+            className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            <RefreshCw size={12} className={resyncing ? "animate-spin" : undefined} /> Resync
+          </button>
+        )}
         <button
           onClick={() => onRemove(store)}
           className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
@@ -123,6 +138,7 @@ export function IntegrationsPage() {
   const [shopifyModalOpen, setShopifyModalOpen] = useState(false);
   const [wooModalOpen, setWooModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<IntegrationsTab>("stores");
+  const [resyncingStoreId, setResyncingStoreId] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -216,6 +232,22 @@ export function IntegrationsPage() {
 
   const handleImport = (store: StoreDTO) => {
     navigate(`/products?importStoreId=${store.id}`);
+  };
+
+  const handleResync = async (store: StoreDTO) => {
+    setResyncingStoreId(store.id);
+    try {
+      const res = await resyncStore(store.id);
+      toast.push(
+        store.platform === "shopify"
+          ? `Resynced ${store.displayName} — ${res.checkoutsImported} abandoned checkout${res.checkoutsImported === 1 ? "" : "s"} imported.`
+          : `Resynced ${store.displayName}.`
+      );
+    } catch {
+      toast.push(`Could not resync ${store.displayName}. Check its credentials are still valid.`, "info");
+    } finally {
+      setResyncingStoreId(null);
+    }
   };
 
   const shopifyCount = stores.filter((s) => s.platform === "shopify").length;
@@ -329,6 +361,8 @@ export function IntegrationsPage() {
                       store={store}
                       onImport={handleImport}
                       onRemove={handleRemove}
+                      onResync={handleResync}
+                      resyncing={resyncingStoreId === store.id}
                     />
                   ))}
                 </div>

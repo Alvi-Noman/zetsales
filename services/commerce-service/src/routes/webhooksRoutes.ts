@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import express from 'express';
 import {
-  shopifyOrderWebhook, shopifyProductWebhook, shopifyProductDeleteWebhook, wooOrderWebhook,
+  shopifyOrderWebhook, shopifyCheckoutWebhook, shopifyProductWebhook, shopifyProductDeleteWebhook, wooOrderWebhook,
   wooProductWebhook, wooProductDeleteWebhook, steadfastWebhook, pathaoWebhook,
 } from '../controllers/webhooksController.js';
 
@@ -12,6 +12,7 @@ const router: Router = Router();
 const rawJson = express.raw({ type: 'application/json', limit: '2mb' });
 
 router.post('/webhooks/shopify/:storeId/orders', rawJson, shopifyOrderWebhook);
+router.post('/webhooks/shopify/:storeId/checkouts', rawJson, shopifyCheckoutWebhook);
 router.post('/webhooks/shopify/:storeId/products', rawJson, shopifyProductWebhook);
 router.post('/webhooks/shopify/:storeId/products/delete', rawJson, shopifyProductDeleteWebhook);
 router.post('/webhooks/woocommerce/:storeId/orders', rawJson, wooOrderWebhook);

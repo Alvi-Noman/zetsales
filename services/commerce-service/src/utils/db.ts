@@ -40,6 +40,26 @@ async function ensureIndexes(db: ReturnType<typeof client.db>) {
   await db.collection('products').createIndex({ tenantId: 1, storeId: 1, externalId: 1 }, { unique: true, sparse: true });
   await db.collection('orders').createIndex({ tenantId: 1, storeId: 1 });
   await db.collection('orders').createIndex({ tenantId: 1, storeId: 1, externalId: 1 }, { unique: true, sparse: true });
+  // getOrderStats (Home page KPI cards) runs ~25 aggregations per load, nearly all filtered by
+  // stage and/or a createdAt window rather than storeId — without these, every one of them was a
+  // full collection scan of the tenant's order history, invisible in dev but severe in production.
+  await db.collection('orders').createIndex({ tenantId: 1, createdAt: -1 });
+  await db.collection('orders').createIndex({ tenantId: 1, stage: 1, createdAt: -1 });
+  // attachReturningFlags (tenant-scoped) and attachRiskLabels' cross-tenant fraud-history fallback
+  // (deliberately no tenantId — pools network-wide signal) both filter orders by customerPhone on
+  // every Orders page load; neither had an index to use, so both were full collection scans.
+  await db.collection('orders').createIndex({ tenantId: 1, customerPhone: 1 });
+  await db.collection('orders').createIndex({ customerPhone: 1 });
+  // Call Center, Accounting, and Reports all filter on the SAME array's two subfields via
+  // `history: { $elemMatch: { label, at } }` (a compound index on both fields of one array
+  // supports $elemMatch — this isn't the "two different array paths" case Mongo disallows).
+  // storeId is left out of this index (rather than sandwiched in the middle) since most of these
+  // callers pass tenantId alone; Mongo still applies storeId as a cheap residual filter when present.
+  await db.collection('orders').createIndex({ tenantId: 1, 'history.label': 1, 'history.at': 1 });
+  // getSaleProfitReport filters by invoiceIssuedAt, which had no index at all (only createdAt did).
+  await db.collection('orders').createIndex({ tenantId: 1, storeId: 1, invoiceIssuedAt: 1 });
+  await db.collection('abandonedCheckouts').createIndex({ tenantId: 1, storeId: 1 });
+  await db.collection('abandonedCheckouts').createIndex({ tenantId: 1, storeId: 1, externalId: 1 }, { unique: true, sparse: true });
   void ensureInvoiceNoIndex(db)
     .then(() => logger.info('Invoice number index ensured on MongoDB.'))
     .catch((error) => logger.error('Failed to ensure invoice number index', { message: (error as Error).message, stack: (error as Error).stack }));

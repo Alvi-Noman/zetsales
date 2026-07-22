@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { AppShell } from "./layouts/AppShell";
 import { SettingsLayout } from "./layouts/SettingsLayout";
 import { OrdersPage } from "./pages/orders/OrdersPage";
+import { AbandonedCheckoutsPage } from "./pages/orders/AbandonedCheckoutsPage";
 import { DispatchPage } from "./pages/dispatch/DispatchPage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
 import { ToastProvider } from "./components/ui/ToastProvider";
@@ -58,6 +59,7 @@ const routeEntries = new Map<string, string>();
 });
 routeEntries.delete("/home");
 routeEntries.delete("/orders");
+routeEntries.delete("/orders/abandoned");
 routeEntries.delete("/dispatch");
 routeEntries.delete("/integrations");
 routeEntries.delete("/products");
@@ -150,6 +152,7 @@ function AppRoutes() {
         <Route path="/" element={<Navigate to="/home" replace />} />
         <Route path="/home" element={<HomePage />} />
         <Route path="/orders" element={<OrdersPage />} />
+        <Route path="/orders/abandoned" element={<AbandonedCheckoutsPage />} />
         <Route
           path="/dispatch"
           element={
