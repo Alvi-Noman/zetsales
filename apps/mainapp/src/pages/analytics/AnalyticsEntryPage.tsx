@@ -81,7 +81,8 @@ function summaryTiles(summary: AnalyticsSummaryDTO | null) {
     {
       label: "COD outstanding",
       value: summary ? formatMoney(summary.codOutstanding.value) : null,
-      trend: null,
+      trend: summary?.codOutstanding.trend,
+      invert: true,
     },
     {
       label: "Gross profit margin",

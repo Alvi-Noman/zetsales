@@ -1005,6 +1005,28 @@ async function volumeTrend(
   return current > 0 ? 100 : null;
 }
 
+// RTO rate (rtoOrders / totalOrders, same 'Returned'-only definition as rtoOrders/rtoTrend above)
+// compared as a rate between the two windows — a relative change in the rate itself, not a
+// percentage-point difference, matching how getAnalyticsSummary trends its own rate metrics.
+async function rtoRateTrend(baseMatch: Record<string, unknown>, now: Date, d7: Date, d14: Date): Promise<number | null> {
+  const db = getDb();
+  const windowRate = async (from: Date, to: Date) => {
+    const [agg] = await db
+      .collection('orders')
+      .aggregate([
+        { $match: { ...baseMatch, createdAt: { $gte: from, $lt: to } } },
+        { $group: { _id: null, total: { $sum: 1 }, rto: { $sum: { $cond: [{ $eq: ['$stage', 'Returned'] }, 1, 0] } } } },
+      ])
+      .toArray();
+    const total = agg?.total ?? 0;
+    return total > 0 ? ((agg?.rto ?? 0) / total) * 100 : 0;
+  };
+  const current = await windowRate(d7, now);
+  const comparison = await windowRate(d14, d7);
+  if (comparison > 0) return Math.round(((current - comparison) / comparison) * 100);
+  return current > 0 ? 100 : null;
+}
+
 // Powers the stats row (KPI cards) and the tab count badges in one round trip, so the numbers on
 // the tabs always agree with what listOrders would actually return for them.
 export async function getOrderStats(req: AuthenticatedRequest, res: Response) {
@@ -1072,6 +1094,11 @@ export async function getOrderStats(req: AuthenticatedRequest, res: Response) {
     cancelledTrend,
     confirmedAmountTrend,
     cancelledAmountTrend,
+    courierBookedTrend,
+    codDueTrend,
+    holdTrend,
+    codOutstandingTrend,
+    rtoRateTrendValue,
     rtoCount,
     cancelledCount,
     codOutstandingAgg,
@@ -1090,6 +1117,11 @@ export async function getOrderStats(req: AuthenticatedRequest, res: Response) {
     volumeTrend(baseMatch, { stage: 'Cancelled' }, now, d7, d14),
     volumeTrend(baseMatch, tabMatch('confirmed'), now, d7, d14, 'total'),
     volumeTrend(baseMatch, { stage: 'Cancelled' }, now, d7, d14, 'total'),
+    volumeTrend(baseMatch, tabMatch('courierBooked'), now, d7, d14),
+    volumeTrend(baseMatch, tabMatch('codDue'), now, d7, d14),
+    volumeTrend(baseMatch, tabMatch('hold'), now, d7, d14),
+    volumeTrend(baseMatch, tabMatch('codDue'), now, d7, d14, 'total'),
+    rtoRateTrend(baseMatch, now, d7, d14),
     db.collection('orders').countDocuments({ ...scopedMatch, stage: 'Returned' }),
     db.collection('orders').countDocuments({ ...scopedMatch, stage: 'Cancelled' }),
     db
@@ -1140,10 +1172,15 @@ export async function getOrderStats(req: AuthenticatedRequest, res: Response) {
     cancelledOrders: cancelledCount,
     cancelledTrend,
     codOutstanding: codOutstandingAgg[0]?.total ?? 0,
+    codOutstandingTrend,
+    rtoRateTrend: rtoRateTrendValue,
     confirmedAmount: confirmedAmountAgg[0]?.total ?? 0,
     confirmedAmountTrend,
     cancelledAmount: cancelledAmountAgg[0]?.total ?? 0,
     cancelledAmountTrend,
+    courierBookedTrend,
+    codDueTrend,
+    holdTrend,
     tabCounts,
     dailySeries,
     restockedReadyCount,

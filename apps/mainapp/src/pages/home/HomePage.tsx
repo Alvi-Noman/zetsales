@@ -36,6 +36,7 @@ import {
 import { getTopProducts } from "../../lib/analyticsApi";
 import { useAuth } from "../../context/AuthContext";
 import { HomeKpiCard } from "../../components/home/HomeKpiCard";
+import { TrendBadge } from "../../components/ui/TrendBadge";
 import { ChannelOverviewCard } from "../../components/home/ChannelOverviewCard";
 import { InitialStoreEmptyState } from "../../components/home/InitialStoreEmptyState";
 import { TopProductsCard } from "../../components/home/TopProductsCard";
@@ -54,49 +55,61 @@ const PIPELINE_STAGES: {
   label: string;
   icon: typeof Clock;
   tone: string;
+  trendKey: "pendingTrend" | "confirmedTrend" | "processingTrend" | "courierBookedTrend" | "deliveredTrend" | "codDueTrend" | "holdTrend" | "cancelledTrend";
+  invert?: boolean;
 }[] = [
-  { tab: "pending", label: "Pending", icon: Clock, tone: STAGE_TONE.Pending },
+  { tab: "pending", label: "Pending", icon: Clock, tone: STAGE_TONE.Pending, trendKey: "pendingTrend" },
   {
     tab: "confirmed",
     label: "Confirmed",
     icon: CheckCircle2,
     tone: STAGE_TONE.Confirmed,
+    trendKey: "confirmedTrend",
   },
   {
     tab: "processing",
     label: "Packing",
     icon: Package,
     tone: STAGE_TONE.Processing,
+    trendKey: "processingTrend",
   },
   {
     tab: "courierBooked",
     label: "Ready for pickup",
     icon: Truck,
     tone: STAGE_TONE["Ready for Pickup"],
+    trendKey: "courierBookedTrend",
   },
   {
     tab: "delivered",
     label: "Delivered",
     icon: PackageCheck,
     tone: STAGE_TONE.Delivered,
+    trendKey: "deliveredTrend",
   },
   {
     tab: "codDue",
     label: "COD Due",
     icon: Wallet,
     tone: "bg-amber-50 text-amber-700 ring-amber-600/20",
+    trendKey: "codDueTrend",
+    invert: true,
   },
   {
     tab: "hold",
     label: "On Hold",
     icon: PauseCircle,
     tone: STAGE_TONE["On Hold"],
+    trendKey: "holdTrend",
+    invert: true,
   },
   {
     tab: "cancelled",
     label: "Cancelled",
     icon: Ban,
     tone: STAGE_TONE.Cancelled,
+    trendKey: "cancelledTrend",
+    invert: true,
   },
 ];
 
@@ -435,17 +448,23 @@ export function HomePage() {
             <p className="text-[10.5px] font-semibold uppercase tracking-wider text-slate-400">
               COD Outstanding
             </p>
-            <p className="mt-1.5 text-lg font-bold text-slate-900 tabular-nums">
-              {stats ? formatMoney(stats.codOutstanding) : "-"}
-            </p>
+            <div className="mt-1.5 flex items-baseline gap-2">
+              <p className="text-lg font-bold text-slate-900 tabular-nums">
+                {stats ? formatMoney(stats.codOutstanding) : "-"}
+              </p>
+              {stats && <TrendBadge trend={stats.codOutstandingTrend} invert />}
+            </div>
           </div>
           <div className="zs-surface p-4">
             <p className="text-[10.5px] font-semibold uppercase tracking-wider text-slate-400">
               RTO Rate
             </p>
-            <p className="mt-1.5 text-lg font-bold text-slate-900 tabular-nums">
-              {stats ? `${rtoRate}%` : "-"}
-            </p>
+            <div className="mt-1.5 flex items-baseline gap-2">
+              <p className="text-lg font-bold text-slate-900 tabular-nums">
+                {stats ? `${rtoRate}%` : "-"}
+              </p>
+              {stats && <TrendBadge trend={stats.rtoRateTrend} invert />}
+            </div>
           </div>
           <div className="zs-surface p-4">
             <p className="text-[10.5px] font-semibold uppercase tracking-wider text-slate-400">
@@ -478,7 +497,7 @@ export function HomePage() {
             </button>
           </div>
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 xl:grid-cols-8">
-            {PIPELINE_STAGES.map(({ tab, label, icon: Icon, tone }) => (
+            {PIPELINE_STAGES.map(({ tab, label, icon: Icon, tone, trendKey, invert }) => (
               <div key={tab} className="zs-surface p-3.5">
                 <span
                   className={clsx(
@@ -488,9 +507,12 @@ export function HomePage() {
                 >
                   <Icon size={15} />
                 </span>
-                <p className="mt-2 text-lg font-bold tabular-nums text-slate-900">
-                  {stats ? stats.tabCounts[tab].toLocaleString() : "-"}
-                </p>
+                <div className="mt-2 flex items-baseline gap-1.5">
+                  <p className="text-lg font-bold tabular-nums text-slate-900">
+                    {stats ? stats.tabCounts[tab].toLocaleString() : "-"}
+                  </p>
+                  {stats && <TrendBadge trend={stats[trendKey]} invert={invert} />}
+                </div>
                 <p className="text-xs text-slate-400">{label}</p>
               </div>
             ))}

@@ -511,10 +511,15 @@ export interface OrderStatsDTO {
     cancelledOrders: number;
     cancelledTrend: number | null;
     codOutstanding: number;
+    codOutstandingTrend: number | null;
+    rtoRateTrend: number | null;
     confirmedAmount: number;
     confirmedAmountTrend: number | null;
     cancelledAmount: number;
     cancelledAmountTrend: number | null;
+    courierBookedTrend: number | null;
+    codDueTrend: number | null;
+    holdTrend: number | null;
     tabCounts: Record<OrderTabKey, number>;
     dailySeries: OrderDailyStatDTO[];
     restockedReadyCount: number;
