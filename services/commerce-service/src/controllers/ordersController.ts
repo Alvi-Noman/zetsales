@@ -534,9 +534,24 @@ async function attachLineItemImages(db: ReturnType<typeof getDb>, tenantId: stri
   const hasLineItems = orders.some((o) => (o.lineItems ?? []).length > 0);
   if (!hasLineItems) return;
 
+  // Scoped to only the products this page's line items could possibly resolve to (by variantId,
+  // sku, or title — the same three signals matched below), instead of the tenant's entire product
+  // catalog. Preserves the "any store, not just this order's store" fallback matching below exactly
+  // as before — this only narrows which product documents get fetched, not how they're matched.
+  const variantIds = [...new Set(orders.flatMap((o) => (o.lineItems ?? []).map((li: any) => li.variantId).filter((v: unknown) => v != null)))];
+  const skus = [...new Set(orders.flatMap((o) => (o.lineItems ?? []).map((li: any) => li.sku).filter(Boolean)))];
+  const titles = [...new Set(orders.flatMap((o) => (o.lineItems ?? []).map((li: any) => (li.title ? String(li.title).trim() : null)).filter(Boolean)))];
+
+  const orConditions: Record<string, unknown>[] = [];
+  if (variantIds.length > 0) orConditions.push({ 'variants.id': { $in: variantIds } });
+  if (skus.length > 0) orConditions.push({ 'variants.sku': { $in: skus } });
+  if (titles.length > 0) orConditions.push({ title: { $in: titles } });
+  if (orConditions.length === 0) return;
+
   const products = await db
     .collection('products')
-    .find({ tenantId })
+    .find({ tenantId, $or: orConditions })
+    .collation({ locale: 'en', strength: 2 })
     .project({ storeId: 1, title: 1, image: 1, 'variants.id': 1, 'variants.sku': 1, 'variants.image': 1 })
     .toArray();
 

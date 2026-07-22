@@ -853,7 +853,35 @@ export interface CustomerLifetimeRow {
   resolved: number;
 }
 
+// Top Customers, RFM Segments, and Risk Segments (see below) each independently call this with
+// the same (tenantId, storeId) for one Analytics dashboard load, all running the identical
+// full-tenant-history aggregation within milliseconds of each other. This cache dedupes that
+// burst — a short TTL (not a real cache layer) just so near-simultaneous widget requests share one
+// underlying query instead of tripling it; it deliberately does NOT cover getCustomer's
+// phone-scoped calls, which are cheap and always want fresh data.
+const customerLifetimeStatsCache = new Map<string, { promise: Promise<CustomerLifetimeRow[]>; expiresAt: number }>();
+const CUSTOMER_STATS_CACHE_TTL_MS = 15_000;
+
 export async function computeCustomerLifetimeStats(
+  tenantId: string,
+  storeId: string | undefined,
+  phone?: string
+): Promise<CustomerLifetimeRow[]> {
+  if (!phone) {
+    const cacheKey = `${tenantId}::${storeId ?? 'all'}`;
+    const cached = customerLifetimeStatsCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.promise;
+
+    const promise = computeCustomerLifetimeStatsUncached(tenantId, storeId, phone);
+    customerLifetimeStatsCache.set(cacheKey, { promise, expiresAt: Date.now() + CUSTOMER_STATS_CACHE_TTL_MS });
+    // A failed aggregation shouldn't keep poisoning the cache for its whole TTL window.
+    promise.catch(() => customerLifetimeStatsCache.delete(cacheKey));
+    return promise;
+  }
+  return computeCustomerLifetimeStatsUncached(tenantId, storeId, phone);
+}
+
+async function computeCustomerLifetimeStatsUncached(
   tenantId: string,
   storeId: string | undefined,
   phone?: string
