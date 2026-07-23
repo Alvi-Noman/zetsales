@@ -9,6 +9,7 @@ import {
   type WooOrderWebhook,
   type ShopifyCheckoutWebhook,
 } from '../integrations/orderStatusMapper.js';
+import { attachRiskLabels } from './ordersController.js';
 
 function toAbandonedCheckoutDto(doc: any): AbandonedCheckoutDTO {
   return {
@@ -26,6 +27,8 @@ function toAbandonedCheckoutDto(doc: any): AbandonedCheckoutDTO {
     currency: doc.currency,
     reason: doc.reason,
     checkoutUrl: doc.checkoutUrl ?? null,
+    riskLabel: doc.riskLabel ?? null,
+    riskSuccessRate: doc.riskSuccessRate ?? null,
     createdAt: new Date(doc.createdAt).toISOString(),
     updatedAt: new Date(doc.updatedAt).toISOString(),
   };
@@ -148,6 +151,8 @@ export async function listAbandonedCheckouts(req: AuthenticatedRequest, res: Res
   const [result] = await db.collection('abandonedCheckouts').aggregate(pipeline).toArray();
   const checkouts = (result?.data ?? []).map(toAbandonedCheckoutDto);
   const total = result?.totalCount?.[0]?.count ?? 0;
+
+  await attachRiskLabels(db, tenantId, checkouts);
 
   res.json({ success: true, checkouts, total, page, pageSize });
 }

@@ -1012,6 +1012,12 @@ export interface AbandonedCheckoutDTO {
   // Shopify's abandoned_checkout_url — the only source of a "resume checkout" link a staff member
   // could send back to the customer. Always null for WooCommerce, which has no equivalent.
   checkoutUrl: string | null;
+  // Same batched courier-history-derived signal Orders shows (see attachRiskLabels), reused as-is —
+  // a customer's delivery track record is a fact about the phone number, not about whether this
+  // particular cart ever became a real order. Null until ZetSales Fraud Checker is installed and at
+  // least 2 resolved orders/history exist for the phone, same threshold as Orders.
+  riskLabel: RiskLabel | null;
+  riskSuccessRate: number | null;
   createdAt: string;
   updatedAt: string;
 }

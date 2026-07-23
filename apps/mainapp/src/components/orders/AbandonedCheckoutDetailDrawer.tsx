@@ -1,9 +1,10 @@
-import { Check, Copy, Mail, MapPin, MessageCircle, MousePointerClick, Package, Phone, X } from "lucide-react";
+import { Check, Copy, Mail, MapPin, MessageCircle, MousePointerClick, Package, Phone, ShieldAlert, X } from "lucide-react";
 import clsx from "clsx";
 import { useState } from "react";
 import type { AbandonedCheckoutDTO, StoreDTO } from "@zetsales/shared";
 import { telLink, waLink } from "./contact";
 import { avatarFromName } from "./avatar";
+import { useAuth } from "../../context/AuthContext";
 
 interface AbandonedCheckoutDetailDrawerProps {
   checkout: AbandonedCheckoutDTO | null;
@@ -29,6 +30,8 @@ function reasonLabel(reason: string) {
 // order has none of that to act on.
 export function AbandonedCheckoutDetailDrawer({ checkout, store, onClose }: AbandonedCheckoutDetailDrawerProps) {
   const [copied, setCopied] = useState(false);
+  const { user } = useAuth();
+  const fraudCheckerInstalled = Boolean(user?.installedPlugins?.includes("fraudChecker"));
   if (!checkout) return null;
 
   const avatar = avatarFromName(checkout.customerName);
@@ -62,6 +65,20 @@ export function AbandonedCheckoutDetailDrawer({ checkout, store, onClose }: Aban
             <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-200">
               {reasonLabel(checkout.reason)}
             </span>
+            {fraudCheckerInstalled && checkout.riskLabel && (
+              <span
+                className={clsx(
+                  "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset",
+                  checkout.riskLabel === "Trusted"
+                    ? "bg-violet-50 text-violet-700 ring-violet-600/20"
+                    : checkout.riskLabel === "Risky"
+                      ? "bg-rose-50 text-rose-700 ring-rose-600/20"
+                      : "bg-slate-100 text-slate-600 ring-slate-500/10"
+                )}
+              >
+                <ShieldAlert size={11} /> {checkout.riskLabel} {checkout.riskSuccessRate}%
+              </span>
+            )}
             {checkout.checkoutUrl && (
               <button
                 onClick={copyLink}
