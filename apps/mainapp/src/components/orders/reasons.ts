@@ -102,6 +102,7 @@ export const ALL_CANCEL_REASONS: CancelReason[] = [
   'Customer unreachable',
   'Customer changed mind',
   'Duplicate order',
+  'Quantity error',
   'Out of stock',
   'Fraud suspected',
   'Spam',

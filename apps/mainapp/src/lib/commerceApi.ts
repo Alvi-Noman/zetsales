@@ -1215,6 +1215,21 @@ export async function removeOrderLineItem(id: string, index: number) {
   return res.data as { success: boolean; order: OrderDTO };
 }
 
+// Lets staff correct a mistaken quantity (e.g. "100" typed for "1") in place, rather than
+// cancelling the whole order — preferred over cancelling since it doesn't falsely dent the
+// confirmation-rate KPI for demand that was always real, just mis-entered.
+export async function updateLineItemQuantity(id: string, index: number, quantity: number) {
+  const res = await api.patch(`/commerce/orders/${id}/line-items/${index}/quantity`, { quantity });
+  return res.data as { success: boolean; order: OrderDTO };
+}
+
+// Dismisses the unusual-quantity flag without changing the order — staff verified the large
+// quantity is intentional, not a mistake.
+export async function acknowledgeUnusualQuantity(id: string) {
+  const res = await api.post(`/commerce/orders/${id}/acknowledge-quantity`);
+  return res.data as { success: boolean; order: OrderDTO };
+}
+
 // Optional split for a mixed-stock order: confirms the in-stock line items on this order and
 // spins the out-of-stock ones off into a new, separately Confirmed order. See splitOrder in
 // ordersController.ts — `original` is this order (now Confirmed, fewer line items), `created` is

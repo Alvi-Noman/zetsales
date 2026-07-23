@@ -362,7 +362,7 @@ export type OrderStage = 'Pending' | 'Flagged' | 'Confirmed' | 'Processing' | 'R
 export type OrderPaymentStatus = 'COD Pending' | 'Advance Paid' | 'Paid' | 'Collected' | 'Refunded' | 'Failed';
 export type CallOutcome = 'Confirmed' | 'Rescheduled' | 'Customer Cancelled' | 'No Answer' | 'Wrong Number' | 'Switched Off' | 'Busy';
 export type HoldReason = 'Payment needs verification' | 'Address needs confirmation' | 'Stock check needed' | 'Customer rescheduled call' | "Customer didn't respond" | 'Stock shortfall found' | 'Customer unreachable for delivery' | 'Address unclear to courier' | 'Courier delay' | 'Attempting redelivery' | 'Courier dispute' | 'Customer says they never refused it' | 'Other';
-export type CancelReason = 'Customer unreachable' | 'Customer changed mind' | 'Duplicate order' | 'Out of stock' | 'Fraud suspected' | 'Spam' | 'Wrong address' | 'Price/payment dispute' | 'Blocked customer' | 'Other';
+export type CancelReason = 'Customer unreachable' | 'Customer changed mind' | 'Duplicate order' | 'Quantity error' | 'Out of stock' | 'Fraud suspected' | 'Spam' | 'Wrong address' | 'Price/payment dispute' | 'Blocked customer' | 'Other';
 export type RiskLabel = 'Trusted' | 'Normal' | 'Risky' | 'New Customer';
 export type PaymentMethod = 'Cash on Delivery' | 'bKash' | 'Nagad' | 'Rocket' | 'Card' | 'Other';
 export type CourierPartner = 'Steadfast' | 'Pathao';
@@ -401,6 +401,7 @@ export interface OrderLineItemDTO {
     sku: string | null;
     image: string | null;
     variantId?: string | null;
+    isUnusualQuantity?: boolean;
 }
 export interface OrderTimelineEventDTO {
     label: string;
@@ -453,6 +454,9 @@ export interface OrderDTO {
     priorityNote: string | null;
     isCustomerBlocked: boolean;
     isReturningCustomer: boolean;
+    hasPossibleDuplicate: boolean;
+    hasUnusualQuantity: boolean;
+    quantityFlagAcknowledged: boolean;
     riskLabel: RiskLabel | null;
     riskSuccessRate: number | null;
     steadfastFraudCheck: {
@@ -631,9 +635,11 @@ export interface MetricWithTrendDTO {
 }
 export interface AnalyticsSummaryDTO {
     totalSales: MetricWithTrendDTO;
+    adjustedTotalSales: MetricWithTrendDTO;
     totalOrders: MetricWithTrendDTO;
     aov: MetricWithTrendDTO;
     confirmationRate: MetricWithTrendDTO;
+    adjustedConfirmationRate: MetricWithTrendDTO;
     deliveredRate: MetricWithTrendDTO;
     rtoRate: MetricWithTrendDTO;
     codOutstanding: MetricWithTrendDTO;

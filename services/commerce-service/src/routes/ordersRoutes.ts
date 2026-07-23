@@ -4,7 +4,7 @@ import { asyncHandler } from '../middleware/asyncHandler.js';
 import { uploadCsvFile } from '../middleware/csvUpload.js';
 import {
   importStoreOrdersStream, listOrders, getOrder, getOrderInventorySnapshot, getOrderFulfillmentStatus, getOrderStats, getOrderTrends, updateOrder, bulkUpdateOrders, markPartialDelivered,
-  blockCustomer, unblockCustomer, markPaymentCollected, bulkMarkPaymentCollected, bulkRecheckFraud, claimOrder, heartbeatOrderClaim, releaseOrderClaim, upsellOrder, removeOrderLineItem, createOrder, splitOrder,
+  blockCustomer, unblockCustomer, markPaymentCollected, bulkMarkPaymentCollected, bulkRecheckFraud, claimOrder, heartbeatOrderClaim, releaseOrderClaim, upsellOrder, removeOrderLineItem, updateLineItemQuantity, acknowledgeUnusualQuantity, createOrder, splitOrder,
   getReadyToPrintOrders, markOrdersPrinted, ensureOrderInvoices, getCourierShipmentStats, dispatchScanHandover,
 } from '../controllers/ordersController.js';
 import { parseCsvOrderImport, previewCsvOrderImport, commitCsvOrderImport } from '../controllers/csvOrderImportController.js';
@@ -44,6 +44,8 @@ router.post('/orders/:id/claim/heartbeat', requireAuth, requireTenant, requireOr
 router.post('/orders/:id/release', requireAuth, requireTenant, requireOrders, asyncHandler(releaseOrderClaim));
 router.post('/orders/:id/upsell', requireAuth, requireTenant, requireOrders, asyncHandler(upsellOrder));
 router.delete('/orders/:id/line-items/:index', requireAuth, requireTenant, requireOrders, asyncHandler(removeOrderLineItem));
+router.patch('/orders/:id/line-items/:index/quantity', requireAuth, requireTenant, requireOrders, asyncHandler(updateLineItemQuantity));
+router.post('/orders/:id/acknowledge-quantity', requireAuth, requireTenant, requireOrders, asyncHandler(acknowledgeUnusualQuantity));
 router.post('/orders/:id/split', requireAuth, requireTenant, requireOrders, asyncHandler(splitOrder));
 router.get('/stores/:storeId/orders/import/stream', requireAuth, requireTenant, requireOrders, asyncHandler(importStoreOrdersStream));
 

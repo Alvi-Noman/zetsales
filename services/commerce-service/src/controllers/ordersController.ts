@@ -42,7 +42,17 @@ import {
 } from '../integrations/orderStatusMapper.js';
 import { upsertWooAbandonedCheckout } from './abandonedCheckoutsController.js';
 
+// Flat constant, not per-SKU/per-tenant — there's no order-history baseline to compute a "typical"
+// quantity against yet. 5+ of the same SKU/variant on one line item is treated as worth a second
+// look (likely a typo like "100" instead of "1"), not an automatic block/hold.
+const UNUSUAL_QUANTITY_THRESHOLD = 5;
+
 function toOrderDto(doc: any): OrderDTO {
+  const lineItems = (doc.lineItems ?? []).map((li: any) => ({
+    ...li,
+    image: li.image ?? null,
+    isUnusualQuantity: li.quantity >= UNUSUAL_QUANTITY_THRESHOLD,
+  }));
   return {
     id: doc._id.toString(),
     storeId: doc.storeId,
@@ -67,7 +77,7 @@ function toOrderDto(doc: any): OrderDTO {
     customerAltPhone: doc.customerAltPhone ?? null,
     customerEmail: doc.customerEmail ?? null,
     address: doc.address ?? null,
-    lineItems: (doc.lineItems ?? []).map((li: any) => ({ ...li, image: li.image ?? null })),
+    lineItems,
     holdReason: doc.holdReason ?? null,
     cancelReason: doc.cancelReason ?? null,
     flagReason: doc.flagReason ?? null,
@@ -82,6 +92,9 @@ function toOrderDto(doc: any): OrderDTO {
     priorityNote: doc.priorityNote ?? null,
     isCustomerBlocked: false, // overwritten by attachBlockedFlags where relevant — not knowable from the doc alone
     isReturningCustomer: false, // overwritten by attachReturningFlags where relevant — needs a count across all of the phone's orders
+    hasPossibleDuplicate: false, // overwritten by attachDuplicateFlags where relevant — needs a batched lookup across same-phone/same-day siblings
+    hasUnusualQuantity: lineItems.some((li: { isUnusualQuantity: boolean }) => li.isUnusualQuantity),
+    quantityFlagAcknowledged: doc.quantityFlagAcknowledged ?? false,
     riskLabel: null, // overwritten by attachRiskLabels where relevant — needs a batched lookup across the phone's history
     riskSuccessRate: null,
     steadfastFraudCheck: doc.steadfastFraudCheck
@@ -740,6 +753,31 @@ export async function attachRiskLabels<T extends { customerPhone: string | null;
   }
 }
 
+// Batched version of findPossibleDuplicates for list rows — one aggregation for the whole page
+// instead of one query per row. Same rule as the live per-order check: same customerPhone, same
+// Asia/Dhaka calendar day, excluding Cancelled/Returned stages (a duplicate already resolved one
+// way or another isn't a decision staff still need to make on this order).
+async function attachDuplicateFlags(db: ReturnType<typeof getDb>, tenantId: string, orders: OrderDTO[]) {
+  const candidates = orders.filter((o) => o.customerPhone && o.stage !== 'Cancelled' && o.stage !== 'Returned');
+  const phones = [...new Set(candidates.map((o) => o.customerPhone as string))];
+  if (phones.length === 0) return;
+
+  const rows = await db
+    .collection('orders')
+    .aggregate([
+      { $match: { tenantId, customerPhone: { $in: phones }, stage: { $nin: ['Cancelled', 'Returned'] } } },
+      { $addFields: { dhakaDay: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt', timezone: 'Asia/Dhaka' } } } },
+      { $group: { _id: { phone: '$customerPhone', day: '$dhakaDay' }, count: { $sum: 1 } } },
+    ])
+    .toArray();
+  const countByKey = new Map(rows.map((r) => [`${r._id.phone}|${r._id.day}`, r.count as number]));
+
+  for (const order of candidates) {
+    const day = dhakaDayKey(new Date(order.createdAt));
+    order.hasPossibleDuplicate = (countByKey.get(`${order.customerPhone}|${day}`) ?? 0) > 1;
+  }
+}
+
 // Fire-and-forget: checks Steadfast's own dashboard fraud-check for this order's phone number and
 // caches the result on the order document, so by the time anyone opens it in the drawer it's
 // already there. The random delay means this doesn't fire on an obviously fixed, bot-like cadence
@@ -930,6 +968,7 @@ export async function listOrders(req: AuthenticatedRequest, res: Response) {
   await attachBlockedFlags(db, tenantId, orders);
   await attachReturningFlags(db, tenantId, orders);
   await attachRiskLabels(db, tenantId, orders);
+  await attachDuplicateFlags(db, tenantId, orders);
   const total = result?.totalCount?.[0]?.count ?? 0;
 
   res.json({ success: true, orders, total, page, pageSize });
@@ -963,6 +1002,7 @@ export async function getReadyToPrintOrders(req: AuthenticatedRequest, res: Resp
   await attachBlockedFlags(db, tenantId, orders);
   await attachReturningFlags(db, tenantId, orders);
   await attachRiskLabels(db, tenantId, orders);
+  await attachDuplicateFlags(db, tenantId, orders);
 
   res.json({ success: true, orders, total });
 }
@@ -989,6 +1029,7 @@ export async function markOrdersPrinted(req: AuthenticatedRequest, res: Response
   await attachBlockedFlags(db, tenantId, orders);
   await attachReturningFlags(db, tenantId, orders);
   await attachRiskLabels(db, tenantId, orders);
+  await attachDuplicateFlags(db, tenantId, orders);
   res.json({ success: true, orders });
 }
 
@@ -1008,6 +1049,7 @@ export async function ensureOrderInvoices(req: AuthenticatedRequest, res: Respon
   await attachBlockedFlags(db, tenantId, orders);
   await attachReturningFlags(db, tenantId, orders);
   await attachRiskLabels(db, tenantId, orders);
+  await attachDuplicateFlags(db, tenantId, orders);
   res.json({ success: true, orders });
 }
 
@@ -1379,6 +1421,14 @@ function dhakaDayBounds(date: Date): { from: Date; to: Date } {
   return { from: dayStartUtc, to: new Date(dayStartUtc.getTime() + 24 * 60 * 60 * 1000) };
 }
 
+// 'YYYY-MM-DD' key for the Asia/Dhaka calendar day a date falls on — matches the $dateToString
+// format attachDuplicateFlags/getDuplicateOrders use in their aggregations, so JS-side and
+// Mongo-side day keys always agree.
+function dhakaDayKey(date: Date): string {
+  const shifted = new Date(date.getTime() + DHAKA_OFFSET_MS);
+  return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, '0')}-${String(shifted.getUTCDate()).padStart(2, '0')}`;
+}
+
 // The real-time half of duplicate detection — computed fresh on every order view rather than
 // waiting for the retrospective getDuplicateOrders analytics grouping to catch it. Only counts
 // still-active siblings (not Cancelled/Returned): a duplicate that's already been resolved one way
@@ -1564,6 +1614,7 @@ export async function getOrder(req: AuthenticatedRequest, res: Response) {
   await attachBlockedFlags(db, tenantId, [dto]);
   await attachReturningFlags(db, tenantId, [dto]);
   await attachRiskLabels(db, tenantId, [dto]);
+  await attachDuplicateFlags(db, tenantId, [dto]);
   res.json({ success: true, order: dto, risk, courierUnavailable });
 }
 
@@ -1791,6 +1842,7 @@ export async function createOrder(req: AuthenticatedRequest, res: Response) {
   await attachBlockedFlags(db, tenantId, [dto]);
   await attachReturningFlags(db, tenantId, [dto]);
   await attachRiskLabels(db, tenantId, [dto]);
+  await attachDuplicateFlags(db, tenantId, [dto]);
   void dispatchAppWebhook(tenantId, 'orders/create', dto);
   void checkAndStoreSteadfastFraud(tenantId, { _id: result.insertedId }, doc.customerPhone);
   void checkAndStorePathaoFraud(tenantId, { _id: result.insertedId }, doc.customerPhone);
@@ -1809,7 +1861,7 @@ const HOLD_REASONS = [
   'Other',
 ] as const;
 const CANCEL_REASONS = [
-  'Customer unreachable', 'Customer changed mind', 'Duplicate order', 'Out of stock',
+  'Customer unreachable', 'Customer changed mind', 'Duplicate order', 'Quantity error', 'Out of stock',
   'Fraud suspected', 'Spam', 'Wrong address', 'Price/payment dispute', 'Blocked customer', 'Other',
 ] as const;
 // What actually happened on a confirmation call — a plain attempt counter can't tell "rang out"
@@ -2145,6 +2197,7 @@ export async function updateOrder(req: AuthenticatedRequest, res: Response) {
   await attachBlockedFlags(db, tenantId, [dto]);
   await attachReturningFlags(db, tenantId, [dto]);
   await attachRiskLabels(db, tenantId, [dto]);
+  await attachDuplicateFlags(db, tenantId, [dto]);
   void dispatchAppWebhook(tenantId, 'orders/updated', dto);
   if (result.stage === 'Confirmed' && current.stage !== 'Confirmed') void dispatchAppWebhook(tenantId, 'orders/confirmed', dto);
   if (result.stage === 'Cancelled' && current.stage !== 'Cancelled') void dispatchAppWebhook(tenantId, 'orders/cancelled', dto);
@@ -2236,6 +2289,7 @@ export async function upsellOrder(req: AuthenticatedRequest, res: Response) {
   await attachBlockedFlags(db, tenantId, [dto]);
   await attachReturningFlags(db, tenantId, [dto]);
   await attachRiskLabels(db, tenantId, [dto]);
+  await attachDuplicateFlags(db, tenantId, [dto]);
   res.json({ success: true, order: dto });
 }
 
@@ -2298,6 +2352,110 @@ export async function removeOrderLineItem(req: AuthenticatedRequest, res: Respon
   await attachBlockedFlags(db, tenantId, [dto]);
   await attachReturningFlags(db, tenantId, [dto]);
   await attachRiskLabels(db, tenantId, [dto]);
+  await attachDuplicateFlags(db, tenantId, [dto]);
+  res.json({ success: true, order: dto });
+}
+
+const updateLineItemQuantitySchema = z.object({ quantity: z.number().int().positive() });
+
+// Lets staff fix a mistaken quantity (e.g. "100" typed for "1") in place, rather than cancelling
+// the whole order — cancelling would drag down the confirmation-rate KPI for demand that was
+// always real, just mis-entered (see 'Quantity error' cancelReason and adjustedConfirmationRate).
+// Correcting here also fixes every revenue/AOV report for free, since those read subtotal/total
+// live off the order document — no separate "deduction" step needed. Full-recompute style, same
+// as removeOrderLineItem, since this mutates an existing item rather than adding one (contrast
+// upsellOrder's additive subtotal += formula).
+export async function updateLineItemQuantity(req: AuthenticatedRequest, res: Response) {
+  const index = Number(req.params.index);
+  if (!Number.isInteger(index) || index < 0) {
+    res.status(400).json({ success: false, message: 'Invalid line item' });
+    return;
+  }
+  const parsed = updateLineItemQuantitySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, message: 'A valid quantity is required' });
+    return;
+  }
+
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const current = await db.collection('orders').findOne({ _id: new ObjectId(req.params.id), tenantId });
+  if (!current) {
+    res.status(404).json({ success: false, message: 'Order not found' });
+    return;
+  }
+  if (!LINE_ITEM_EDITABLE_STAGES.includes(current.stage)) {
+    res.status(400).json({ success: false, message: 'Quantities can only be corrected before the order ships.' });
+    return;
+  }
+  const lineItems: any[] = current.lineItems ?? [];
+  if (index >= lineItems.length) {
+    res.status(404).json({ success: false, message: 'Line item not found' });
+    return;
+  }
+
+  const item = lineItems[index];
+  const previousQuantity = item.quantity;
+  const newQuantity = parsed.data.quantity;
+  if (newQuantity === previousQuantity) {
+    res.json({ success: true, order: toOrderDto(current) });
+    return;
+  }
+  item.quantity = newQuantity;
+  const subtotal = lineItems.reduce((sum, li) => sum + li.price * li.quantity, 0);
+  const total = Math.max(0, subtotal + (current.shippingFee ?? 0) - (current.discount ?? 0));
+  const now = new Date();
+
+  const inventoryState = resolveInventoryState(current.stage, current.heldFromStage);
+  if (inventoryState === 'reserved') {
+    const delta = newQuantity - previousQuantity;
+    if (delta > 0) await applyInventoryStageEffect(tenantId, [{ sku: item.sku, variant: item.variant, quantity: delta }], 'none', 'reserved');
+    else if (delta < 0) await applyInventoryStageEffect(tenantId, [{ sku: item.sku, variant: item.variant, quantity: -delta }], 'reserved', 'none');
+  }
+
+  // A fresh correction deserves a fresh review if it lands on another unusual quantity — clear any
+  // earlier acknowledgment rather than let it silently carry over to a different number.
+  const update: Record<string, unknown> = {
+    $set: { lineItems, subtotal, total, quantityFlagAcknowledged: false, updatedAt: now },
+    $push: { history: { label: 'Quantity corrected', detail: `${previousQuantity} → ${newQuantity} × ${item.title}`, at: now, by: req.user!.email } },
+  };
+  const result = await db.collection('orders').findOneAndUpdate({ _id: new ObjectId(req.params.id), tenantId }, update, { returnDocument: 'after' });
+  if (!result) {
+    res.status(404).json({ success: false, message: 'Order not found' });
+    return;
+  }
+
+  const dto = toOrderDto(result);
+  await attachBlockedFlags(db, tenantId, [dto]);
+  await attachReturningFlags(db, tenantId, [dto]);
+  await attachRiskLabels(db, tenantId, [dto]);
+  await attachDuplicateFlags(db, tenantId, [dto]);
+  res.json({ success: true, order: dto });
+}
+
+// Dismisses the unusual-quantity flag without changing the order — staff checked with the
+// customer and the large quantity is intentional. Persisted (not just a client-side dismiss) so
+// the flag doesn't reappear every time the order is reopened; logged for accountability the same
+// way other order edits are.
+export async function acknowledgeUnusualQuantity(req: AuthenticatedRequest, res: Response) {
+  const db = getDb();
+  const tenantId = req.user!.tenantId!;
+  const now = new Date();
+  const update: Record<string, unknown> = {
+    $set: { quantityFlagAcknowledged: true, updatedAt: now },
+    $push: { history: { label: 'Quantity confirmed', detail: 'Confirmed as intentional, not a mistake', at: now, by: req.user!.email } },
+  };
+  const result = await db.collection('orders').findOneAndUpdate({ _id: new ObjectId(req.params.id), tenantId }, update, { returnDocument: 'after' });
+  if (!result) {
+    res.status(404).json({ success: false, message: 'Order not found' });
+    return;
+  }
+
+  const dto = toOrderDto(result);
+  await attachBlockedFlags(db, tenantId, [dto]);
+  await attachReturningFlags(db, tenantId, [dto]);
+  await attachRiskLabels(db, tenantId, [dto]);
+  await attachDuplicateFlags(db, tenantId, [dto]);
   res.json({ success: true, order: dto });
 }
 
@@ -2471,6 +2629,7 @@ export async function splitOrder(req: AuthenticatedRequest, res: Response) {
   await attachBlockedFlags(db, tenantId, [originalDto, createdDto]);
   await attachReturningFlags(db, tenantId, [originalDto, createdDto]);
   await attachRiskLabels(db, tenantId, [originalDto, createdDto]);
+  await attachDuplicateFlags(db, tenantId, [originalDto, createdDto]);
   res.json({ success: true, original: originalDto, created: createdDto });
 }
 
@@ -2640,6 +2799,7 @@ export async function markPaymentCollected(req: AuthenticatedRequest, res: Respo
   await attachBlockedFlags(db, tenantId, [dto]);
   await attachReturningFlags(db, tenantId, [dto]);
   await attachRiskLabels(db, tenantId, [dto]);
+  await attachDuplicateFlags(db, tenantId, [dto]);
   void dispatchAppWebhook(tenantId, 'payments/collected', dto);
   res.json({ success: true, order: dto });
 }
@@ -2787,6 +2947,7 @@ export async function markPartialDelivered(req: AuthenticatedRequest, res: Respo
   await attachBlockedFlags(db, tenantId, [dto]);
   await attachReturningFlags(db, tenantId, [dto]);
   await attachRiskLabels(db, tenantId, [dto]);
+  await attachDuplicateFlags(db, tenantId, [dto]);
   res.json({ success: true, order: dto });
 }
 
@@ -2847,6 +3008,7 @@ export async function dispatchScanHandover(req: AuthenticatedRequest, res: Respo
   await attachBlockedFlags(db, tenantId, [dto]);
   await attachReturningFlags(db, tenantId, [dto]);
   await attachRiskLabels(db, tenantId, [dto]);
+  await attachDuplicateFlags(db, tenantId, [dto]);
   res.json({ success: true, order: dto });
 }
 

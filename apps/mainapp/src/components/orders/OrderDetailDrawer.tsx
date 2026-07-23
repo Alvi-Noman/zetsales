@@ -27,6 +27,7 @@ import {
   Scissors,
   Banknote,
   Plus,
+  Minus,
   Split,
   ShieldAlert,
 } from "lucide-react";
@@ -41,6 +42,7 @@ import type {
   StoreDTO,
 } from "@zetsales/shared";
 import {
+  acknowledgeUnusualQuantity,
   blockCustomer,
   claimOrder,
   createDeliveryZone,
@@ -55,6 +57,7 @@ import {
   removeOrderLineItem,
   splitOrder,
   unblockCustomer,
+  updateLineItemQuantity,
   updateOrder,
   upsellOrder,
   type DeliveryZoneDTO,
@@ -386,6 +389,10 @@ export function OrderDetailDrawer({
   const [removingItemIndex, setRemovingItemIndex] = useState<number | null>(
     null,
   );
+  const [editingQtyIndex, setEditingQtyIndex] = useState<number | null>(null);
+  const [qtyInput, setQtyInput] = useState("");
+  const [savingQtyIndex, setSavingQtyIndex] = useState<number | null>(null);
+  const [acknowledgingQty, setAcknowledgingQty] = useState(false);
   const [binLookup, setBinLookup] = useState<BinLookup | undefined>(undefined);
   const [stockLookup, setStockLookup] = useState<StockLookup | undefined>(
     undefined,
@@ -806,6 +813,48 @@ export function OrderDetailDrawer({
     }
   };
 
+  const saveLineItemQuantity = async (index: number) => {
+    if (!order) return;
+    const quantity = Number(qtyInput);
+    if (!Number.isFinite(quantity) || quantity < 1 || !Number.isInteger(quantity)) {
+      toast.push("Enter a valid quantity.", "info");
+      return;
+    }
+    setSavingQtyIndex(index);
+    try {
+      await updateLineItemQuantity(order.id, index, quantity);
+      await refresh(order.id, { silent: true });
+      onUpdated();
+      setEditingQtyIndex(null);
+      toast.push("Quantity corrected.", "success");
+    } catch (err) {
+      toast.push(
+        err instanceof Error ? err.message : "Could not update this quantity.",
+        "info",
+      );
+    } finally {
+      setSavingQtyIndex(null);
+    }
+  };
+
+  const confirmUnusualQuantity = async () => {
+    if (!order) return;
+    setAcknowledgingQty(true);
+    try {
+      await acknowledgeUnusualQuantity(order.id);
+      await refresh(order.id, { silent: true });
+      onUpdated();
+      toast.push("Quantity confirmed.", "success");
+    } catch (err) {
+      toast.push(
+        err instanceof Error ? err.message : "Could not confirm this quantity.",
+        "info",
+      );
+    } finally {
+      setAcknowledgingQty(false);
+    }
+  };
+
   const avatar = detail ? avatarFromName(detail.customerName) : null;
   const feeLocked = detail ? TERMINAL_STAGES.includes(detail.stage) : false;
   // Once a real consignment exists, the courier already has the parcel — changing "Partner" at that
@@ -1189,6 +1238,27 @@ export function OrderDetailDrawer({
                         ? "an active order"
                         : `${risk.possibleDuplicateOrders.length} other active orders`}{" "}
                       placed today: {risk.possibleDuplicateOrders.join(", ")}
+                    </div>
+                  )}
+                {detail.hasUnusualQuantity &&
+                  !detail.quantityFlagAcknowledged && (
+                    <div className="mt-3 flex items-center justify-between gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
+                      <span>
+                        Unusually large quantity —{" "}
+                        {detail.lineItems
+                          .filter((li) => li.isUnusualQuantity)
+                          .map((li) => `${li.quantity}× ${li.title}`)
+                          .join(", ")}
+                        . Could be a mistake — correct the quantity below, or
+                        confirm it's intentional.
+                      </span>
+                      <button
+                        onClick={() => void confirmUnusualQuantity()}
+                        disabled={!!lockedByOther || acknowledgingQty}
+                        className="shrink-0 rounded-full border border-amber-300 px-2.5 py-1 font-semibold text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {acknowledgingQty ? "Confirming…" : "Confirm quantity"}
+                      </button>
                     </div>
                   )}
                 <div className="mt-3 space-y-1.5 text-sm text-slate-600">
@@ -1626,10 +1696,20 @@ export function OrderDetailDrawer({
                   Items
                 </h3>
                 <div className="space-y-3">
-                  {detail.lineItems.map((li, i) => (
+                  {detail.lineItems.map((li, i) => {
+                    const flagged =
+                      li.isUnusualQuantity && !detail.quantityFlagAcknowledged;
+                    const canEditQty =
+                      LINE_ITEM_EDITABLE_STAGES.includes(detail.stage) &&
+                      !lockedByOther;
+                    return (
                     <div
                       key={i}
-                      className="flex items-center justify-between text-sm"
+                      className={clsx(
+                        "flex items-center justify-between rounded-lg text-sm",
+                        flagged &&
+                          "border-l-2 border-amber-400 bg-amber-50/50 pl-2",
+                      )}
                     >
                       <div className="flex items-center gap-3">
                         <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-100 text-slate-400">
@@ -1647,11 +1727,91 @@ export function OrderDetailDrawer({
                           <p className="font-medium text-slate-700">
                             {li.title}
                           </p>
-                          <p className="text-xs text-slate-400">
-                            {li.variant ? `${li.variant} · ` : ""}Qty{" "}
-                            {li.quantity}
-                            {li.sku ? ` · ${li.sku}` : ""}
-                          </p>
+                          {editingQtyIndex === i ? (
+                            <div className="mt-1 flex items-center gap-1.5">
+                              <div className="flex items-center overflow-hidden rounded-md border border-slate-200 bg-white">
+                                <button
+                                  onClick={() =>
+                                    setQtyInput((v) =>
+                                      String(Math.max(1, (Number(v) || 1) - 1)),
+                                    )
+                                  }
+                                  disabled={savingQtyIndex === i}
+                                  className="flex h-6 w-6 shrink-0 items-center justify-center text-slate-400 hover:bg-slate-50 hover:text-slate-700 disabled:opacity-40"
+                                >
+                                  <Minus size={11} />
+                                </button>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  autoFocus
+                                  value={qtyInput}
+                                  onChange={(e) => setQtyInput(e.target.value)}
+                                  onFocus={(e) => e.target.select()}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter")
+                                      void saveLineItemQuantity(i);
+                                    if (e.key === "Escape")
+                                      setEditingQtyIndex(null);
+                                  }}
+                                  disabled={savingQtyIndex === i}
+                                  className="h-6 w-10 border-x border-slate-200 bg-transparent text-center text-xs font-semibold tabular-nums text-slate-700 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                />
+                                <button
+                                  onClick={() =>
+                                    setQtyInput((v) => String((Number(v) || 0) + 1))
+                                  }
+                                  disabled={savingQtyIndex === i}
+                                  className="flex h-6 w-6 shrink-0 items-center justify-center text-slate-400 hover:bg-slate-50 hover:text-slate-700 disabled:opacity-40"
+                                >
+                                  <Plus size={11} />
+                                </button>
+                              </div>
+                              <button
+                                onClick={() => void saveLineItemQuantity(i)}
+                                disabled={savingQtyIndex === i}
+                                title="Save"
+                                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-900 text-white hover:bg-slate-700 disabled:opacity-50"
+                              >
+                                {savingQtyIndex === i ? (
+                                  <Loader2 size={11} className="animate-spin" />
+                                ) : (
+                                  <Check size={12} />
+                                )}
+                              </button>
+                              <button
+                                onClick={() => setEditingQtyIndex(null)}
+                                disabled={savingQtyIndex === i}
+                                title="Cancel"
+                                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-slate-300 hover:bg-slate-100 hover:text-slate-500 disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                <X size={12} />
+                              </button>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-slate-400">
+                              {li.variant ? `${li.variant} · ` : ""}Qty{" "}
+                              {li.quantity}
+                              {li.sku ? ` · ${li.sku}` : ""}
+                              {canEditQty && (
+                                <button
+                                  onClick={() => {
+                                    setQtyInput(String(li.quantity));
+                                    setEditingQtyIndex(i);
+                                  }}
+                                  title="Edit quantity"
+                                  className={clsx(
+                                    "ml-1.5 inline-flex align-middle",
+                                    flagged
+                                      ? "text-amber-500 hover:text-amber-700"
+                                      : "text-slate-300 hover:text-slate-500",
+                                  )}
+                                >
+                                  <Pencil size={11} />
+                                </button>
+                              )}
+                            </p>
+                          )}
                           {(() => {
                             const free = resolveFreeStock(stockLookup, li.sku);
                             if (free === null) {
@@ -1706,7 +1866,8 @@ export function OrderDetailDrawer({
                           )}
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
                 {LINE_ITEM_EDITABLE_STAGES.includes(detail.stage) && (
                   <button

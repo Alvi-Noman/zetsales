@@ -49,6 +49,12 @@ function summaryTiles(summary: AnalyticsSummaryDTO | null) {
       label: "Total sales",
       value: summary ? formatMoney(summary.totalSales.value) : null,
       trend: summary?.totalSales.trend,
+      // Raw figure counts duplicate/quantity-error orders at full value even after they're
+      // cancelled — those were never real demand, just data-entry noise, so the adjusted figure
+      // (netting them out) is a closer read on true sales.
+      sub: summary
+        ? `Excl. data-entry errors: ${formatMoney(summary.adjustedTotalSales.value)}`
+        : null,
     },
     {
       label: "Total orders",
@@ -66,6 +72,12 @@ function summaryTiles(summary: AnalyticsSummaryDTO | null) {
         ? formatPercentRounded(summary.confirmationRate.value)
         : null,
       trend: summary?.confirmationRate.trend,
+      // Raw rate counts duplicate/quantity-error orders that got cancelled as "lost" — those were
+      // never real demand, just data-entry noise caught on the way in, so the adjusted figure
+      // (excluding them) is a closer read on true confirmation performance.
+      sub: summary
+        ? `Excl. data-entry errors: ${formatPercentRounded(summary.adjustedConfirmationRate.value)}`
+        : null,
     },
     {
       label: "Delivered rate",
@@ -255,6 +267,11 @@ export function AnalyticsEntryPage() {
                   </span>
                 )}
               </div>
+              {"sub" in tile && tile.sub && (
+                <p className="mt-1 text-[10.5px] font-medium text-slate-400">
+                  {tile.sub}
+                </p>
+              )}
             </div>
           ))}
         </div>

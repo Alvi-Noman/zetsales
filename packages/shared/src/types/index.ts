@@ -645,6 +645,7 @@ export type CancelReason =
   | 'Customer unreachable'
   | 'Customer changed mind'
   | 'Duplicate order'
+  | 'Quantity error'
   | 'Out of stock'
   | 'Fraud suspected'
   | 'Spam'
@@ -774,6 +775,10 @@ export interface OrderLineItemDTO {
   // exact, unambiguous match key for image resolution when a line item has no SKU. Not set on
   // CSV-imported or manually-entered orders, which have no such platform identity to carry.
   variantId?: string | null;
+  // Live-computed against UNUSUAL_QUANTITY_THRESHOLD (server-side), not stored — flags a single line
+  // item whose quantity is high enough to suggest a data-entry mistake (e.g. "100" typed for "1")
+  // rather than a genuine bulk purchase. See OrderDTO.hasUnusualQuantity for the order-level summary.
+  isUnusualQuantity?: boolean;
 }
 
 export interface OrderTimelineEventDTO {
@@ -855,6 +860,20 @@ export interface OrderDTO {
   // Derived from counting this phone's orders tenant-wide (all-time), not stored on the order —
   // "returning" means more than one order exists for the phone, "new" means this is the only one.
   isReturningCustomer: boolean;
+  // Live-computed per list fetch, same underlying rule as OrderRiskDTO.possibleDuplicateOrders
+  // (same customerPhone, same Asia/Dhaka calendar day, excluding Cancelled/Returned) — batched
+  // across the fetched page rather than a per-order query, so the Orders list can show a pill
+  // without opening the detail drawer for each row.
+  hasPossibleDuplicate: boolean;
+  // Live-computed the same way as OrderLineItemDTO.isUnusualQuantity — true if any line item on
+  // this order trips the threshold. Drives the Orders list pill without needing a per-row detail
+  // fetch. See quantityFlagAcknowledged for how staff dismiss this once they've verified it's real.
+  hasUnusualQuantity: boolean;
+  // Set once staff confirm a flagged large quantity is intentional (not a mistake) via the
+  // "Confirm quantity" action — persisted so the flag doesn't reappear on every reopen. Independent
+  // of the underlying quantity: if the line item is later edited again to a new unusual quantity,
+  // this should be cleared server-side so the new value gets a fresh review.
+  quantityFlagAcknowledged: boolean;
   // Derived the same way — this phone's delivery-success label/rate, batched for row display.
   // Prefers courierFraudHistory (real Steadfast/Pathao ground truth) when a record exists for the
   // phone, falling back to ZetSales' own network-wide order-stage history otherwise — same
@@ -1160,9 +1179,18 @@ export interface MetricWithTrendDTO {
 // Powers the entry page's KPI strip.
 export interface AnalyticsSummaryDTO {
   totalSales: MetricWithTrendDTO;
+  // Same figure as totalSales, minus the value of orders cancelled for 'Duplicate order' or
+  // 'Quantity error' — data-entry noise that was never real demand. totalSales itself stays a pure
+  // "everything ever ordered" gross figure; this is shown as a sub-line, not a replacement.
+  adjustedTotalSales: MetricWithTrendDTO;
   totalOrders: MetricWithTrendDTO;
   aov: MetricWithTrendDTO;
   confirmationRate: MetricWithTrendDTO;
+  // Same ratio as confirmationRate, but excludes orders cancelled for 'Duplicate order' or
+  // 'Quantity error' from the denominator — those were never real demand, just data-entry noise
+  // caught on the way in, so counting them as "lost" understates true confirmation performance.
+  // The gap between the two numbers is a direct measure of how much data-entry noise is in the mix.
+  adjustedConfirmationRate: MetricWithTrendDTO;
   deliveredRate: MetricWithTrendDTO;
   rtoRate: MetricWithTrendDTO;
   codOutstanding: MetricWithTrendDTO;

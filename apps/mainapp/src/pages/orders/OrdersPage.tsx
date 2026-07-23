@@ -1602,6 +1602,23 @@ export function OrdersPage() {
                                       {order.riskLabel} {order.riskSuccessRate}%
                                     </span>
                                   )}
+                                {order.hasPossibleDuplicate && (
+                                  <span
+                                    title="This phone number also has other active orders placed today — worth checking before packing."
+                                    className="inline-flex items-center rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-600/20"
+                                  >
+                                    Possible Duplicate
+                                  </span>
+                                )}
+                                {order.hasUnusualQuantity &&
+                                  !order.quantityFlagAcknowledged && (
+                                    <span
+                                      title="A line item on this order has an unusually large quantity — could be a mistake (e.g. 100 typed instead of 1)."
+                                      className="inline-flex items-center rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-600/20"
+                                    >
+                                      Unusual Qty
+                                    </span>
+                                  )}
                                 {isClaimedByOther && order.claimedBy && (
                                   <span
                                     title={`${order.claimedBy.email} is currently calling this customer`}

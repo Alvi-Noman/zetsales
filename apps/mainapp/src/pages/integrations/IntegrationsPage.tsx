@@ -26,6 +26,7 @@ import { CourierIntegrationsTab } from "../../components/integrations/CourierInt
 import { MessagingIntegrationsTab } from "../../components/integrations/MessagingIntegrationsTab";
 import { AdAccountsTab } from "../../components/integrations/AdAccountsTab";
 import { useToast } from "../../components/ui/ToastProvider";
+import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 
 type IntegrationsTab = "stores" | "couriers" | "messaging" | "adAccounts";
 
@@ -139,6 +140,7 @@ export function IntegrationsPage() {
   const [wooModalOpen, setWooModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<IntegrationsTab>("stores");
   const [resyncingStoreId, setResyncingStoreId] = useState<string | null>(null);
+  const [storePendingRemoval, setStorePendingRemoval] = useState<StoreDTO | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -228,6 +230,11 @@ export function IntegrationsPage() {
       toast.push("Could not disconnect this store.", "info");
       void load();
     }
+  };
+
+  const confirmRemove = async () => {
+    if (!storePendingRemoval) return;
+    await handleRemove(storePendingRemoval);
   };
 
   const handleImport = (store: StoreDTO) => {
@@ -360,7 +367,7 @@ export function IntegrationsPage() {
                       key={store.id}
                       store={store}
                       onImport={handleImport}
-                      onRemove={handleRemove}
+                      onRemove={setStorePendingRemoval}
                       onResync={handleResync}
                       resyncing={resyncingStoreId === store.id}
                     />
@@ -388,6 +395,18 @@ export function IntegrationsPage() {
         open={wooModalOpen}
         onClose={() => setWooModalOpen(false)}
         onConnected={handleConnected}
+      />
+      <ConfirmDialog
+        open={storePendingRemoval != null}
+        onClose={() => setStorePendingRemoval(null)}
+        onConfirm={confirmRemove}
+        title={`Disconnect ${storePendingRemoval?.displayName ?? "this store"}?`}
+        confirmLabel="Disconnect"
+        description={
+          storePendingRemoval && storePendingRemoval.productCount > 0
+            ? `This will permanently delete all ${storePendingRemoval.productCount.toLocaleString()} product${storePendingRemoval.productCount === 1 ? "" : "s"} imported from this store. Orders and inventory already synced will stay, but this store will stop syncing new orders, products, or stock. This can't be undone.`
+            : "Orders and inventory already synced will stay, but this store will stop syncing new orders, products, or stock. This can't be undone."
+        }
       />
     </div>
   );

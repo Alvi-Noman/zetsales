@@ -43,6 +43,7 @@ import {
 import { ConnectSteadfastModal } from "./ConnectSteadfastModal";
 import { ConnectPathaoModal } from "./ConnectPathaoModal";
 import { Modal } from "../ui/Modal";
+import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { useToast } from "../ui/ToastProvider";
 
 function formatMoney(v: number) {
@@ -203,6 +204,7 @@ function SettlementsSection({ courier }: { courier: CourierAccountDTO }) {
   );
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
+  const [settlementPendingDelete, setSettlementPendingDelete] = useState<string | null>(null);
 
   const load = async () => {
     try {
@@ -341,7 +343,7 @@ function SettlementsSection({ courier }: { courier: CourierAccountDTO }) {
                       {formatMoney(s.amount)}
                     </span>
                     <button
-                      onClick={() => handleDelete(s.id)}
+                      onClick={() => setSettlementPendingDelete(s.id)}
                       className="text-slate-300 hover:text-rose-500"
                     >
                       <Trash2 size={12} />
@@ -353,6 +355,15 @@ function SettlementsSection({ courier }: { courier: CourierAccountDTO }) {
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={settlementPendingDelete != null}
+        onClose={() => setSettlementPendingDelete(null)}
+        onConfirm={async () => {
+          if (settlementPendingDelete) await handleDelete(settlementPendingDelete);
+        }}
+        title="Delete this payout record?"
+        description="This permanently deletes this payout entry. It doesn't affect the underlying orders or courier balance calculations elsewhere — only this record of having recorded it. This can't be undone."
+      />
     </div>
   );
 }
@@ -542,6 +553,7 @@ function HandoverDetailModal({
   const [detail, setDetail] = useState<CourierHandoverDetailDTO | null>(null);
   const [confirmNote, setConfirmNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   useEffect(() => {
     if (!handoverId) return;
@@ -743,7 +755,7 @@ function HandoverDetailModal({
                   <CheckCircle2 size={13} /> Mark accepted
                 </button>
                 <button
-                  onClick={handleDelete}
+                  onClick={() => setDeleteConfirmOpen(true)}
                   disabled={busy}
                   className="flex items-center gap-1.5 rounded-lg border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-60"
                 >
@@ -754,6 +766,14 @@ function HandoverDetailModal({
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        onClose={() => setDeleteConfirmOpen(false)}
+        onConfirm={handleDelete}
+        title="Delete this pickup manifest?"
+        confirmLabel="Delete manifest"
+        description="This deletes the manifest itself and unlinks its orders from it — those orders aren't deleted and become eligible for a new manifest again. This can't be undone."
+      />
     </Modal>
   );
 }
@@ -992,6 +1012,7 @@ export function CourierIntegrationsTab() {
   const [loading, setLoading] = useState(true);
   const [steadfastModalOpen, setSteadfastModalOpen] = useState(false);
   const [pathaoModalOpen, setPathaoModalOpen] = useState(false);
+  const [courierPendingRemoval, setCourierPendingRemoval] = useState<CourierAccountDTO | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -1117,7 +1138,7 @@ export function CourierIntegrationsTab() {
                 key={courier.id}
                 courier={courier}
                 onRegenerate={handleRegenerate}
-                onRemove={handleRemove}
+                onRemove={setCourierPendingRemoval}
                 onChargeRateUpdated={(updated) =>
                   setCouriers((prev) =>
                     prev.map((c) => (c.id === updated.id ? updated : c)),
@@ -1138,6 +1159,16 @@ export function CourierIntegrationsTab() {
         open={pathaoModalOpen}
         onClose={() => setPathaoModalOpen(false)}
         onConnected={handleConnected}
+      />
+      <ConfirmDialog
+        open={courierPendingRemoval != null}
+        onClose={() => setCourierPendingRemoval(null)}
+        onConfirm={async () => {
+          if (courierPendingRemoval) await handleRemove(courierPendingRemoval);
+        }}
+        title={`Disconnect ${courierPendingRemoval?.displayName ?? "this courier"}?`}
+        confirmLabel="Disconnect"
+        description="This permanently removes this courier connection. Existing settlements and pickup manifests won't be deleted, but you'll need to reconnect before booking new shipments with this courier. This can't be undone."
       />
     </div>
   );

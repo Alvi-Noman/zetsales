@@ -9,6 +9,7 @@ import {
   removeSocialAccount,
 } from "../../lib/messagingApi";
 import { useToast } from "../ui/ToastProvider";
+import { ConfirmDialog } from "../ui/ConfirmDialog";
 
 const PROVIDER_META = {
   facebook: {
@@ -74,6 +75,7 @@ export function MessagingIntegrationsTab() {
   const [accounts, setAccounts] = useState<SocialAccountDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [metaAppConfigured, setMetaAppConfigured] = useState(false);
+  const [accountPendingRemoval, setAccountPendingRemoval] = useState<SocialAccountDTO | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -170,12 +172,26 @@ export function MessagingIntegrationsTab() {
               <AccountCard
                 key={account.id}
                 account={account}
-                onRemove={handleRemove}
+                onRemove={setAccountPendingRemoval}
               />
             ))}
           </div>
         )}
       </div>
+      <ConfirmDialog
+        open={accountPendingRemoval != null}
+        onClose={() => setAccountPendingRemoval(null)}
+        onConfirm={async () => {
+          if (accountPendingRemoval) await handleRemove(accountPendingRemoval);
+        }}
+        title={`Disconnect ${accountPendingRemoval?.name ?? "this account"}?`}
+        confirmLabel="Disconnect"
+        description={
+          accountPendingRemoval?.provider === "facebook"
+            ? "This disconnects this Facebook Page and its linked Instagram account, if any. Existing conversations stay, but new messages will stop syncing until you reconnect. This can't be undone."
+            : "Existing conversations stay, but new messages will stop syncing until you reconnect. This can't be undone."
+        }
+      />
     </div>
   );
 }

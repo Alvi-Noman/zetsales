@@ -11,6 +11,7 @@ import {
   googleAdsOAuthStartUrl,
 } from "../../lib/commerceApi";
 import { useToast } from "../ui/ToastProvider";
+import { ConfirmDialog } from "../ui/ConfirmDialog";
 
 const PLATFORM_META: Record<
   AdAccountPlatform,
@@ -92,6 +93,7 @@ export function AdAccountsTab() {
     googleAdsOAuthEnabled: false,
   });
   const [loading, setLoading] = useState(true);
+  const [accountPendingRemoval, setAccountPendingRemoval] = useState<AdAccountDTO | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -193,7 +195,7 @@ export function AdAccountsTab() {
                   </div>
                 </div>
                 <button
-                  onClick={() => void handleRemove(a)}
+                  onClick={() => setAccountPendingRemoval(a)}
                   className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
                 >
                   <Ban size={14} />
@@ -203,6 +205,16 @@ export function AdAccountsTab() {
           </div>
         )}
       </div>
+      <ConfirmDialog
+        open={accountPendingRemoval != null}
+        onClose={() => setAccountPendingRemoval(null)}
+        onConfirm={async () => {
+          if (accountPendingRemoval) await handleRemove(accountPendingRemoval);
+        }}
+        title={`Disconnect ${accountPendingRemoval?.displayName ?? "this ad account"}?`}
+        confirmLabel="Disconnect"
+        description="This removes this ad account connection. Historical ad-spend data already synced stays, but new spend/performance data will stop syncing until you reconnect. This can't be undone."
+      />
     </div>
   );
 }

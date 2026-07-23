@@ -318,6 +318,15 @@ export async function getAnalyticsSummary(req: AuthenticatedRequest, res: Respon
             // maxRankField instead asks "does this order's history ever contain a 'Confirmed' label",
             // the same definition getOrderFunnel/getConfirmationPerformance already use.
             confirmedOrBeyond: { $sum: { $cond: [{ $gte: ['$maxRank', 1] }, 1, 0] } },
+            // Cancellations caused by data-entry mistakes (a duplicate submission, a mistyped
+            // quantity) rather than genuine lost demand — excluded from adjustedConfirmationRate's
+            // denominator below so they don't get counted as failed sales.
+            dataEntryErrorOrders: {
+              $sum: { $cond: [{ $and: [{ $eq: ['$stage', 'Cancelled'] }, { $in: ['$cancelReason', ['Duplicate order', 'Quantity error']] }] }, 1, 0] },
+            },
+            dataEntryErrorSales: {
+              $sum: { $cond: [{ $and: [{ $eq: ['$stage', 'Cancelled'] }, { $in: ['$cancelReason', ['Duplicate order', 'Quantity error']] }] }, '$total', 0] },
+            },
             shippedOrBeyond: { $sum: { $cond: [{ $in: ['$stage', ['Ready for Pickup', 'Shipped', 'Out for Delivery', 'RTO Initiated', 'QC Pending', 'Delivered', 'Partial Delivered', 'Returned']] }, 1, 0] } },
             delivered: { $sum: { $cond: [{ $in: ['$stage', ['Delivered', 'Partial Delivered']] }, 1, 0] } },
             rto: { $sum: { $cond: [{ $in: ['$stage', ['RTO Initiated', 'QC Pending', 'Returned']] }, 1, 0] } },
@@ -335,11 +344,20 @@ export async function getAnalyticsSummary(req: AuthenticatedRequest, res: Respon
     // Delivered/RTO rate are conventionally "of what shipped, what came back" — dividing by every
     // order placed (including ones still Pending) would dilute both rates and understate them.
     const shippedOrBeyond = agg?.shippedOrBeyond ?? 0;
+    const dataEntryErrorOrders = agg?.dataEntryErrorOrders ?? 0;
+    const dataEntryErrorSales = agg?.dataEntryErrorSales ?? 0;
+    const adjustedTotalOrders = totalOrders - dataEntryErrorOrders;
     return {
       totalOrders,
       totalSales,
+      // Nets out orders cancelled for 'Duplicate order'/'Quantity error' — those were never real
+      // demand, just data-entry noise caught on the way in. totalSales itself deliberately stays a
+      // pure "everything ever ordered" gross figure (see below); this is the same underlying total,
+      // minus known noise, shown as a sub-line rather than replacing the headline number.
+      adjustedTotalSales: totalSales - dataEntryErrorSales,
       aov: totalOrders > 0 ? totalSales / totalOrders : 0,
       confirmationRate: totalOrders > 0 ? (agg.confirmedOrBeyond / totalOrders) * 100 : 0,
+      adjustedConfirmationRate: adjustedTotalOrders > 0 ? (agg.confirmedOrBeyond / adjustedTotalOrders) * 100 : 0,
       deliveredRate: shippedOrBeyond > 0 ? (agg.delivered / shippedOrBeyond) * 100 : 0,
       rtoRate: shippedOrBeyond > 0 ? (agg.rto / shippedOrBeyond) * 100 : 0,
       codOutstanding: agg?.codOutstanding ?? 0,
@@ -355,9 +373,11 @@ export async function getAnalyticsSummary(req: AuthenticatedRequest, res: Respon
 
   const summary: AnalyticsSummaryDTO = {
     totalSales: metric(cur.totalSales, cmp.totalSales),
+    adjustedTotalSales: metric(cur.adjustedTotalSales, cmp.adjustedTotalSales),
     totalOrders: metric(cur.totalOrders, cmp.totalOrders),
     aov: metric(cur.aov, cmp.aov),
     confirmationRate: metric(cur.confirmationRate, cmp.confirmationRate),
+    adjustedConfirmationRate: metric(cur.adjustedConfirmationRate, cmp.adjustedConfirmationRate),
     deliveredRate: metric(cur.deliveredRate, cmp.deliveredRate),
     rtoRate: metric(cur.rtoRate, cmp.rtoRate),
     codOutstanding: metric(cur.codOutstanding, cmp.codOutstanding),

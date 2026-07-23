@@ -50,6 +50,9 @@ async function ensureIndexes(db: ReturnType<typeof client.db>) {
   // every Orders page load; neither had an index to use, so both were full collection scans.
   await db.collection('orders').createIndex({ tenantId: 1, customerPhone: 1 });
   await db.collection('orders').createIndex({ customerPhone: 1 });
+  // findPossibleDuplicates (same phone, same Dhaka calendar day) filters customerPhone then ranges
+  // on createdAt — the index above covers customerPhone alone, leaving the createdAt range unindexed.
+  await db.collection('orders').createIndex({ tenantId: 1, customerPhone: 1, createdAt: 1 });
   // Call Center, Accounting, and Reports all filter on the SAME array's two subfields via
   // `history: { $elemMatch: { label, at } }` (a compound index on both fields of one array
   // supports $elemMatch — this isn't the "two different array paths" case Mongo disallows).
