@@ -663,23 +663,46 @@ export async function attachRiskLabels<T extends { customerPhone: string | null;
     const history = normalized ? historyByNormalizedPhone.get(normalized) : undefined;
     return !history?.steadfast && !history?.pathao;
   });
-  // Keyed by normalized phone, not the raw string — `orders.customerPhone` is consistently stored
-  // canonical (01XXXXXXXXX), but the *input* rows here (especially Shopify-sourced ones, whether an
-  // order or an abandoned checkout) can carry +8801XXXXXXXXX or spaced/dashed variants. Matching on
-  // the raw string silently missed every one of those, undercounting a real customer's history down
-  // to "not enough resolved orders" even when they had plenty.
+  // Keyed by normalized phone, not the raw string on either side — `orders.customerPhone` is NOT
+  // consistently stored canonical in real data (confirmed live: the same tenant's orders mix
+  // 01XXXXXXXXX, 8801XXXXXXXXX, and +8801XXXXXXXXX for different orders), and the *input* rows here
+  // (an order or an abandoned checkout) are just as inconsistent. Matching on the raw stored string
+  // silently missed real history across the board — normalizing only the search side wasn't enough,
+  // since the stored side needed the same treatment. Computed in the aggregation itself (via
+  // $addFields) rather than requiring a data migration to rewrite every stored phone.
   const orderStatsByPhone = new Map<string, { delivered: number; failed: number }>();
   const normalizedFallbackPhones = [
     ...new Set(phonesNeedingOrderFallback.map((p) => normalizedByPhone.get(p)).filter((p): p is string => !!p)),
   ];
   if (normalizedFallbackPhones.length > 0) {
+    const digitsExpr = {
+      $replaceAll: {
+        input: { $replaceAll: { input: { $replaceAll: { input: { $ifNull: ['$customerPhone', ''] }, find: '+', replacement: '' } }, find: '-', replacement: '' } },
+        find: ' ',
+        replacement: '',
+      },
+    };
+    const normalizedPhoneExpr = {
+      $switch: {
+        branches: [
+          { case: { $and: [{ $eq: [{ $strLenCP: digitsExpr }, 11] }, { $eq: [{ $substrCP: [digitsExpr, 0, 2] }, '01'] }] }, then: digitsExpr },
+          {
+            case: { $and: [{ $eq: [{ $strLenCP: digitsExpr }, 13] }, { $eq: [{ $substrCP: [digitsExpr, 0, 3] }, '880'] }] },
+            then: { $concat: ['0', { $substrCP: [digitsExpr, 3, 10] }] },
+          },
+        ],
+        default: null,
+      },
+    };
     const rows = await db
       .collection('orders')
       .aggregate([
-        { $match: { customerPhone: { $in: normalizedFallbackPhones } } },
+        { $match: { customerPhone: { $ne: null } } },
+        { $addFields: { normalizedCustomerPhone: normalizedPhoneExpr } },
+        { $match: { normalizedCustomerPhone: { $in: normalizedFallbackPhones } } },
         {
           $group: {
-            _id: '$customerPhone',
+            _id: '$normalizedCustomerPhone',
             delivered: { $sum: { $cond: [{ $in: ['$stage', ['Delivered', 'Partial Delivered']] }, 1, 0] } },
             failed: { $sum: { $cond: [{ $in: ['$stage', ['Cancelled', 'Returned']] }, 1, 0] } },
           },
