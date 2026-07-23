@@ -569,6 +569,8 @@ export interface AbandonedCheckoutDTO {
     currency: string;
     reason: string;
     checkoutUrl: string | null;
+    riskLabel: RiskLabel | null;
+    riskSuccessRate: number | null;
     createdAt: string;
     updatedAt: string;
 }

@@ -633,8 +633,13 @@ async function attachReturningFlags(db: ReturnType<typeof getDb>, tenantId: stri
 // order-fallback path doesn't exclude the current order from its own phone's count; with a real
 // history that one extra order doesn't change the threshold outcome, an accepted simplification
 // for row display. No-ops entirely unless ZetSales Fraud Checker is installed for this
-// tenant.
-async function attachRiskLabels(db: ReturnType<typeof getDb>, tenantId: string, orders: OrderDTO[]) {
+// tenant. Generic over any row shape carrying these three fields (not just OrderDTO) — reused as-is
+// for Abandoned Checkouts rows, since a phone's delivery track record is equally relevant there.
+export async function attachRiskLabels<T extends { customerPhone: string | null; riskLabel: RiskLabel | null; riskSuccessRate: number | null }>(
+  db: ReturnType<typeof getDb>,
+  tenantId: string,
+  orders: T[]
+) {
   if (!(await isFraudCheckerInstalled(tenantId))) return;
   const phones = [...new Set(orders.map((o) => o.customerPhone).filter((p): p is string => !!p))];
   if (phones.length === 0) return;
@@ -658,12 +663,20 @@ async function attachRiskLabels(db: ReturnType<typeof getDb>, tenantId: string, 
     const history = normalized ? historyByNormalizedPhone.get(normalized) : undefined;
     return !history?.steadfast && !history?.pathao;
   });
+  // Keyed by normalized phone, not the raw string — `orders.customerPhone` is consistently stored
+  // canonical (01XXXXXXXXX), but the *input* rows here (especially Shopify-sourced ones, whether an
+  // order or an abandoned checkout) can carry +8801XXXXXXXXX or spaced/dashed variants. Matching on
+  // the raw string silently missed every one of those, undercounting a real customer's history down
+  // to "not enough resolved orders" even when they had plenty.
   const orderStatsByPhone = new Map<string, { delivered: number; failed: number }>();
-  if (phonesNeedingOrderFallback.length > 0) {
+  const normalizedFallbackPhones = [
+    ...new Set(phonesNeedingOrderFallback.map((p) => normalizedByPhone.get(p)).filter((p): p is string => !!p)),
+  ];
+  if (normalizedFallbackPhones.length > 0) {
     const rows = await db
       .collection('orders')
       .aggregate([
-        { $match: { customerPhone: { $in: phonesNeedingOrderFallback } } },
+        { $match: { customerPhone: { $in: normalizedFallbackPhones } } },
         {
           $group: {
             _id: '$customerPhone',
@@ -687,7 +700,7 @@ async function attachRiskLabels(db: ReturnType<typeof getDb>, tenantId: string, 
       delivered = (history.steadfast?.totalDelivered ?? 0) + (history.pathao?.totalDelivered ?? 0);
       failed = (history.steadfast?.totalCancelled ?? 0) + (history.pathao?.totalCancelled ?? 0);
     } else {
-      const stats = orderStatsByPhone.get(order.customerPhone);
+      const stats = normalized ? orderStatsByPhone.get(normalized) : undefined;
       if (!stats) continue;
       delivered = stats.delivered;
       failed = stats.failed;

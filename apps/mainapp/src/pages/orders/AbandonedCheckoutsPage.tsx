@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import clsx from "clsx";
 import {
   MessageCircle,
   Package,
@@ -25,6 +26,7 @@ import { telLink, waLink } from "../../components/orders/contact";
 import { formatAbsoluteDateTime, relativeDayLabel } from "../../components/orders/time";
 import { MetricCard } from "../inventory/InventoryPage";
 import { useToast } from "../../components/ui/ToastProvider";
+import { useAuth } from "../../context/AuthContext";
 
 function money(value: number) {
   return `৳${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
@@ -57,6 +59,8 @@ function reasonLabel(reason: string) {
 
 export function AbandonedCheckoutsPage() {
   const toast = useToast();
+  const { user } = useAuth();
+  const fraudCheckerInstalled = Boolean(user?.installedPlugins?.includes("fraudChecker"));
   const [stores, setStores] = useState<StoreDTO[]>([]);
   const [platformFilter, setPlatformFilter] = useState<PlatformFilter>("all");
   const [storeFilter, setStoreFilter] = useState<string>("all");
@@ -247,6 +251,21 @@ export function AbandonedCheckoutsPage() {
                       <td className="px-3 py-3 whitespace-nowrap">
                         <p className="font-medium text-slate-700">{c.customerName || "No name"}</p>
                         {c.customerPhone && <p className="text-xs text-slate-400">{c.customerPhone}</p>}
+                        {fraudCheckerInstalled && c.riskLabel && (
+                          <span
+                            title={`${c.riskLabel} — ${c.riskSuccessRate}% delivery success with Steadfast/Pathao`}
+                            className={clsx(
+                              "mt-1 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset",
+                              c.riskLabel === "Trusted"
+                                ? "bg-violet-50 text-violet-600 ring-violet-600/20"
+                                : c.riskLabel === "Risky"
+                                  ? "bg-rose-50 text-rose-600 ring-rose-600/20"
+                                  : "bg-slate-100 text-slate-500 ring-slate-500/10"
+                            )}
+                          >
+                            {c.riskLabel} {c.riskSuccessRate}%
+                          </span>
+                        )}
                       </td>
                       <td className="px-3 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                         <OrderProductsCell lineItems={c.lineItems} currency={c.currency} />
