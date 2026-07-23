@@ -98,7 +98,15 @@ function resolveBaseRange(range: string, customFrom?: string, customTo?: string)
     case 'custom': {
       const from = customFrom ? new Date(customFrom) : addDays(startOfDay(now), -6);
       const to = customTo ? new Date(customTo) : now;
-      const spanMs = Math.max(to.getTime() - from.getTime(), 86_400_000);
+      const rawSpanMs = to.getTime() - from.getTime();
+      // A single-day custom window (Home's "Today"/"Yesterday" filters, passed as explicit custom
+      // bounds rather than the literal 'today'/'yesterday' range keys — see HomePage.tsx's
+      // getOrderTrends call — to avoid resolving against the server's own clock instead of the
+      // tenant's) still deserves an hourly curve, not a single flat day-bucket.
+      if (rawSpanMs <= 25 * 3_600_000) {
+        return { granularity: 'hour', bucketCount: 24, current: { from, to }, comparison: { from: addDays(from, -1), to: addDays(to, -1) } };
+      }
+      const spanMs = Math.max(rawSpanMs, 86_400_000);
       const bucketCount = Math.max(1, Math.ceil(spanMs / 86_400_000));
       return { granularity: 'day', bucketCount, current: { from, to }, comparison: { from: new Date(from.getTime() - spanMs), to: from } };
     }

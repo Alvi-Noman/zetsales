@@ -197,7 +197,17 @@ export function HomePage() {
     })();
     void (async () => {
       try {
-        setTrends(await getOrderTrends({ range: "last30", storeId }));
+        // Explicit "custom" window (not e.g. range: "today"), same reasoning as getTopProducts
+        // below — "today" would otherwise resolve against the server's own clock, not the
+        // tenant's, silently disagreeing with the KPI cards above whenever they're offset.
+        setTrends(
+          await getOrderTrends({
+            range: "custom",
+            from: from ?? undefined,
+            to: to ?? undefined,
+            storeId,
+          }),
+        );
       } catch {
         // Sparklines are a secondary visual; KPI totals still work without them.
       }
