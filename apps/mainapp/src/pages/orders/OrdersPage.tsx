@@ -1387,7 +1387,7 @@ export function OrdersPage() {
 
               <div
                 className={clsx(
-                  "overflow-x-auto transition-opacity",
+                  "hidden overflow-x-auto transition-opacity lg:block",
                   ordersLoading && "opacity-50",
                 )}
               >
@@ -1783,14 +1783,189 @@ export function OrdersPage() {
                     </tbody>
                   </table>
                 )}
-                {!ordersLoading && orders.length === 0 && (
-                  <div className="py-16 text-center text-sm text-slate-400">
-                    {noFiltersActive
-                      ? "No orders today yet — new orders will show up here as they come in."
-                      : "No orders match your filters."}
-                  </div>
+              </div>
+
+              {/* Mobile card list — same data/handlers as the table above, condensed to the fields
+                  that matter most at a glance; tap the card to open the same detail drawer a row
+                  click opens on desktop. */}
+              <div
+                className={clsx(
+                  "space-y-2.5 p-3 transition-opacity lg:hidden",
+                  ordersLoading && "opacity-50",
+                )}
+              >
+                {ordersLoading && orders.length === 0 ? (
+                  <TableSkeleton />
+                ) : (
+                  orders.map((order) => {
+                    const store = storeById.get(order.storeId);
+                    const meta = store ? PLATFORM_META[store.platform] : null;
+                    const isSelected = selected.has(order.id);
+                    const stockSummary =
+                      order.stage === "Confirmed" && stockLookup
+                        ? summarizeOrderStock(order.lineItems, stockLookup)
+                        : null;
+                    const isShortConfirmed = Boolean(
+                      stockSummary && stockSummary.shortCount > 0,
+                    );
+                    const isClaimedByOther = Boolean(
+                      order.claimedBy && order.claimedBy.userId !== user?.id,
+                    );
+                    return (
+                      <div
+                        key={order.id}
+                        onClick={() => setActiveOrder(order)}
+                        className={clsx(
+                          "zs-surface cursor-pointer border-l-4 p-3.5",
+                          isShortConfirmed
+                            ? "border-l-amber-400 bg-amber-50/50"
+                            : "border-l-transparent",
+                          !isShortConfirmed && isSelected && "bg-indigo-50/50",
+                          isClaimedByOther && "opacity-60 grayscale-[30%]",
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex min-w-0 items-center gap-1.5">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {}}
+                              onClick={(e) => toggleSelect(order.id, e)}
+                              className="h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                            />
+                            {order.isPriorityCall && (
+                              <span title={order.priorityNote ?? "Marked as priority call"} className="shrink-0 text-orange-500">
+                                <PhoneCall size={13} />
+                              </span>
+                            )}
+                            {order.isCustomerBlocked && (
+                              <span title="This customer is blocked" className="shrink-0 text-rose-500">
+                                <UserX size={13} />
+                              </span>
+                            )}
+                            {user?.installedPlugins?.includes("fraudChecker") && order.stage === "Flagged" && (
+                              <span title={order.flagReason ?? "Flagged by ZetSales Fraud Checker"} className="shrink-0 text-rose-500">
+                                <ShieldAlert size={13} />
+                              </span>
+                            )}
+                            <p className="truncate font-semibold text-slate-800">{order.number}</p>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            <span
+                              className={clsx(
+                                "rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset",
+                                STAGE_TONE[order.stage],
+                              )}
+                            >
+                              {STAGE_LABEL[order.stage]}
+                            </span>
+                            <div onClick={(e) => e.stopPropagation()}>
+                              <RowActionsMenu
+                                order={order}
+                                onView={() => setActiveOrder(order)}
+                                onConfirm={() =>
+                                  handleBulkConfirm([order.id], { stage: order.stage })
+                                }
+                                onCancel={(reason: CancelReason) =>
+                                  void runBulk(
+                                    [order.id],
+                                    { stage: "Cancelled", cancelReason: reason, note: null },
+                                    { stage: order.stage },
+                                  )
+                                }
+                                onTogglePriority={(next) =>
+                                  void runBulk(
+                                    [order.id],
+                                    { isPriorityCall: next, priorityNote: null },
+                                    { isPriorityCall: order.isPriorityCall, priorityNote: order.priorityNote },
+                                  )
+                                }
+                                onToggleBlock={(next) => void handleToggleBlock(order, next)}
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-2 flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-slate-700">
+                              {order.customerName || "No name"}
+                            </p>
+                            {order.customerPhone && (
+                              <p className="truncate text-xs text-slate-400">{order.customerPhone}</p>
+                            )}
+                          </div>
+                          {order.customerPhone && (
+                            <div className="flex shrink-0 items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                              <a
+                                href={telLink(order.customerPhone)}
+                                title="Call"
+                                className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-indigo-600"
+                              >
+                                <Phone size={15} />
+                              </a>
+                              <a
+                                href={waLink(order.customerPhone)}
+                                target="_blank"
+                                rel="noreferrer"
+                                title="WhatsApp"
+                                className="rounded-md p-1.5 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600"
+                              >
+                                <MessageCircle size={15} />
+                              </a>
+                            </div>
+                          )}
+                        </div>
+
+                        {(order.hasPossibleDuplicate || (order.hasUnusualQuantity && !order.quantityFlagAcknowledged) || (order.customerPhone && order.isReturningCustomer)) && (
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                            {order.customerPhone && (
+                              <span
+                                className={clsx(
+                                  "inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset",
+                                  order.isReturningCustomer
+                                    ? "bg-blue-50 text-blue-600 ring-blue-600/20"
+                                    : "bg-emerald-50 text-emerald-600 ring-emerald-600/20",
+                                )}
+                              >
+                                {order.isReturningCustomer ? "Returning" : "New"}
+                              </span>
+                            )}
+                            {order.hasPossibleDuplicate && (
+                              <span className="inline-flex items-center rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-600/20">
+                                Possible Duplicate
+                              </span>
+                            )}
+                            {order.hasUnusualQuantity && !order.quantityFlagAcknowledged && (
+                              <span className="inline-flex items-center rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-600/20">
+                                Unusual Qty
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
+                          <div className="flex min-w-0 items-center gap-1.5 text-xs text-slate-500">
+                            {meta && store && <meta.logo size={14} className="shrink-0 rounded" />}
+                            <span className="truncate">{relativeDayLabel(order.createdAt)}</span>
+                          </div>
+                          <p className="shrink-0 font-semibold tabular-nums text-slate-800">
+                            {order.currency} {order.total.toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })
                 )}
               </div>
+
+              {!ordersLoading && orders.length === 0 && (
+                <div className="py-16 text-center text-sm text-slate-400">
+                  {noFiltersActive
+                    ? "No orders today yet — new orders will show up here as they come in."
+                    : "No orders match your filters."}
+                </div>
+              )}
 
               {total > 0 && (
                 <Pagination

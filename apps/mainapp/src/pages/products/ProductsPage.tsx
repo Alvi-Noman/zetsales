@@ -590,7 +590,7 @@ export function ProductsPage() {
 
               <div
                 className={clsx(
-                  "flex-1 overflow-auto transition-opacity",
+                  "hidden flex-1 overflow-auto transition-opacity lg:block",
                   productsLoading && "opacity-50",
                 )}
               >
@@ -775,12 +775,107 @@ export function ProductsPage() {
                     </tbody>
                   </table>
                 )}
-                {visibleProducts.length === 0 && !productsLoading && (
-                  <div className="py-16 text-center text-sm text-slate-400">
-                    No products match your search.
-                  </div>
+              </div>
+
+              {/* Mobile card list — same data/handlers as the table above. */}
+              <div
+                className={clsx(
+                  "flex-1 space-y-2.5 overflow-auto p-3 transition-opacity lg:hidden",
+                  productsLoading && "opacity-50",
+                )}
+              >
+                {productsLoading && products.length === 0 ? (
+                  <TableSkeleton />
+                ) : (
+                  visibleProducts.map((product) => {
+                    const channelStores = product.storeIds
+                      .map((id) => storeById.get(id))
+                      .filter((s): s is StoreDTO => Boolean(s));
+                    return (
+                      <div
+                        key={product.id}
+                        onClick={() => setActiveProductId(product.id)}
+                        className="zs-surface cursor-pointer p-3.5"
+                      >
+                        <div className="flex min-w-0 items-center gap-3">
+                          {product.image ? (
+                            <img
+                              src={product.image}
+                              alt={product.title}
+                              className="h-14 w-14 shrink-0 rounded-lg border border-slate-200 object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-300">
+                              <Package size={18} />
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate font-semibold text-slate-800">{product.title}</p>
+                            <p className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-400">
+                              <Layers size={11} />
+                              {product.variantCount} variant{product.variantCount === 1 ? "" : "s"}
+                              {product.groupId && (
+                                <span className="rounded-full bg-indigo-50 px-1.5 py-0.5 font-medium text-indigo-600">
+                                  Grouped
+                                </span>
+                              )}
+                            </p>
+                          </div>
+                          {canWriteProducts && (
+                            <div className="flex shrink-0 items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                              <button
+                                onClick={() => navigate(`/products/${product.id}/edit`)}
+                                className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                                title="Edit product"
+                              >
+                                <Pencil size={14} />
+                              </button>
+                              <button
+                                onClick={() =>
+                                  setDeleteTarget({ id: product.id, title: product.title, image: product.image })
+                                }
+                                className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                                title="Delete product"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-3 text-sm">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <div className="flex shrink-0 -space-x-1.5">
+                              {channelStores.map((s) => {
+                                const meta = PLATFORM_META[s.platform];
+                                return (
+                                  <span
+                                    key={s.id}
+                                    title={s.displayName}
+                                    className="flex h-6 w-6 items-center justify-center rounded-full bg-white ring-1 ring-slate-200"
+                                  >
+                                    <meta.logo size={13} className="shrink-0 rounded" />
+                                  </span>
+                                );
+                              })}
+                            </div>
+                            <span className="min-w-0 truncate text-xs text-slate-400">
+                              {channelStores.length === 1 ? channelStores[0].displayName : `${channelStores.length} channels`}
+                            </span>
+                          </div>
+                          <p className="shrink-0 font-semibold tabular-nums text-slate-800">{priceRange(product)}</p>
+                        </div>
+                      </div>
+                    );
+                  })
                 )}
               </div>
+
+              {visibleProducts.length === 0 && !productsLoading && (
+                <div className="py-16 text-center text-sm text-slate-400">
+                  No products match your search.
+                </div>
+              )}
 
               {total > 0 && (
                 <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white px-4 py-2.5">
