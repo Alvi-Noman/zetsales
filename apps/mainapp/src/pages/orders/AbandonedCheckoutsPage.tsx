@@ -1,14 +1,13 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  Copy,
-  MousePointerClick,
+  MessageCircle,
   Package,
+  Phone,
   Search,
   ShoppingCart,
   Store as StoreIcon,
   X,
 } from "lucide-react";
-import clsx from "clsx";
 import type { AbandonedCheckoutDTO, StoreDTO } from "@zetsales/shared";
 import {
   getAbandonedCheckoutStats,
@@ -16,11 +15,14 @@ import {
   listStores,
 } from "../../lib/commerceApi";
 import { ShopifyLogo, WooCommerceLogo } from "../../components/orders/platformLogos";
+import { OrderProductsCell } from "../../components/orders/OrderProductsCell";
+import { AbandonedCheckoutDetailDrawer } from "../../components/orders/AbandonedCheckoutDetailDrawer";
 import { Pagination } from "../../components/orders/Pagination";
 import { FilterMenu } from "../../components/orders/FilterMenu";
 import { DateRangeMenu } from "../../components/orders/DateRangeMenu";
 import { getRangeBounds, type CustomDateRange, type DateRangeKey } from "../../components/orders/dateRange";
-import { relativeTime, formatAbsoluteDateTime } from "../../components/orders/time";
+import { telLink, waLink } from "../../components/orders/contact";
+import { formatAbsoluteDateTime, relativeDayLabel } from "../../components/orders/time";
 import { MetricCard } from "../inventory/InventoryPage";
 import { useToast } from "../../components/ui/ToastProvider";
 
@@ -68,8 +70,7 @@ export function AbandonedCheckoutsPage() {
   const [pageSize, setPageSize] = useState(25);
   const [stats, setStats] = useState<{ totalCount: number; totalValue: number; byPlatform: Record<"shopify" | "woocommerce", number> } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [activeCheckout, setActiveCheckout] = useState<AbandonedCheckoutDTO | null>(null);
 
   useEffect(() => {
     listStores()
@@ -130,18 +131,12 @@ export function AbandonedCheckoutsPage() {
   const noFiltersActive = platformFilter === "all" && storeFilter === "all" && dateRange === "all" && !search;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  const copyText = (id: string, value: string) => {
-    navigator.clipboard.writeText(value);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId((c) => (c === id ? null : c)), 1200);
-  };
-
   return (
     <div className="zs-page">
       <div className="zs-page-header flex flex-wrap items-center justify-between gap-y-3">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="zs-page-title">Abandoned checkouts</h1>
+            <h1 className="zs-page-title">Incomplete Orders</h1>
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500 tabular-nums">
               {(stats?.totalCount ?? total).toLocaleString()}
             </span>
@@ -216,7 +211,7 @@ export function AbandonedCheckoutsPage() {
             <div className="zs-empty-state">
               <ShoppingCart size={28} className="text-slate-300" />
               <p className="text-sm font-medium text-slate-600">
-                {noFiltersActive ? "No abandoned checkouts yet" : "No abandoned checkouts match this filter"}
+                {noFiltersActive ? "No incomplete orders yet" : "No incomplete orders match this filter"}
               </p>
               <p className="max-w-sm text-sm text-slate-400">
                 {noFiltersActive
@@ -225,95 +220,71 @@ export function AbandonedCheckoutsPage() {
               </p>
             </div>
           ) : (
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[1000px] table-auto border-collapse text-sm">
               <thead>
-                <tr className="zs-table-head uppercase tracking-wide text-slate-400">
-                  <th className="px-4 py-2.5">Customer</th>
-                  <th className="px-4 py-2.5">Platform</th>
-                  <th className="px-4 py-2.5">Items</th>
-                  <th className="px-4 py-2.5">Value</th>
-                  <th className="px-4 py-2.5">Status</th>
-                  <th className="px-4 py-2.5">Abandoned</th>
-                  <th className="px-4 py-2.5" />
+                <tr className="zs-table-head">
+                  <th className="px-3 py-2.5">Checkout</th>
+                  <th className="px-3 py-2.5">Customer</th>
+                  <th className="px-3 py-2.5">Product</th>
+                  <th className="px-3 py-2.5">Channel</th>
+                  <th className="px-3 py-2.5">Amount</th>
+                  <th className="px-3 py-2.5">Status</th>
+                  <th className="px-3 py-2.5">Contact</th>
+                  <th className="px-3 py-2.5">Date</th>
+                  <th className="w-10 px-3 py-2.5" />
                 </tr>
               </thead>
-              <tbody className="zs-table-body">
+              <tbody>
                 {checkouts.map((c) => {
                   const store = storeById.get(c.storeId);
-                  const expanded = expandedId === c.id;
                   return (
-                    <Fragment key={c.id}>
-                      <tr onClick={() => setExpandedId(expanded ? null : c.id)} className="zs-data-row cursor-pointer">
-                        <td className="px-4 py-3">
-                          <div className="font-medium text-slate-900">{c.customerName ?? "—"}</div>
-                          <div className="text-xs text-slate-400">{c.customerPhone ?? c.customerEmail ?? "—"}</div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className="inline-flex items-center gap-1.5 text-sm text-slate-700">
-                            {c.platform === "shopify" ? <ShopifyLogo size={14} /> : <WooCommerceLogo size={14} />}
-                            {store?.displayName ?? (c.platform === "shopify" ? "Shopify" : "WooCommerce")}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-slate-600">{c.lineItems.length}</td>
-                        <td className="px-4 py-3 font-medium text-slate-900">{money(c.total)}</td>
-                        <td className="px-4 py-3">
-                          <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-200">
-                            {reasonLabel(c.reason)}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-slate-500" title={formatAbsoluteDateTime(c.createdAt)}>
-                          {relativeTime(c.createdAt)}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          {c.checkoutUrl && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                copyText(c.id, c.checkoutUrl!);
-                              }}
-                              className="inline-flex items-center gap-1 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                              title="Copy recovery link"
-                            >
-                              <Copy size={14} className={copiedId === c.id ? "text-emerald-500" : undefined} />
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                      {expanded && (
-                        <tr className="bg-slate-50/60">
-                          <td colSpan={7} className="px-4 py-3">
-                            <div className="flex flex-wrap items-start gap-6 text-xs text-slate-600">
-                              <div>
-                                <div className="mb-1 font-semibold uppercase tracking-wide text-slate-400">Line items</div>
-                                <ul className="space-y-0.5">
-                                  {c.lineItems.map((li, i) => (
-                                    <li key={i}>
-                                      {li.quantity}× {li.title} {li.variant ? `(${li.variant})` : ""} — {money(Number(li.price) * li.quantity)}
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                              {c.address && (
-                                <div>
-                                  <div className="mb-1 font-semibold uppercase tracking-wide text-slate-400">Address</div>
-                                  <div>{c.address}</div>
-                                </div>
-                              )}
-                              {c.checkoutUrl && (
-                                <div>
-                                  <div className="mb-1 flex items-center gap-1 font-semibold uppercase tracking-wide text-slate-400">
-                                    <MousePointerClick size={12} /> Recovery link
-                                  </div>
-                                  <a href={c.checkoutUrl} target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline">
-                                    {c.checkoutUrl}
-                                  </a>
-                                </div>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
+                    <tr
+                      key={c.id}
+                      onClick={() => setActiveCheckout(c)}
+                      className="zs-data-row cursor-pointer border-b border-l-4 border-transparent border-slate-100"
+                    >
+                      <td className="px-3 py-3 font-medium text-slate-800 whitespace-nowrap">#{c.externalId}</td>
+                      <td className="px-3 py-3 whitespace-nowrap">
+                        <p className="font-medium text-slate-700">{c.customerName || "No name"}</p>
+                        {c.customerPhone && <p className="text-xs text-slate-400">{c.customerPhone}</p>}
+                      </td>
+                      <td className="px-3 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        <OrderProductsCell lineItems={c.lineItems} currency={c.currency} />
+                      </td>
+                      <td className="px-3 py-3 whitespace-nowrap">
+                        <span title={store?.displayName} className="inline-flex items-center gap-1.5 text-slate-600">
+                          {c.platform === "shopify" ? <ShopifyLogo size={18} className="shrink-0 rounded" /> : <WooCommerceLogo size={18} className="shrink-0 rounded" />}
+                          <span>{store?.displayName ?? (c.platform === "shopify" ? "Shopify" : "WooCommerce")}</span>
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 font-medium tabular-nums text-slate-800 whitespace-nowrap">
+                        {c.currency} {c.total.toLocaleString()}
+                      </td>
+                      <td className="px-3 py-3 whitespace-nowrap">
+                        <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-200">
+                          {reasonLabel(c.reason)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        {c.customerPhone ? (
+                          <div className="flex items-center gap-1">
+                            <a href={telLink(c.customerPhone)} title="Call" className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-indigo-600">
+                              <Phone size={14} />
+                            </a>
+                            <a href={waLink(c.customerPhone)} target="_blank" rel="noreferrer" title="WhatsApp" className="rounded-md p-1.5 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600">
+                              <MessageCircle size={14} />
+                            </a>
+                          </div>
+                        ) : (
+                          <span className="text-slate-300">-</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-3 whitespace-nowrap">
+                        <p className="text-slate-700">{formatAbsoluteDateTime(c.createdAt)}</p>
+                        <p className="text-xs text-slate-400">{relativeDayLabel(c.createdAt)}</p>
+                      </td>
+                      <td className="px-3 py-3 text-right whitespace-nowrap" />
+                    </tr>
                   );
                 })}
               </tbody>
@@ -338,6 +309,12 @@ export function AbandonedCheckoutsPage() {
           )}
         </div>
       </div>
+
+      <AbandonedCheckoutDetailDrawer
+        checkout={activeCheckout}
+        store={activeCheckout ? storeById.get(activeCheckout.storeId) ?? null : null}
+        onClose={() => setActiveCheckout(null)}
+      />
     </div>
   );
 }

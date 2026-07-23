@@ -59,7 +59,7 @@ const routeEntries = new Map<string, string>();
 });
 routeEntries.delete("/home");
 routeEntries.delete("/orders");
-routeEntries.delete("/orders/abandoned");
+routeEntries.delete("/orders/incomplete");
 routeEntries.delete("/dispatch");
 routeEntries.delete("/integrations");
 routeEntries.delete("/products");
@@ -152,7 +152,7 @@ function AppRoutes() {
         <Route path="/" element={<Navigate to="/home" replace />} />
         <Route path="/home" element={<HomePage />} />
         <Route path="/orders" element={<OrdersPage />} />
-        <Route path="/orders/abandoned" element={<AbandonedCheckoutsPage />} />
+        <Route path="/orders/incomplete" element={<AbandonedCheckoutsPage />} />
         <Route
           path="/dispatch"
           element={

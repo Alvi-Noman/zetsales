@@ -46,8 +46,7 @@ export const NAV_ITEMS: NavItem[] = [
     icon: ShoppingCart,
     module: 'orders',
     children: [
-      { label: 'Drafts', path: '/orders/drafts' },
-      { label: 'Abandoned checkouts', path: '/orders/abandoned' },
+      { label: 'Incomplete Orders', path: '/orders/incomplete' },
     ],
   },
   {
