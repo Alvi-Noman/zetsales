@@ -537,6 +537,12 @@ export async function listStockShortfalls(req: AuthenticatedRequest, res: Respon
   const tenantId = req.user!.tenantId!;
   const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
 
+  // Both queries below already execute in single-digit milliseconds server-side (confirmed via
+  // .explain() against real production data — the right indexes are in use); the remaining wall-clock
+  // cost is dominated by transferring several hundred/thousand documents to a resource-constrained
+  // host, not the query shape. batchSize + a real projection on inventoryLevels (previously fetched
+  // every field, unfiltered) are safe, no-downside trims of that transfer — real but modest next to
+  // the underlying host constraint, which is the actual fix this needs.
   const orders = await db
     .collection('orders')
     .find({
@@ -558,6 +564,7 @@ export async function listStockShortfalls(req: AuthenticatedRequest, res: Respon
       updatedAt: 1,
     })
     .sort({ createdAt: 1 })
+    .batchSize(5000)
     .toArray();
 
   // A shortfall can only ever involve a SKU that's actually sitting in one of these open orders —
@@ -565,7 +572,28 @@ export async function listStockShortfalls(req: AuthenticatedRequest, res: Respon
   // tenant catalog (which can now be tens of thousands of rows post-sync) is what actually made
   // this endpoint slow; the orders fetch above was already this narrow.
   const openOrderSkus = [...new Set(orders.flatMap((o) => (o.lineItems ?? []).map((li: any) => li.sku).filter(Boolean)))];
-  const levels = openOrderSkus.length > 0 ? await db.collection('inventoryLevels').find({ tenantId, sku: { $in: openOrderSkus } }).toArray() : [];
+  const levels = openOrderSkus.length > 0
+    ? await db
+        .collection('inventoryLevels')
+        .find({ tenantId, sku: { $in: openOrderSkus } })
+        .project({
+          productId: 1,
+          variantId: 1,
+          sku: 1,
+          productTitle: 1,
+          productImage: 1,
+          variantLabel: 1,
+          warehouseId: 1,
+          warehouseName: 1,
+          bin: 1,
+          onHand: 1,
+          reserved: 1,
+          inbound: 1,
+          reorderPoint: 1,
+        })
+        .batchSize(5000)
+        .toArray()
+    : [];
 
   const levelsBySku = new Map<string, any[]>();
   for (const level of levels) {
