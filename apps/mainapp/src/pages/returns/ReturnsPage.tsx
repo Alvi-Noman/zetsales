@@ -158,9 +158,9 @@ function ReturnsPackageCard({
 
   return (
     <div className="rounded-lg border border-slate-100 px-3.5 py-3">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-3">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <p className="truncate text-sm font-semibold text-slate-800">
               {pkg.orderNumber}
             </p>
@@ -192,9 +192,9 @@ function ReturnsPackageCard({
             </span>
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
           {pkg.isHeld ? (
-            <p className="max-w-[220px] text-right text-[11px] text-orange-600">
+            <p className="text-[11px] text-orange-600 sm:max-w-[220px] sm:text-right">
               {pkg.holdReason || "On hold"} — resume from Orders before
               processing.
             </p>
@@ -680,9 +680,9 @@ function QcPackageCard({
 
   return (
     <div className="rounded-lg border border-slate-100 px-3.5 py-3">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-3">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <p className="truncate text-sm font-semibold text-slate-800">
               {pkg.orderNumber}
             </p>
@@ -718,7 +718,7 @@ function QcPackageCard({
               : "All units confirmed good — restocks the full quantity."
           }
           className={clsx(
-            "flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40",
+            "flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40 sm:shrink-0",
             hasShortfall
               ? "bg-amber-600 hover:bg-amber-500"
               : "bg-slate-900 hover:bg-slate-800",
@@ -744,7 +744,7 @@ function QcPackageCard({
           const badQty = li.quantity - goodQty;
           return (
             <div key={i} className="space-y-1.5">
-              <div className="flex items-center gap-2 text-xs text-slate-500">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-slate-500">
                 {li.image ? (
                   <img
                     src={li.image}
@@ -756,27 +756,27 @@ function QcPackageCard({
                     <Package size={10} />
                   </div>
                 )}
-                <span className="min-w-0 flex-1 truncate">
+                <span className="min-w-[120px] flex-1 truncate">
                   {li.title}
                   {li.variant ? ` — ${li.variant}` : ""} · expected ×
                   {li.quantity}
                 </span>
-                <span className="shrink-0 text-[11px] text-slate-400">
-                  Good
+                <span className="flex shrink-0 items-center gap-1.5">
+                  <span className="text-[11px] text-slate-400">Good</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max={li.quantity}
+                    value={good[i] ?? ""}
+                    onChange={(e) =>
+                      setGood((prev) => ({ ...prev, [i]: e.target.value }))
+                    }
+                    className="h-7 w-12 shrink-0 rounded-md border border-slate-200 px-1.5 text-xs outline-none focus:border-indigo-400"
+                  />
                 </span>
-                <input
-                  type="number"
-                  min="0"
-                  max={li.quantity}
-                  value={good[i] ?? ""}
-                  onChange={(e) =>
-                    setGood((prev) => ({ ...prev, [i]: e.target.value }))
-                  }
-                  className="h-7 w-12 shrink-0 rounded-md border border-slate-200 px-1.5 text-xs outline-none focus:border-indigo-400"
-                />
                 {badQty > 0 && (
-                  <>
-                    <span className="shrink-0 text-[11px] font-semibold text-amber-600">
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    <span className="text-[11px] font-semibold text-amber-600">
                       {badQty} ×
                     </span>
                     <QcReasonPicker
@@ -785,15 +785,15 @@ function QcPackageCard({
                         setReasons((prev) => ({ ...prev, [i]: reason }))
                       }
                     />
-                  </>
+                  </span>
                 )}
               </div>
               {badQty > 0 && reasons[i] === "Wrong Product" && (
-                <div className="ml-8 rounded-lg border border-indigo-100 bg-indigo-50/60 p-2.5">
+                <div className="ml-0 rounded-lg border border-indigo-100 bg-indigo-50/60 p-2.5 sm:ml-8">
                   <p className="mb-1.5 text-right text-[11px] font-semibold text-indigo-700">
                     What did they actually send back?
                   </p>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                     <div className="flex-1">
                       <ReceivedInsteadPicker
                         value={receivedInstead[i] ?? null}
@@ -811,7 +811,7 @@ function QcPackageCard({
                         onClick={() =>
                           onLogFoundStock(receivedInstead[i], badQty)
                         }
-                        className="flex h-8 shrink-0 items-center gap-1 rounded-md bg-indigo-600 px-2.5 text-[11px] font-semibold text-white hover:bg-indigo-700"
+                        className="flex h-8 shrink-0 items-center justify-center gap-1 rounded-md bg-indigo-600 px-2.5 text-[11px] font-semibold text-white hover:bg-indigo-700"
                       >
                         <Plus size={11} /> Log as found stock
                       </button>
@@ -999,9 +999,9 @@ function ReceiveAndQcPackageCard({
 
   return (
     <div className="rounded-lg border border-slate-100 px-3.5 py-3">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-3">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <p className="truncate text-sm font-semibold text-slate-800">
               {pkg.orderNumber}
             </p>
@@ -1028,7 +1028,7 @@ function ReceiveAndQcPackageCard({
             </span>
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
           {warehouses.length > 0 && (
             <>
               <WarehousePicker
@@ -1084,7 +1084,7 @@ function ReceiveAndQcPackageCard({
           const badQty = li.quantity - goodQty;
           return (
             <div key={i} className="space-y-1.5">
-              <div className="flex items-center gap-2 text-xs text-slate-500">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-slate-500">
                 {li.image ? (
                   <img
                     src={li.image}
@@ -1096,27 +1096,27 @@ function ReceiveAndQcPackageCard({
                     <Package size={10} />
                   </div>
                 )}
-                <span className="min-w-0 flex-1 truncate">
+                <span className="min-w-[120px] flex-1 truncate">
                   {li.title}
                   {li.variant ? ` — ${li.variant}` : ""} · expected ×
                   {li.quantity}
                 </span>
-                <span className="shrink-0 text-[11px] text-slate-400">
-                  Good
+                <span className="flex shrink-0 items-center gap-1.5">
+                  <span className="text-[11px] text-slate-400">Good</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max={li.quantity}
+                    value={good[i] ?? ""}
+                    onChange={(e) =>
+                      setGood((prev) => ({ ...prev, [i]: e.target.value }))
+                    }
+                    className="h-7 w-12 shrink-0 rounded-md border border-slate-200 px-1.5 text-xs outline-none focus:border-indigo-400"
+                  />
                 </span>
-                <input
-                  type="number"
-                  min="0"
-                  max={li.quantity}
-                  value={good[i] ?? ""}
-                  onChange={(e) =>
-                    setGood((prev) => ({ ...prev, [i]: e.target.value }))
-                  }
-                  className="h-7 w-12 shrink-0 rounded-md border border-slate-200 px-1.5 text-xs outline-none focus:border-indigo-400"
-                />
                 {badQty > 0 && (
-                  <>
-                    <span className="shrink-0 text-[11px] font-semibold text-amber-600">
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    <span className="text-[11px] font-semibold text-amber-600">
                       {badQty} ×
                     </span>
                     <QcReasonPicker
@@ -1125,15 +1125,15 @@ function ReceiveAndQcPackageCard({
                         setReasons((prev) => ({ ...prev, [i]: reason }))
                       }
                     />
-                  </>
+                  </span>
                 )}
               </div>
               {badQty > 0 && reasons[i] === "Wrong Product" && (
-                <div className="ml-8 rounded-lg border border-indigo-100 bg-indigo-50/60 p-2.5">
+                <div className="ml-0 rounded-lg border border-indigo-100 bg-indigo-50/60 p-2.5 sm:ml-8">
                   <p className="mb-1.5 text-right text-[11px] font-semibold text-indigo-700">
                     What did they actually send back?
                   </p>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                     <div className="flex-1">
                       <ReceivedInsteadPicker
                         value={receivedInstead[i] ?? null}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Search, Bell, HelpCircle, LogOut } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { ArrowLeft, Search, Bell, HelpCircle, LogOut } from 'lucide-react';
 import type { NotificationDTO } from '@zetsales/shared';
 import { useAuth } from '../../context/AuthContext';
 import { Popover } from '../ui/Popover';
@@ -15,9 +15,16 @@ function initialsOf(text: string) {
 
 const NOTIFICATIONS_POLL_MS = 45_000;
 
+// The 4 bottom-nav tab roots — every other route (sub-pages, detail pages, and everything reached
+// through the "More" sheet) gets a back button instead of the logo, mobile-only, matching Sidebar's
+// branding being replaced by this same slot once the sidebar itself is hidden below lg.
+const BOTTOM_NAV_ROOTS = ['/home', '/orders', '/products', '/analytics'];
+
 export function Topbar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const showBack = !BOTTOM_NAV_ROOTS.includes(location.pathname);
 
   const [notifications, setNotifications] = useState<NotificationDTO[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -52,14 +59,36 @@ export function Topbar() {
 
   return (
     <header className="flex h-16 shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3 lg:gap-4 lg:px-6">
-      <div className="relative w-full max-w-[160px] sm:max-w-xs lg:max-w-md">
+      {/* Mobile-only: back button on any sub-page, or the ZetSales logo + workspace name (Sidebar's
+          own branding, otherwise invisible once the sidebar hides below lg) on the 4 tab roots. */}
+      <div className="flex items-center gap-2 lg:hidden">
+        {showBack ? (
+          <button
+            onClick={() => navigate(-1)}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+          >
+            <ArrowLeft size={19} />
+          </button>
+        ) : (
+          <>
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-tr from-indigo-500 to-violet-500 text-sm font-bold text-white shadow-sm shadow-indigo-500/30">
+              Z
+            </div>
+            <span className="truncate text-[15px] font-bold leading-none tracking-tight text-slate-900">
+              {user?.businessName || 'ZetSales'}
+            </span>
+          </>
+        )}
+      </div>
+
+      <div className="relative hidden w-full max-w-md lg:block">
         <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
         <input
           type="text"
-          placeholder="Search..."
-          className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm text-slate-700 placeholder-slate-400 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15 lg:pr-14"
+          placeholder="Search orders, products, customers..."
+          className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-14 text-sm text-slate-700 placeholder-slate-400 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/15"
         />
-        <kbd className="pointer-events-none absolute right-2.5 top-1/2 hidden -translate-y-1/2 rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-400 lg:block">
+        <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-400">
           Ctrl K
         </kbd>
       </div>

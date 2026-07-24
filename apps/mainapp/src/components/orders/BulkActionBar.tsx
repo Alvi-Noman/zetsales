@@ -83,7 +83,7 @@ export function BulkActionBar({
   if (count === 0) return null;
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-6 z-40 flex justify-center">
+    <div className="pointer-events-none fixed inset-x-0 bottom-20 z-40 flex justify-center lg:bottom-6">
       <div className="pointer-events-auto flex animate-pop-in items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/95 px-3 py-2 text-white shadow-2xl shadow-slate-900/30 backdrop-blur">
         <button
           onClick={onClear}
