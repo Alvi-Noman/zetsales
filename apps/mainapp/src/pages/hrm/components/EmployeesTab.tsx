@@ -589,76 +589,134 @@ export function EmployeesTab({
             <p className="max-w-sm text-xs text-slate-400">Add your first team member to start tracking attendance, leave, and payroll.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="zs-table-head">
-                <tr>
-                  <th className="px-4 py-2.5 text-left font-semibold">Employee</th>
-                  <th className="px-4 py-2.5 text-left font-semibold">Department</th>
-                  {multiShift && <th className="px-4 py-2.5 text-left font-semibold">Shift</th>}
-                  <th className="px-4 py-2.5 text-left font-semibold">Status</th>
-                  <th className="px-4 py-2.5 text-right font-semibold">Salary</th>
-                  <th className="px-4 py-2.5 text-left font-semibold">Joined</th>
-                  <th className="px-4 py-2.5 text-left font-semibold">Attendance PIN</th>
-                  <th className="px-4 py-2.5 text-right font-semibold"></th>
-                </tr>
-              </thead>
-              <tbody className="zs-table-body">
-                {rows.map((e) => (
-                  <tr
-                    key={e.id}
-                    className="zs-data-row cursor-pointer"
-                    onClick={() => {
-                      setEditing(e);
-                      setFormOpen(true);
-                    }}
-                  >
-                    <td className="px-4 py-3">
-                      <p className="font-medium text-slate-800">{e.name}</p>
+          <>
+            <div className="hidden overflow-x-auto lg:block">
+              <table className="w-full text-sm">
+                <thead className="zs-table-head">
+                  <tr>
+                    <th className="px-4 py-2.5 text-left font-semibold">Employee</th>
+                    <th className="px-4 py-2.5 text-left font-semibold">Department</th>
+                    {multiShift && <th className="px-4 py-2.5 text-left font-semibold">Shift</th>}
+                    <th className="px-4 py-2.5 text-left font-semibold">Status</th>
+                    <th className="px-4 py-2.5 text-right font-semibold">Salary</th>
+                    <th className="px-4 py-2.5 text-left font-semibold">Joined</th>
+                    <th className="px-4 py-2.5 text-left font-semibold">Attendance PIN</th>
+                    <th className="px-4 py-2.5 text-right font-semibold"></th>
+                  </tr>
+                </thead>
+                <tbody className="zs-table-body">
+                  {rows.map((e) => (
+                    <tr
+                      key={e.id}
+                      className="zs-data-row cursor-pointer"
+                      onClick={() => {
+                        setEditing(e);
+                        setFormOpen(true);
+                      }}
+                    >
+                      <td className="px-4 py-3">
+                        <p className="font-medium text-slate-800">{e.name}</p>
+                        <p className="text-xs text-slate-400">
+                          {e.employeeCode} · {e.designation}
+                        </p>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">{e.departmentName || "Unassigned"}</td>
+                      {multiShift && <td className="px-4 py-3 text-slate-600">{e.shiftName || "Unassigned"}</td>}
+                      <td className="px-4 py-3">
+                        <span className={clsx("inline-flex rounded-full px-2 py-0.5 text-xs font-semibold", STATUS_TONE[e.status])}>
+                          {STATUS_LABEL[e.status]}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums text-slate-800">{money(e.monthlySalary)}</td>
+                      <td className="px-4 py-3 text-slate-500">{new Date(e.joinDate).toLocaleDateString()}</td>
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={(evt) => {
+                            evt.stopPropagation();
+                            setPinTarget(e);
+                          }}
+                          className={clsx(
+                            "flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold",
+                            e.hasPin ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                          )}
+                        >
+                          <KeyRound size={11} /> {e.hasPin ? "PIN set" : "Set PIN"}
+                        </button>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          onClick={(evt) => {
+                            evt.stopPropagation();
+                            void remove(e);
+                          }}
+                          className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                          title="Remove"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="space-y-2.5 p-3 lg:hidden">
+              {rows.map((e) => (
+                <div
+                  key={e.id}
+                  className="zs-surface cursor-pointer p-3.5"
+                  onClick={() => {
+                    setEditing(e);
+                    setFormOpen(true);
+                  }}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-slate-800">{e.name}</p>
                       <p className="text-xs text-slate-400">
                         {e.employeeCode} · {e.designation}
                       </p>
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">{e.departmentName || "Unassigned"}</td>
-                    {multiShift && <td className="px-4 py-3 text-slate-600">{e.shiftName || "Unassigned"}</td>}
-                    <td className="px-4 py-3">
-                      <span className={clsx("inline-flex rounded-full px-2 py-0.5 text-xs font-semibold", STATUS_TONE[e.status])}>
-                        {STATUS_LABEL[e.status]}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-slate-800">{money(e.monthlySalary)}</td>
-                    <td className="px-4 py-3 text-slate-500">{new Date(e.joinDate).toLocaleDateString()}</td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={(evt) => {
-                          evt.stopPropagation();
-                          setPinTarget(e);
-                        }}
-                        className={clsx(
-                          "flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold",
-                          e.hasPin ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-                        )}
-                      >
-                        <KeyRound size={11} /> {e.hasPin ? "PIN set" : "Set PIN"}
-                      </button>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={(evt) => {
-                          evt.stopPropagation();
-                          void remove(e);
-                        }}
-                        className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-                        title="Remove"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    </div>
+                    <span className={clsx("inline-flex shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold", STATUS_TONE[e.status])}>
+                      {STATUS_LABEL[e.status]}
+                    </span>
+                  </div>
+                  <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2.5 text-xs text-slate-500">
+                    <span>
+                      {e.departmentName || "Unassigned"}
+                      {multiShift && ` · ${e.shiftName || "No shift"}`}
+                    </span>
+                    <span className="font-semibold tabular-nums text-slate-800">{money(e.monthlySalary)}</span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <button
+                      onClick={(evt) => {
+                        evt.stopPropagation();
+                        setPinTarget(e);
+                      }}
+                      className={clsx(
+                        "flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold",
+                        e.hasPin ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                      )}
+                    >
+                      <KeyRound size={11} /> {e.hasPin ? "PIN set" : "Set PIN"}
+                    </button>
+                    <button
+                      onClick={(evt) => {
+                        evt.stopPropagation();
+                        void remove(e);
+                      }}
+                      className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                      title="Remove"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
 

@@ -378,6 +378,8 @@ export function DispatchPage() {
             No ready parcel matches this search.
           </div>
         ) : (
+          <>
+          <div className="hidden overflow-x-auto lg:block">
           <table className="w-full min-w-[980px] border-collapse text-sm">
             <thead>
               <tr className="zs-table-head">
@@ -471,6 +473,69 @@ export function DispatchPage() {
               })}
             </tbody>
           </table>
+          </div>
+
+          <div className="space-y-2.5 p-3 lg:hidden">
+            {filteredReadyOrders.map((order) => {
+              const store = storeById.get(order.storeId);
+              const isSelected = selected.has(order.id);
+              return (
+                <div
+                  key={order.id}
+                  className={clsx(
+                    "zs-surface p-3.5",
+                    isSelected && "bg-indigo-50/60",
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex min-w-0 items-start gap-2.5">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleSelected(order.id)}
+                        className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        aria-label={`Select ${orderCode(order)}`}
+                      />
+                      <div className="min-w-0">
+                        <p className="font-bold text-slate-900">
+                          {orderCode(order)}
+                        </p>
+                        {order.invoiceNo && (
+                          <p className="text-xs text-slate-400">
+                            Order {order.number}
+                          </p>
+                        )}
+                        <p className="mt-1 truncate text-sm font-medium text-slate-800">
+                          {order.customerName ?? "No customer"}
+                        </p>
+                        <p className="text-xs text-slate-400">
+                          {order.customerPhone ?? "No phone"}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="shrink-0 font-semibold tabular-nums text-slate-900">
+                      {money(order)}
+                    </span>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs text-slate-500">
+                    <span className="capitalize">
+                      {order.courierPartner ?? "Courier"} ·{" "}
+                      {store?.displayName ?? "Store"}
+                    </span>
+                    <span>{formatAbsoluteDateTime(order.updatedAt)}</span>
+                  </div>
+                  <button
+                    onClick={() => void handOverOrders([order])}
+                    disabled={scanning}
+                    className="mt-3 w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Hand over
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          </>
         )}
       </div>
 

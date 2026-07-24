@@ -160,7 +160,7 @@ function ManifestModal({
               )}
             </div>
 
-            <div className="overflow-hidden rounded-lg border border-slate-200">
+            <div className="hidden overflow-hidden rounded-lg border border-slate-200 lg:block">
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/80 text-[10.5px] uppercase tracking-wide text-slate-400">
@@ -200,6 +200,40 @@ function ManifestModal({
                   ))}
                 </tbody>
               </table>
+            </div>
+
+            {/* Mobile card list — same data as the table above. */}
+            <div className="space-y-2 lg:hidden">
+              {detail.orders.map((order) => (
+                <div
+                  key={order.orderId}
+                  className="rounded-lg border border-slate-200 p-3 text-xs"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-slate-800">
+                        {order.invoiceNo ?? order.orderNumber}
+                      </p>
+                      {order.invoiceNo && (
+                        <p className="text-[10px] text-slate-400">
+                          {order.orderNumber}
+                        </p>
+                      )}
+                    </div>
+                    <p className="shrink-0 font-semibold text-slate-800">
+                      {money(order.total)}
+                    </p>
+                  </div>
+                  <div className="mt-1.5 flex items-center justify-between text-slate-500">
+                    <span className="truncate">
+                      {order.customerName ?? "-"}
+                    </span>
+                    <span className="shrink-0 font-mono text-slate-400">
+                      {order.consignmentId ?? "-"} · {order.itemCount} items
+                    </span>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 

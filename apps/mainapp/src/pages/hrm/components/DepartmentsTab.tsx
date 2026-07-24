@@ -144,32 +144,53 @@ export function DepartmentsTab({
             <p className="max-w-sm text-xs text-slate-400">Group employees by team, e.g. Sales, Warehouse, Support.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="zs-table-head">
-                <tr>
-                  <th className="px-4 py-2.5 text-left font-semibold">Name</th>
-                  <th className="px-4 py-2.5 text-left font-semibold">Description</th>
-                  <th className="px-4 py-2.5 text-right font-semibold">Employees</th>
-                  <th className="px-4 py-2.5 text-right font-semibold"></th>
-                </tr>
-              </thead>
-              <tbody className="zs-table-body">
-                {departments.map((d) => (
-                  <tr key={d.id} className="zs-data-row">
-                    <td className="px-4 py-3 font-medium text-slate-800">{d.name}</td>
-                    <td className="px-4 py-3 text-slate-500">{d.description || "—"}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-slate-700">{d.employeeCount}</td>
-                    <td className="px-4 py-3 text-right">
-                      <button onClick={() => void remove(d)} className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600" title="Delete">
-                        <Trash2 size={14} />
-                      </button>
-                    </td>
+          <>
+            <div className="hidden overflow-x-auto lg:block">
+              <table className="w-full text-sm">
+                <thead className="zs-table-head">
+                  <tr>
+                    <th className="px-4 py-2.5 text-left font-semibold">Name</th>
+                    <th className="px-4 py-2.5 text-left font-semibold">Description</th>
+                    <th className="px-4 py-2.5 text-right font-semibold">Employees</th>
+                    <th className="px-4 py-2.5 text-right font-semibold"></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="zs-table-body">
+                  {departments.map((d) => (
+                    <tr key={d.id} className="zs-data-row">
+                      <td className="px-4 py-3 font-medium text-slate-800">{d.name}</td>
+                      <td className="px-4 py-3 text-slate-500">{d.description || "—"}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-slate-700">{d.employeeCount}</td>
+                      <td className="px-4 py-3 text-right">
+                        <button onClick={() => void remove(d)} className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600" title="Delete">
+                          <Trash2 size={14} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="space-y-2.5 p-3 lg:hidden">
+              {departments.map((d) => (
+                <div key={d.id} className="zs-surface p-3.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-medium text-slate-800">{d.name}</p>
+                      {d.description && <p className="mt-0.5 text-xs text-slate-500">{d.description}</p>}
+                    </div>
+                    <button onClick={() => void remove(d)} className="shrink-0 rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600" title="Delete">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                  <p className="mt-2.5 border-t border-slate-100 pt-2.5 text-xs text-slate-500">
+                    <span className="font-semibold tabular-nums text-slate-700">{d.employeeCount}</span> employee{d.employeeCount === 1 ? "" : "s"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
 

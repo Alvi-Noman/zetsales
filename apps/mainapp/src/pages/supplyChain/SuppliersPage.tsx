@@ -472,7 +472,8 @@ export function SuppliersPage() {
                   </p>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
+                <>
+                <div className="hidden overflow-x-auto lg:block">
                   <table className="w-full text-sm">
                     <thead className="zs-table-head">
                       <tr>
@@ -552,6 +553,51 @@ export function SuppliersPage() {
                     </tbody>
                   </table>
                 </div>
+
+                {/* Mobile card list — same data/handlers as the table above. */}
+                <div className="space-y-2.5 p-3 lg:hidden">
+                  {rows.map((s) => (
+                    <div
+                      key={s.id}
+                      onClick={() => navigate(`/suppliers/${s.id}`)}
+                      className="zs-surface cursor-pointer p-3.5"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold text-slate-800">
+                            {s.name}
+                          </p>
+                          <p className="text-xs text-slate-400">
+                            {s.phone || s.email || "—"}
+                          </p>
+                        </div>
+                        <p className="shrink-0 font-semibold tabular-nums text-slate-800">
+                          {money(s.totalSpend)}
+                        </p>
+                      </div>
+                      <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs text-slate-500">
+                        <span className="truncate">
+                          {s.contactPersonName || "—"}
+                          {s.designation ? ` · ${s.designation}` : ""}
+                        </span>
+                        <span className="shrink-0 tabular-nums">
+                          {s.shipmentCount} shipments
+                        </span>
+                      </div>
+                      <div className="mt-1.5 flex items-center justify-between text-xs text-slate-400">
+                        <span>{s.totalUnits} units received</span>
+                        <span>
+                          {s.lastTransactionAt
+                            ? new Date(
+                                s.lastTransactionAt,
+                              ).toLocaleDateString()
+                            : "Never"}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                </>
               )}
             </div>
           </div>

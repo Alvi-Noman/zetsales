@@ -259,7 +259,8 @@ export function CustomersPage() {
                   </p>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
+                <>
+                <div className="hidden overflow-x-auto lg:block">
                   <table className="w-full text-sm">
                     <thead className="zs-table-head">
                       <tr>
@@ -353,6 +354,59 @@ export function CustomersPage() {
                     </tbody>
                   </table>
                 </div>
+
+                {/* Mobile card list — same data/handlers as the table above. */}
+                <div className="space-y-2.5 p-3 lg:hidden">
+                  {sortedRows.map((c) => (
+                    <div
+                      key={c.phone}
+                      onClick={() =>
+                        navigate(`/customers/${encodeURIComponent(c.phone)}`)
+                      }
+                      className="zs-surface cursor-pointer p-3.5"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="flex items-center gap-1.5 truncate font-semibold text-slate-800">
+                            {c.name ?? "No name"}
+                            {c.isBlocked && (
+                              <Ban size={12} className="shrink-0 text-rose-500" />
+                            )}
+                          </p>
+                          <p className="text-xs text-slate-400">{c.phone}</p>
+                        </div>
+                        <span
+                          className={clsx(
+                            "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset",
+                            RISK_TONE[c.riskLabel],
+                          )}
+                        >
+                          {c.riskLabel}
+                        </span>
+                      </div>
+                      <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-slate-100 pt-2.5 text-sm">
+                        <div className="text-xs text-slate-500">
+                          {c.orderCount} order{c.orderCount === 1 ? "" : "s"}
+                          {" · "}
+                          {c.segment}
+                        </div>
+                        <p className="shrink-0 font-semibold tabular-nums text-slate-800">
+                          {money(c.totalSpend)}
+                        </p>
+                      </div>
+                      <div className="mt-1.5 flex items-center justify-between gap-2 text-xs text-slate-400">
+                        <span>
+                          Delivered rate{" "}
+                          {c.deliveredRate != null ? `${c.deliveredRate}%` : "—"}
+                        </span>
+                        <span>
+                          {new Date(c.lastOrderAt).toLocaleDateString()}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                </>
               )}
             </div>
           </div>

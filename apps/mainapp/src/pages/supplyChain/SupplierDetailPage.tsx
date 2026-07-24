@@ -1024,7 +1024,7 @@ export function SupplierDetailPage() {
                 </p>
               ) : (
                 <>
-                  <div className="overflow-x-auto">
+                  <div className="hidden overflow-x-auto lg:block">
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="zs-table-head">
@@ -1124,6 +1124,50 @@ export function SupplierDetailPage() {
                       </tbody>
                     </table>
                   </div>
+
+                  {/* Mobile card list — same data as the table above. */}
+                  <div className="space-y-2 lg:hidden">
+                    {transactions.map((t) => (
+                      <div key={t.id} className="zs-surface p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <span
+                            className={clsx(
+                              "rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
+                              t.reason === "Incoming Stock"
+                                ? "bg-emerald-50 text-emerald-700"
+                                : "bg-indigo-50 text-indigo-700",
+                            )}
+                          >
+                            {t.reason}
+                          </span>
+                          <span className="text-[11px] text-slate-400">
+                            {new Date(t.createdAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <p className="mt-1.5 text-sm text-slate-700">
+                          {t.productTitle ?? "—"}
+                          {t.variantLabel ? ` · ${t.variantLabel}` : ""}
+                          {t.sku ? (
+                            <span className="text-slate-400"> ({t.sku})</span>
+                          ) : null}
+                        </p>
+                        <div className="mt-2 flex items-center justify-between border-t border-slate-100 pt-2 text-xs text-slate-500">
+                          <span>Qty {t.quantity}</span>
+                          <span className="font-semibold tabular-nums text-slate-800">
+                            {t.valueDelta != null ? money(t.valueDelta) : "—"}
+                          </span>
+                        </div>
+                        {(t.warehouseName || t.note) && (
+                          <p className="mt-1 truncate text-[11px] text-slate-400">
+                            {t.warehouseName ?? ""}
+                            {t.warehouseName && t.note ? " · " : ""}
+                            {t.note ?? ""}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
                   <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
                     <span>
                       {total} transaction{total === 1 ? "" : "s"}
@@ -1178,7 +1222,7 @@ export function SupplierDetailPage() {
                 </p>
               ) : (
                 <>
-                  <div className="overflow-x-auto">
+                  <div className="hidden overflow-x-auto lg:block">
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="zs-table-head">
@@ -1287,6 +1331,68 @@ export function SupplierDetailPage() {
                       </tbody>
                     </table>
                   </div>
+
+                  {/* Mobile card list — same data as the table above. */}
+                  <div className="space-y-2 lg:hidden">
+                    {shipments.map((s) => {
+                      const writtenOffTotal =
+                        s.writtenOffByReason.shortShipped +
+                        s.writtenOffByReason.lostInTransit +
+                        s.writtenOffByReason.damagedOnArrival;
+                      return (
+                        <div key={s.id} className="zs-surface p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="min-w-0 truncate text-sm font-medium text-slate-700">
+                              {s.productTitle ?? "—"}
+                              {s.variantLabel ? ` · ${s.variantLabel}` : ""}
+                            </p>
+                            <span
+                              className={clsx(
+                                "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
+                                s.status === "open"
+                                  ? "bg-amber-50 text-amber-700"
+                                  : "bg-slate-100 text-slate-500",
+                              )}
+                            >
+                              {s.status === "open" ? "Open" : "Closed"}
+                            </span>
+                          </div>
+                          <div className="mt-2 flex items-center justify-between border-t border-slate-100 pt-2 text-xs text-slate-500">
+                            <span>
+                              Ordered {s.quantityOrdered} · Received{" "}
+                              <span className="text-emerald-600">
+                                {s.quantityReceived}
+                              </span>
+                            </span>
+                            <span
+                              className={clsx(
+                                "font-semibold tabular-nums",
+                                s.outstanding > 0
+                                  ? "text-amber-600"
+                                  : "text-slate-400",
+                              )}
+                            >
+                              {s.outstanding} outstanding
+                            </span>
+                          </div>
+                          <div className="mt-1 flex items-center justify-between text-[11px] text-slate-400">
+                            <span>
+                              {writtenOffTotal
+                                ? `${writtenOffTotal} written off`
+                                : ""}
+                            </span>
+                            <span>
+                              {new Date(s.createdAt).toLocaleDateString()}
+                              {s.expectedAt
+                                ? ` · exp. ${new Date(s.expectedAt).toLocaleDateString()}`
+                                : ""}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
                   <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
                     <span>
                       {shipmentsTotal} shipment{shipmentsTotal === 1 ? "" : "s"}
@@ -1372,7 +1478,7 @@ export function SupplierDetailPage() {
                 </p>
               ) : (
                 <>
-                  <div className="overflow-x-auto">
+                  <div className="hidden overflow-x-auto lg:block">
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="zs-table-head">
@@ -1487,6 +1593,95 @@ export function SupplierDetailPage() {
                       </tbody>
                     </table>
                   </div>
+
+                  {/* Mobile card list — same data/handlers as the table above. */}
+                  <div className="space-y-2 lg:hidden">
+                    {purchaseOrders.map((po) => {
+                      const busy = poActionBusyId === po.id;
+                      return (
+                        <div key={po.id} className="zs-surface p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="font-semibold text-slate-800">
+                              {po.poNumber}
+                            </p>
+                            <span
+                              className={clsx(
+                                "rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
+                                PO_STATUS_TONE[po.status],
+                              )}
+                            >
+                              {PO_STATUS_LABEL[po.status]}
+                            </span>
+                          </div>
+                          <div className="mt-2 flex items-center justify-between border-t border-slate-100 pt-2 text-xs text-slate-500">
+                            <span>
+                              {new Date(po.createdAt).toLocaleDateString()} ·{" "}
+                              {po.lines.length} line
+                              {po.lines.length === 1 ? "" : "s"}
+                            </span>
+                            <span className="font-semibold tabular-nums text-slate-800">
+                              {money(po.total)}
+                            </span>
+                          </div>
+                          {po.expectedAt && (
+                            <p className="mt-1 text-[11px] text-slate-400">
+                              Expected{" "}
+                              {new Date(po.expectedAt).toLocaleDateString()}
+                            </p>
+                          )}
+                          <div className="mt-2 flex items-center justify-end gap-1.5 border-t border-slate-100 pt-2">
+                            {po.status === "draft" && (
+                              <button
+                                onClick={() => void handleSendPo(po)}
+                                disabled={busy}
+                                className="flex items-center gap-1 rounded-md bg-indigo-600 px-2 py-1.5 text-[11px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-40"
+                              >
+                                <Send size={12} />{" "}
+                                {busy
+                                  ? "Confirming..."
+                                  : "Confirm & add to Incoming Stock"}
+                              </button>
+                            )}
+                            <button
+                              onClick={() => setPrintingPo(po)}
+                              title="Print"
+                              className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                            >
+                              <Printer size={13} />
+                            </button>
+                            {po.status === "draft" && (
+                              <>
+                                <button
+                                  onClick={() => setEditingPo(po)}
+                                  title="Edit"
+                                  className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                                >
+                                  <Pencil size={13} />
+                                </button>
+                                <button
+                                  onClick={() => void handleCancelPo(po)}
+                                  disabled={busy}
+                                  title="Cancel"
+                                  className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
+                                >
+                                  <X size={13} />
+                                </button>
+                                <button
+                                  onClick={() => void handleDeletePo(po)}
+                                  disabled={busy}
+                                  title="Delete"
+                                  className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
                   <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
                     <span>
                       {purchaseOrdersTotal} purchase order

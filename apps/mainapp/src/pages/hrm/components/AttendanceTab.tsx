@@ -128,85 +128,150 @@ function DailyView({
             <p className="text-sm font-medium text-slate-600">No active employees</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="zs-table-head">
-                <tr>
-                  <th className="px-4 py-2.5 text-left font-semibold">Employee</th>
-                  <th className="px-4 py-2.5 text-left font-semibold">Status</th>
-                  <th className="px-4 py-2.5 text-left font-semibold">Check-in</th>
-                  <th className="px-4 py-2.5 text-left font-semibold">Check-out</th>
-                  <th className="px-4 py-2.5 text-right font-semibold">Hours</th>
-                  <th className="px-4 py-2.5 text-left font-semibold">Via</th>
-                  <th className="px-4 py-2.5 text-right font-semibold">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="zs-table-body">
-                {activeEmployees.map((emp) => {
-                  const record = byEmployee.get(emp.id);
-                  const busy = busyId === emp.id;
-                  return (
-                    <tr key={emp.id} className="zs-data-row">
-                      <td className="px-4 py-3 font-medium text-slate-800">{emp.name}</td>
-                      <td className="px-4 py-3">
-                        <select
-                          value={record?.status ?? ""}
-                          disabled={busy}
-                          onChange={(e) =>
-                            void withBusy(emp.id, () =>
-                              markHrmAttendance({ employeeId: emp.id, date, status: e.target.value as HrmAttendanceStatus })
-                            )
-                          }
-                          className={clsx(
-                            "rounded-full border-0 px-2 py-0.5 text-xs font-semibold outline-none",
-                            record ? STATUS_TONE[record.status] : "bg-slate-50 text-slate-400"
-                          )}
-                        >
-                          <option value="" disabled>
-                            Not marked
-                          </option>
-                          {Object.entries(STATUS_LABEL).map(([key, label]) => (
-                            <option key={key} value={key}>
-                              {label}
+          <>
+            <div className="hidden overflow-x-auto lg:block">
+              <table className="w-full text-sm">
+                <thead className="zs-table-head">
+                  <tr>
+                    <th className="px-4 py-2.5 text-left font-semibold">Employee</th>
+                    <th className="px-4 py-2.5 text-left font-semibold">Status</th>
+                    <th className="px-4 py-2.5 text-left font-semibold">Check-in</th>
+                    <th className="px-4 py-2.5 text-left font-semibold">Check-out</th>
+                    <th className="px-4 py-2.5 text-right font-semibold">Hours</th>
+                    <th className="px-4 py-2.5 text-left font-semibold">Via</th>
+                    <th className="px-4 py-2.5 text-right font-semibold">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="zs-table-body">
+                  {activeEmployees.map((emp) => {
+                    const record = byEmployee.get(emp.id);
+                    const busy = busyId === emp.id;
+                    return (
+                      <tr key={emp.id} className="zs-data-row">
+                        <td className="px-4 py-3 font-medium text-slate-800">{emp.name}</td>
+                        <td className="px-4 py-3">
+                          <select
+                            value={record?.status ?? ""}
+                            disabled={busy}
+                            onChange={(e) =>
+                              void withBusy(emp.id, () =>
+                                markHrmAttendance({ employeeId: emp.id, date, status: e.target.value as HrmAttendanceStatus })
+                              )
+                            }
+                            className={clsx(
+                              "rounded-full border-0 px-2 py-0.5 text-xs font-semibold outline-none",
+                              record ? STATUS_TONE[record.status] : "bg-slate-50 text-slate-400"
+                            )}
+                          >
+                            <option value="" disabled>
+                              Not marked
                             </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">{timeStr(record?.checkIn ?? null)}</td>
-                      <td className="px-4 py-3 text-slate-600">{timeStr(record?.checkOut ?? null)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums text-slate-700">{record?.hoursWorked ?? "—"}</td>
-                      <td className="px-4 py-3 text-xs text-slate-400">
-                        {record ? SOURCE_LABEL[record.source ?? "manual"] ?? "Manual" : "—"}
-                        {record && record.breaks.some((b) => !b.end) && (
-                          <span className="ml-1.5 inline-flex rounded-full bg-amber-50 px-1.5 py-0.5 font-semibold text-amber-700">On break</span>
+                            {Object.entries(STATUS_LABEL).map(([key, label]) => (
+                              <option key={key} value={key}>
+                                {label}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">{timeStr(record?.checkIn ?? null)}</td>
+                        <td className="px-4 py-3 text-slate-600">{timeStr(record?.checkOut ?? null)}</td>
+                        <td className="px-4 py-3 text-right tabular-nums text-slate-700">{record?.hoursWorked ?? "—"}</td>
+                        <td className="px-4 py-3 text-xs text-slate-400">
+                          {record ? SOURCE_LABEL[record.source ?? "manual"] ?? "Manual" : "—"}
+                          {record && record.breaks.some((b) => !b.end) && (
+                            <span className="ml-1.5 inline-flex rounded-full bg-amber-50 px-1.5 py-0.5 font-semibold text-amber-700">On break</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          {isToday && (
+                            <div className="flex justify-end gap-1.5">
+                              <button
+                                disabled={busy || !!record?.checkIn}
+                                onClick={() => void withBusy(emp.id, () => hrmCheckIn(emp.id))}
+                                className="flex h-7 items-center gap-1 rounded-md border border-slate-200 px-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                <LogIn size={12} /> In
+                              </button>
+                              <button
+                                disabled={busy || !record?.checkIn || !!record?.checkOut}
+                                onClick={() => void withBusy(emp.id, () => hrmCheckOut(emp.id))}
+                                className="flex h-7 items-center gap-1 rounded-md border border-slate-200 px-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                <LogOut size={12} /> Out
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="space-y-2.5 p-3 lg:hidden">
+              {activeEmployees.map((emp) => {
+                const record = byEmployee.get(emp.id);
+                const busy = busyId === emp.id;
+                return (
+                  <div key={emp.id} className="zs-surface p-3.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="font-medium text-slate-800">{emp.name}</p>
+                      <select
+                        value={record?.status ?? ""}
+                        disabled={busy}
+                        onChange={(e) =>
+                          void withBusy(emp.id, () =>
+                            markHrmAttendance({ employeeId: emp.id, date, status: e.target.value as HrmAttendanceStatus })
+                          )
+                        }
+                        className={clsx(
+                          "shrink-0 rounded-full border-0 px-2 py-0.5 text-xs font-semibold outline-none",
+                          record ? STATUS_TONE[record.status] : "bg-slate-50 text-slate-400"
                         )}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {isToday && (
-                          <div className="flex justify-end gap-1.5">
-                            <button
-                              disabled={busy || !!record?.checkIn}
-                              onClick={() => void withBusy(emp.id, () => hrmCheckIn(emp.id))}
-                              className="flex h-7 items-center gap-1 rounded-md border border-slate-200 px-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                            >
-                              <LogIn size={12} /> In
-                            </button>
-                            <button
-                              disabled={busy || !record?.checkIn || !!record?.checkOut}
-                              onClick={() => void withBusy(emp.id, () => hrmCheckOut(emp.id))}
-                              className="flex h-7 items-center gap-1 rounded-md border border-slate-200 px-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                            >
-                              <LogOut size={12} /> Out
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                      >
+                        <option value="" disabled>
+                          Not marked
+                        </option>
+                        {Object.entries(STATUS_LABEL).map(([key, label]) => (
+                          <option key={key} value={key}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-100 pt-2.5 text-xs text-slate-500">
+                      <span>In {timeStr(record?.checkIn ?? null)}</span>
+                      <span>Out {timeStr(record?.checkOut ?? null)}</span>
+                      <span className="tabular-nums text-slate-700">{record?.hoursWorked ?? "—"} hrs</span>
+                      <span className="text-slate-400">{record ? SOURCE_LABEL[record.source ?? "manual"] ?? "Manual" : "—"}</span>
+                      {record && record.breaks.some((b) => !b.end) && (
+                        <span className="inline-flex rounded-full bg-amber-50 px-1.5 py-0.5 font-semibold text-amber-700">On break</span>
+                      )}
+                    </div>
+                    {isToday && (
+                      <div className="mt-2.5 flex gap-1.5">
+                        <button
+                          disabled={busy || !!record?.checkIn}
+                          onClick={() => void withBusy(emp.id, () => hrmCheckIn(emp.id))}
+                          className="flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-slate-200 px-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <LogIn size={12} /> In
+                        </button>
+                        <button
+                          disabled={busy || !record?.checkIn || !!record?.checkOut}
+                          onClick={() => void withBusy(emp.id, () => hrmCheckOut(emp.id))}
+                          className="flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-slate-200 px-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <LogOut size={12} /> Out
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
       </div>
     </div>
@@ -324,71 +389,120 @@ function HistoryView({ employees }: { employees: HrmEmployeeDTO[] }) {
             <p className="text-sm font-medium text-slate-600">No attendance records in this range</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="zs-table-head">
-                <tr>
-                  <th className="px-4 py-2.5 text-left font-semibold"></th>
-                  <th className="px-4 py-2.5 text-left font-semibold">Date</th>
-                  <th className="px-4 py-2.5 text-left font-semibold">Employee</th>
-                  <th className="px-4 py-2.5 text-left font-semibold">Status</th>
-                  <th className="px-4 py-2.5 text-left font-semibold">Check-in</th>
-                  <th className="px-4 py-2.5 text-left font-semibold">Check-out</th>
-                  <th className="px-4 py-2.5 text-right font-semibold">Hours</th>
-                  <th className="px-4 py-2.5 text-right font-semibold">Breaks</th>
-                  <th className="px-4 py-2.5 text-left font-semibold">Via</th>
-                </tr>
-              </thead>
-              <tbody className="zs-table-body">
-                {records.map((r) => {
-                  const isOpen = expanded.has(r.id);
-                  const hasBreaks = r.breaks.length > 0;
-                  return (
-                    <Fragment key={r.id}>
-                      <tr
-                        className={clsx("zs-data-row", hasBreaks && "cursor-pointer")}
-                        onClick={() => hasBreaks && toggleExpand(r.id)}
-                      >
-                        <td className="px-4 py-3 text-slate-400">
-                          {hasBreaks && (isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
-                        </td>
-                        <td className="px-4 py-3 text-slate-700">{dateStr(r.date)}</td>
-                        <td className="px-4 py-3 font-medium text-slate-800">{r.employeeName}</td>
-                        <td className="px-4 py-3">
-                          <span className={clsx("inline-flex rounded-full px-2 py-0.5 text-xs font-semibold", STATUS_TONE[r.status])}>
-                            {STATUS_LABEL[r.status]}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-slate-600">{timeStr(r.checkIn)}</td>
-                        <td className="px-4 py-3 text-slate-600">{timeStr(r.checkOut)}</td>
-                        <td className="px-4 py-3 text-right tabular-nums text-slate-700">{r.hoursWorked ?? "—"}</td>
-                        <td className="px-4 py-3 text-right tabular-nums text-slate-700">
-                          {r.breaks.length > 0 ? `${r.breaks.length} · ${formatMinutes(closedBreakMinutes(r))}` : "—"}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-slate-400">{SOURCE_LABEL[r.source ?? "manual"] ?? "Manual"}</td>
-                      </tr>
-                      {isOpen && hasBreaks && (
-                        <tr className="bg-slate-50/70">
-                          <td></td>
-                          <td colSpan={8} className="px-4 py-2.5">
-                            <div className="flex flex-wrap gap-x-6 gap-y-1.5">
-                              {r.breaks.map((b, i) => (
-                                <span key={i} className="flex items-center gap-1.5 text-xs text-slate-500">
-                                  <Clock size={12} className="text-slate-400" />
-                                  Break {i + 1}: {timeStr(b.start)} – {b.end ? timeStr(b.end) : "ongoing"}
-                                  {b.end && <span className="text-slate-400">({formatMinutes((new Date(b.end).getTime() - new Date(b.start).getTime()) / 60000)})</span>}
-                                </span>
-                              ))}
-                            </div>
+          <>
+            <div className="hidden overflow-x-auto lg:block">
+              <table className="w-full text-sm">
+                <thead className="zs-table-head">
+                  <tr>
+                    <th className="px-4 py-2.5 text-left font-semibold"></th>
+                    <th className="px-4 py-2.5 text-left font-semibold">Date</th>
+                    <th className="px-4 py-2.5 text-left font-semibold">Employee</th>
+                    <th className="px-4 py-2.5 text-left font-semibold">Status</th>
+                    <th className="px-4 py-2.5 text-left font-semibold">Check-in</th>
+                    <th className="px-4 py-2.5 text-left font-semibold">Check-out</th>
+                    <th className="px-4 py-2.5 text-right font-semibold">Hours</th>
+                    <th className="px-4 py-2.5 text-right font-semibold">Breaks</th>
+                    <th className="px-4 py-2.5 text-left font-semibold">Via</th>
+                  </tr>
+                </thead>
+                <tbody className="zs-table-body">
+                  {records.map((r) => {
+                    const isOpen = expanded.has(r.id);
+                    const hasBreaks = r.breaks.length > 0;
+                    return (
+                      <Fragment key={r.id}>
+                        <tr
+                          className={clsx("zs-data-row", hasBreaks && "cursor-pointer")}
+                          onClick={() => hasBreaks && toggleExpand(r.id)}
+                        >
+                          <td className="px-4 py-3 text-slate-400">
+                            {hasBreaks && (isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
                           </td>
+                          <td className="px-4 py-3 text-slate-700">{dateStr(r.date)}</td>
+                          <td className="px-4 py-3 font-medium text-slate-800">{r.employeeName}</td>
+                          <td className="px-4 py-3">
+                            <span className={clsx("inline-flex rounded-full px-2 py-0.5 text-xs font-semibold", STATUS_TONE[r.status])}>
+                              {STATUS_LABEL[r.status]}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-slate-600">{timeStr(r.checkIn)}</td>
+                          <td className="px-4 py-3 text-slate-600">{timeStr(r.checkOut)}</td>
+                          <td className="px-4 py-3 text-right tabular-nums text-slate-700">{r.hoursWorked ?? "—"}</td>
+                          <td className="px-4 py-3 text-right tabular-nums text-slate-700">
+                            {r.breaks.length > 0 ? `${r.breaks.length} · ${formatMinutes(closedBreakMinutes(r))}` : "—"}
+                          </td>
+                          <td className="px-4 py-3 text-xs text-slate-400">{SOURCE_LABEL[r.source ?? "manual"] ?? "Manual"}</td>
                         </tr>
+                        {isOpen && hasBreaks && (
+                          <tr className="bg-slate-50/70">
+                            <td></td>
+                            <td colSpan={8} className="px-4 py-2.5">
+                              <div className="flex flex-wrap gap-x-6 gap-y-1.5">
+                                {r.breaks.map((b, i) => (
+                                  <span key={i} className="flex items-center gap-1.5 text-xs text-slate-500">
+                                    <Clock size={12} className="text-slate-400" />
+                                    Break {i + 1}: {timeStr(b.start)} – {b.end ? timeStr(b.end) : "ongoing"}
+                                    {b.end && <span className="text-slate-400">({formatMinutes((new Date(b.end).getTime() - new Date(b.start).getTime()) / 60000)})</span>}
+                                  </span>
+                                ))}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="space-y-2.5 p-3 lg:hidden">
+              {records.map((r) => {
+                const isOpen = expanded.has(r.id);
+                const hasBreaks = r.breaks.length > 0;
+                return (
+                  <div
+                    key={r.id}
+                    className={clsx("zs-surface p-3.5", hasBreaks && "cursor-pointer")}
+                    onClick={() => hasBreaks && toggleExpand(r.id)}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-medium text-slate-800">{r.employeeName}</p>
+                        <p className="text-xs text-slate-400">{dateStr(r.date)}</p>
+                      </div>
+                      <span className={clsx("inline-flex shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold", STATUS_TONE[r.status])}>
+                        {STATUS_LABEL[r.status]}
+                      </span>
+                    </div>
+                    <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-100 pt-2.5 text-xs text-slate-500">
+                      <span>In {timeStr(r.checkIn)}</span>
+                      <span>Out {timeStr(r.checkOut)}</span>
+                      <span className="tabular-nums text-slate-700">{r.hoursWorked ?? "—"} hrs</span>
+                      <span className="text-slate-400">{SOURCE_LABEL[r.source ?? "manual"] ?? "Manual"}</span>
+                      {hasBreaks && (
+                        <span className="flex items-center gap-1 text-slate-500">
+                          {r.breaks.length} break{r.breaks.length === 1 ? "" : "s"} · {formatMinutes(closedBreakMinutes(r))}
+                          {isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                        </span>
                       )}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                    </div>
+                    {isOpen && hasBreaks && (
+                      <div className="mt-2 flex flex-col gap-1 border-t border-slate-100 pt-2">
+                        {r.breaks.map((b, i) => (
+                          <span key={i} className="flex items-center gap-1.5 text-xs text-slate-500">
+                            <Clock size={12} className="text-slate-400" />
+                            Break {i + 1}: {timeStr(b.start)} – {b.end ? timeStr(b.end) : "ongoing"}
+                            {b.end && <span className="text-slate-400">({formatMinutes((new Date(b.end).getTime() - new Date(b.start).getTime()) / 60000)})</span>}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
       </div>
     </div>

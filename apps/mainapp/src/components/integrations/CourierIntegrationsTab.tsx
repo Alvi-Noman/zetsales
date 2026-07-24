@@ -666,7 +666,7 @@ function HandoverDetailModal({
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
               Orders in this batch
             </h3>
-            <div className="overflow-x-auto rounded-lg border border-slate-200">
+            <div className="hidden overflow-x-auto rounded-lg border border-slate-200 sm:block">
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/70 text-[10.5px] uppercase tracking-wide text-slate-400">
@@ -698,13 +698,37 @@ function HandoverDetailModal({
                 </tbody>
               </table>
             </div>
+            <div className="space-y-1.5 rounded-lg border border-slate-200 p-2 sm:hidden">
+              {detail.orders.map((o) => (
+                <div
+                  key={o.orderId}
+                  className="rounded-md border border-slate-100 px-2.5 py-2 text-xs"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium text-slate-700">
+                      #{o.orderNumber}
+                    </span>
+                    <span className="font-semibold text-slate-800">
+                      {formatMoney(o.total)}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex items-center justify-between gap-2 text-slate-500">
+                    <span>{o.customerName ?? "—"}</span>
+                    <span>{o.itemCount} items</span>
+                  </div>
+                  <p className="mt-0.5 text-slate-400">
+                    Consignment: {o.consignmentId ?? "—"}
+                  </p>
+                </div>
+              ))}
+            </div>
           </div>
 
           <div>
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
               Item-wise breakdown
             </h3>
-            <div className="overflow-x-auto rounded-lg border border-slate-200">
+            <div className="hidden overflow-x-auto rounded-lg border border-slate-200 sm:block">
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/70 text-[10.5px] uppercase tracking-wide text-slate-400">
@@ -729,6 +753,24 @@ function HandoverDetailModal({
                   ))}
                 </tbody>
               </table>
+            </div>
+            <div className="space-y-1.5 rounded-lg border border-slate-200 p-2 sm:hidden">
+              {detail.items.map((it) => (
+                <div
+                  key={`${it.sku}-${it.title}`}
+                  className="flex items-center justify-between gap-2 rounded-md border border-slate-100 px-2.5 py-2 text-xs"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-slate-700">
+                      {it.title}
+                    </p>
+                    <p className="text-slate-400">SKU: {it.sku ?? "—"}</p>
+                  </div>
+                  <span className="shrink-0 font-semibold text-slate-800">
+                    x{it.quantity}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
 

@@ -254,7 +254,8 @@ export function CustomerDetailPage() {
               Loading orders...
             </div>
           ) : (
-            <div className="zs-table-wrap overflow-x-auto">
+            <>
+            <div className="zs-table-wrap hidden overflow-x-auto lg:block">
               <table className="w-full text-sm">
                 <thead className="zs-table-head">
                   <tr>
@@ -306,6 +307,36 @@ export function CustomerDetailPage() {
                 </tbody>
               </table>
             </div>
+
+            {/* Mobile card list — same data as the table above. */}
+            <div className="zs-table-wrap space-y-2.5 p-3 lg:hidden">
+              {orders.map((o) => (
+                <div key={o.orderId} className="zs-surface p-3.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="font-medium text-slate-800">#{o.number}</p>
+                    <span
+                      className={clsx(
+                        "shrink-0 rounded-full px-2 py-0.5 text-xs font-medium",
+                        STAGE_TONE[o.stage] ?? "bg-slate-100 text-slate-600",
+                      )}
+                    >
+                      {STAGE_LABEL[o.stage as OrderStage] ?? o.stage}
+                    </span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between gap-2 border-t border-slate-100 pt-2 text-sm">
+                    <div className="text-xs text-slate-500">
+                      {new Date(o.createdAt).toLocaleDateString()}
+                      {" · "}
+                      {o.paymentStatus}
+                    </div>
+                    <p className="shrink-0 font-semibold tabular-nums text-slate-800">
+                      {money(o.total)}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            </>
           )}
         </div>
       </div>

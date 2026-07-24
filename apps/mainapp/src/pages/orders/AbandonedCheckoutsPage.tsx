@@ -224,6 +224,8 @@ export function AbandonedCheckoutsPage() {
               </p>
             </div>
           ) : (
+            <>
+            <div className="hidden overflow-x-auto lg:block">
             <table className="w-full min-w-[1000px] table-auto border-collapse text-sm">
               <thead>
                 <tr className="zs-table-head">
@@ -308,6 +310,90 @@ export function AbandonedCheckoutsPage() {
                 })}
               </tbody>
             </table>
+            </div>
+
+            <div className="space-y-2.5 p-3 lg:hidden">
+              {checkouts.map((c) => {
+                const store = storeById.get(c.storeId);
+                return (
+                  <div
+                    key={c.id}
+                    onClick={() => setActiveCheckout(c)}
+                    className="zs-surface cursor-pointer p-3.5"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-medium text-slate-800">#{c.externalId}</p>
+                        <p className="mt-1 font-medium text-slate-700">
+                          {c.customerName || "No name"}
+                        </p>
+                        {c.customerPhone && (
+                          <p className="text-xs text-slate-400">{c.customerPhone}</p>
+                        )}
+                        {fraudCheckerInstalled && c.riskLabel && (
+                          <span
+                            title={`${c.riskLabel} — ${c.riskSuccessRate}% delivery success with Steadfast/Pathao`}
+                            className={clsx(
+                              "mt-1 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset",
+                              c.riskLabel === "Trusted"
+                                ? "bg-violet-50 text-violet-600 ring-violet-600/20"
+                                : c.riskLabel === "Risky"
+                                  ? "bg-rose-50 text-rose-600 ring-rose-600/20"
+                                  : "bg-slate-100 text-slate-500 ring-slate-500/10"
+                            )}
+                          >
+                            {c.riskLabel} {c.riskSuccessRate}%
+                          </span>
+                        )}
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <p className="font-medium tabular-nums text-slate-800">
+                          {c.currency} {c.total.toLocaleString()}
+                        </p>
+                        <span className="mt-1 inline-flex items-center rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-200">
+                          {reasonLabel(c.reason)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs text-slate-500">
+                      <span className="inline-flex items-center gap-1.5">
+                        {c.platform === "shopify" ? (
+                          <ShopifyLogo size={14} className="shrink-0 rounded" />
+                        ) : (
+                          <WooCommerceLogo size={14} className="shrink-0 rounded" />
+                        )}
+                        {store?.displayName ?? (c.platform === "shopify" ? "Shopify" : "WooCommerce")}
+                      </span>
+                      <span>{relativeDayLabel(c.createdAt)}</span>
+                    </div>
+                    {c.customerPhone && (
+                      <div
+                        className="mt-2 flex items-center gap-1"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <a
+                          href={telLink(c.customerPhone)}
+                          title="Call"
+                          className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-indigo-600"
+                        >
+                          <Phone size={14} />
+                        </a>
+                        <a
+                          href={waLink(c.customerPhone)}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="WhatsApp"
+                          className="rounded-md p-1.5 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600"
+                        >
+                          <MessageCircle size={14} />
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            </>
           )}
 
           {!loading && checkouts.length > 0 && (

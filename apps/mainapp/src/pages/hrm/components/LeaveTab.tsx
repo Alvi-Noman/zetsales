@@ -182,68 +182,119 @@ export function LeaveTab({
             <p className="text-sm font-medium text-slate-600">No leave requests</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="zs-table-head">
-                <tr>
-                  <th className="px-4 py-2.5 text-left font-semibold">Employee</th>
-                  <th className="px-4 py-2.5 text-left font-semibold">Type</th>
-                  <th className="px-4 py-2.5 text-left font-semibold">Dates</th>
-                  <th className="px-4 py-2.5 text-right font-semibold">Days</th>
-                  <th className="px-4 py-2.5 text-left font-semibold">Reason</th>
-                  <th className="px-4 py-2.5 text-left font-semibold">Status</th>
-                  <th className="px-4 py-2.5 text-right font-semibold"></th>
-                </tr>
-              </thead>
-              <tbody className="zs-table-body">
-                {leaveRequests.map((r) => (
-                  <tr key={r.id} className="zs-data-row">
-                    <td className="px-4 py-3 font-medium text-slate-800">{r.employeeName}</td>
-                    <td className="px-4 py-3 text-slate-600">{TYPE_LABEL[r.type]}</td>
-                    <td className="px-4 py-3 text-slate-600">
-                      {new Date(r.fromDate).toLocaleDateString()} – {new Date(r.toDate).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-slate-700">{r.days}</td>
-                    <td className="px-4 py-3 max-w-[240px] truncate text-slate-500" title={r.reason}>
-                      {r.reason}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={clsx("inline-flex rounded-full px-2 py-0.5 text-xs font-semibold capitalize", STATUS_TONE[r.status])}>
-                        {r.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {r.status === "pending" && (
-                        <div className="flex justify-end gap-1.5">
-                          <button
-                            disabled={busyId === r.id}
-                            onClick={() => void decide(r.id, "approved")}
-                            className="flex h-7 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"
-                          >
-                            <Check size={12} /> Approve
-                          </button>
-                          <button
-                            disabled={busyId === r.id}
-                            onClick={() => void decide(r.id, "rejected")}
-                            className="flex h-7 items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-40"
-                          >
-                            <X size={12} /> Reject
-                          </button>
-                          <button
-                            disabled={busyId === r.id}
-                            onClick={() => void cancel(r.id)}
-                            className="flex h-7 items-center rounded-md border border-slate-200 px-2 text-xs font-semibold text-slate-500 hover:bg-slate-50 disabled:opacity-40"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      )}
-                    </td>
+          <>
+            <div className="hidden overflow-x-auto lg:block">
+              <table className="w-full text-sm">
+                <thead className="zs-table-head">
+                  <tr>
+                    <th className="px-4 py-2.5 text-left font-semibold">Employee</th>
+                    <th className="px-4 py-2.5 text-left font-semibold">Type</th>
+                    <th className="px-4 py-2.5 text-left font-semibold">Dates</th>
+                    <th className="px-4 py-2.5 text-right font-semibold">Days</th>
+                    <th className="px-4 py-2.5 text-left font-semibold">Reason</th>
+                    <th className="px-4 py-2.5 text-left font-semibold">Status</th>
+                    <th className="px-4 py-2.5 text-right font-semibold"></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="zs-table-body">
+                  {leaveRequests.map((r) => (
+                    <tr key={r.id} className="zs-data-row">
+                      <td className="px-4 py-3 font-medium text-slate-800">{r.employeeName}</td>
+                      <td className="px-4 py-3 text-slate-600">{TYPE_LABEL[r.type]}</td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {new Date(r.fromDate).toLocaleDateString()} – {new Date(r.toDate).toLocaleDateString()}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums text-slate-700">{r.days}</td>
+                      <td className="px-4 py-3 max-w-[240px] truncate text-slate-500" title={r.reason}>
+                        {r.reason}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={clsx("inline-flex rounded-full px-2 py-0.5 text-xs font-semibold capitalize", STATUS_TONE[r.status])}>
+                          {r.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {r.status === "pending" && (
+                          <div className="flex justify-end gap-1.5">
+                            <button
+                              disabled={busyId === r.id}
+                              onClick={() => void decide(r.id, "approved")}
+                              className="flex h-7 items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"
+                            >
+                              <Check size={12} /> Approve
+                            </button>
+                            <button
+                              disabled={busyId === r.id}
+                              onClick={() => void decide(r.id, "rejected")}
+                              className="flex h-7 items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-40"
+                            >
+                              <X size={12} /> Reject
+                            </button>
+                            <button
+                              disabled={busyId === r.id}
+                              onClick={() => void cancel(r.id)}
+                              className="flex h-7 items-center rounded-md border border-slate-200 px-2 text-xs font-semibold text-slate-500 hover:bg-slate-50 disabled:opacity-40"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="space-y-2.5 p-3 lg:hidden">
+              {leaveRequests.map((r) => (
+                <div key={r.id} className="zs-surface p-3.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-medium text-slate-800">{r.employeeName}</p>
+                      <p className="text-xs text-slate-400">
+                        {TYPE_LABEL[r.type]} · {r.days} day{r.days === 1 ? "" : "s"}
+                      </p>
+                    </div>
+                    <span className={clsx("inline-flex shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold capitalize", STATUS_TONE[r.status])}>
+                      {r.status}
+                    </span>
+                  </div>
+                  <div className="mt-2.5 border-t border-slate-100 pt-2.5 text-xs text-slate-500">
+                    <p>
+                      {new Date(r.fromDate).toLocaleDateString()} – {new Date(r.toDate).toLocaleDateString()}
+                    </p>
+                    <p className="mt-1 text-slate-500">{r.reason}</p>
+                  </div>
+                  {r.status === "pending" && (
+                    <div className="mt-2.5 flex gap-1.5">
+                      <button
+                        disabled={busyId === r.id}
+                        onClick={() => void decide(r.id, "approved")}
+                        className="flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"
+                      >
+                        <Check size={12} /> Approve
+                      </button>
+                      <button
+                        disabled={busyId === r.id}
+                        onClick={() => void decide(r.id, "rejected")}
+                        className="flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-40"
+                      >
+                        <X size={12} /> Reject
+                      </button>
+                      <button
+                        disabled={busyId === r.id}
+                        onClick={() => void cancel(r.id)}
+                        className="flex h-7 items-center rounded-md border border-slate-200 px-2 text-xs font-semibold text-slate-500 hover:bg-slate-50 disabled:opacity-40"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
 

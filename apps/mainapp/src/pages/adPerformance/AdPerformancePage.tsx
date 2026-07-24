@@ -299,7 +299,8 @@ export function AdPerformancePage() {
                 see real CPA.
               </p>
             ) : (
-              <div className="overflow-x-auto">
+              <>
+              <div className="hidden overflow-x-auto lg:block">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="zs-table-head uppercase tracking-wider text-slate-400">
@@ -351,6 +352,56 @@ export function AdPerformancePage() {
                   </tbody>
                 </table>
               </div>
+              <div className="space-y-2.5 p-3 lg:hidden">
+                {report.byProduct.map((row) => (
+                  <div
+                    key={row.productId + row.productTitle}
+                    className="zs-surface p-3.5"
+                  >
+                    <p className="truncate font-semibold text-slate-800">
+                      {row.productTitle}
+                    </p>
+                    <div className="mt-2 flex items-center justify-between gap-2 text-sm">
+                      <span className="text-slate-400">Spend</span>
+                      <span className="font-medium tabular-nums text-slate-700">
+                        {formatMoney(row.spend)}
+                      </span>
+                    </div>
+                    <div className="mt-1.5 flex items-center justify-between gap-2 text-sm">
+                      <span className="text-slate-400">CPA</span>
+                      <span className="font-semibold tabular-nums text-slate-900">
+                        {moneyOrDash(row.cpa)}{" "}
+                        <span className="font-normal text-xs text-slate-400">
+                          ({formatCount(row.confirmedOrders)} confirmed)
+                        </span>
+                      </span>
+                    </div>
+                    <div className="mt-1.5 flex items-center justify-between gap-2 text-sm">
+                      <span className="text-slate-400">Cost/delivered</span>
+                      <span className="font-semibold tabular-nums text-slate-900">
+                        {moneyOrDash(row.costPerDelivered)}{" "}
+                        <span className="font-normal text-xs text-slate-400">
+                          ({formatCount(row.deliveredOrders)} delivered)
+                        </span>
+                      </span>
+                    </div>
+                    <div className="mt-1.5 flex items-center justify-between gap-2 border-t border-slate-100 pt-1.5 text-sm">
+                      <span className="text-slate-400">ROAS</span>
+                      <span
+                        className={clsx(
+                          "font-semibold tabular-nums",
+                          row.roas != null && row.roas >= 1
+                            ? "text-emerald-600"
+                            : "text-slate-500",
+                        )}
+                      >
+                        {row.roas != null ? `${row.roas.toFixed(2)}x` : "—"}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              </>
             )}
           </section>
 

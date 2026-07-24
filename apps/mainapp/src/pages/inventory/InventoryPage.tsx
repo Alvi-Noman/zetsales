@@ -4734,7 +4734,7 @@ export function InventoryPage() {
                 </p>
               ) : (
                 <>
-                  <div className="overflow-x-auto">
+                  <div className="hidden overflow-x-auto lg:block">
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="zs-table-head">
@@ -4825,6 +4825,53 @@ export function InventoryPage() {
                       </tbody>
                     </table>
                   </div>
+
+                  <div className="space-y-2 lg:hidden">
+                    {ledgerMovements.map((m) => (
+                      <div key={m.id} className="zs-surface p-3 text-xs">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="truncate font-medium text-slate-700">
+                              {m.productTitle ?? "—"}
+                              {m.variantLabel ? ` · ${m.variantLabel}` : ""}
+                            </p>
+                            {m.sku && <p className="text-slate-400">{m.sku}</p>}
+                          </div>
+                          <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 font-semibold text-slate-600">
+                            {m.reason}
+                          </span>
+                        </div>
+                        <div className="mt-2 flex items-center justify-between gap-2 border-t border-slate-100 pt-2">
+                          <span className="text-slate-400">
+                            {new Date(m.createdAt).toLocaleDateString()} · {m.warehouseName ?? "—"}
+                          </span>
+                          <span
+                            className={clsx(
+                              "shrink-0 tabular-nums font-semibold",
+                              m.delta > 0
+                                ? "text-emerald-600"
+                                : m.delta < 0
+                                  ? "text-rose-600"
+                                  : "text-slate-500",
+                            )}
+                          >
+                            {m.delta !== 0
+                              ? `${m.delta > 0 ? "+" : ""}${m.delta}`
+                              : `${m.quantity} unit${m.quantity === 1 ? "" : "s"}`}
+                          </span>
+                        </div>
+                        {(m.note || m.valueDelta != null) && (
+                          <div className="mt-1.5 flex items-center justify-between gap-2 text-slate-400">
+                            {m.note && <span className="truncate">{m.note}</span>}
+                            {m.valueDelta != null && (
+                              <span className="shrink-0 font-medium text-slate-600">{money(m.valueDelta)}</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
                   <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
                     <span>
                       {ledgerTotal} movement{ledgerTotal === 1 ? "" : "s"}
@@ -5098,7 +5145,7 @@ export function InventoryPage() {
 
           <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_360px]">
             <div className="flex min-w-0 flex-col">
-              <div className="min-w-0">
+              <div className="hidden min-w-0 lg:block">
                 <table className="w-full min-w-0 table-fixed border-collapse text-sm">
                   <colgroup>
                     <col className="w-[27%]" />
@@ -5253,12 +5300,89 @@ export function InventoryPage() {
                     })}
                   </tbody>
                 </table>
-                {levelsTotal === 0 && (
-                  <div className="py-16 text-center text-sm text-slate-400">
-                    No inventory items match this view.
-                  </div>
-                )}
               </div>
+
+              <div className="space-y-2.5 p-3 lg:hidden">
+                {pageLevels.map((level) => {
+                  const status = levelStatus(level);
+                  const value =
+                    level.unitCost != null ? level.onHand * level.unitCost : null;
+                  return (
+                    <div key={level.id} className="zs-surface p-3.5">
+                      <div className="flex min-w-0 items-center gap-3">
+                        {level.productImage ? (
+                          <img
+                            src={level.productImage}
+                            alt={level.productTitle ?? ""}
+                            className="h-11 w-11 shrink-0 rounded-lg border border-slate-200 object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-300">
+                            <Package size={16} />
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-semibold text-slate-800">
+                            {level.productTitle ?? "Unlinked product"}
+                          </p>
+                          <p className="truncate text-xs text-slate-400">
+                            {level.variantLabel ? `${level.variantLabel} · ` : ""}
+                            {level.sku ? `SKU ${level.sku}` : "No SKU"}
+                          </p>
+                        </div>
+                        {status === "out" ? (
+                          <span className="shrink-0 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700 ring-1 ring-inset ring-rose-600/20">
+                            Out of stock
+                          </span>
+                        ) : status === "reorder" ? (
+                          <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-inset ring-amber-600/20">
+                            Low Stock
+                          </span>
+                        ) : status === "ok" ? (
+                          <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
+                            In stock
+                          </span>
+                        ) : null}
+                      </div>
+
+                      <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs">
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-slate-700">{level.warehouseName}</p>
+                          {warehousesWithRealBins.has(level.warehouseId) && (
+                            <span className="mt-0.5 flex items-center gap-1 text-slate-400">
+                              <MapPin size={11} /> {level.bin}
+                            </span>
+                          )}
+                        </div>
+                        <p className="shrink-0 font-semibold tabular-nums text-slate-800">
+                          {value != null ? money(value) : "—"}
+                        </p>
+                      </div>
+
+                      <div className="mt-2.5 grid grid-cols-3 gap-x-2 gap-y-1 text-xs">
+                        <div>
+                          <p className="font-semibold tabular-nums text-slate-900">{level.onHand}</p>
+                          <p className="text-slate-400">on hand</p>
+                        </div>
+                        <ReservedCell level={level} />
+                        <IncomingCell
+                          level={level}
+                          onReceived={applyLevelUpdate}
+                          canReceive={canWriteInventory}
+                          overdueDays={overdueDaysByLevelKey.get(levelKey(level)) ?? null}
+                          shipments={openShipmentsByLevelKey.get(levelKey(level)) ?? []}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {levelsTotal === 0 && (
+                <div className="py-16 text-center text-sm text-slate-400">
+                  No inventory items match this view.
+                </div>
+              )}
 
               {levelsTotal > 0 && (
                 <div className="flex items-center justify-between border-t border-slate-200 bg-white px-4 py-2.5">

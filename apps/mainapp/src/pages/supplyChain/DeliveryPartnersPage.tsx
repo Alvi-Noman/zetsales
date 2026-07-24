@@ -387,7 +387,8 @@ export function DeliveryPartnersPage() {
               </p>
             </div>
           ) : (
-            <table className="w-full text-sm">
+            <>
+            <table className="hidden w-full text-sm lg:table">
               <thead>
                 <tr className="zs-table-head uppercase tracking-wide text-slate-400">
                   <th className="px-4 py-2.5">Order</th>
@@ -543,6 +544,90 @@ export function DeliveryPartnersPage() {
                 })}
               </tbody>
             </table>
+
+            {/* Mobile card list — same data/handlers as the table above. */}
+            <div className="space-y-2.5 p-3 lg:hidden">
+              {shipments.map((order) => {
+                const bucket = bucketForCourierStatus(
+                  order.courierPartner,
+                  order.courierStatus,
+                );
+                const partnerMeta = order.courierPartner
+                  ? COURIER_PARTNER_META[order.courierPartner]
+                  : null;
+                return (
+                  <div
+                    key={order.id}
+                    onClick={() => setActiveOrder(order)}
+                    className="zs-surface cursor-pointer p-3.5"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-slate-900">
+                          {order.number}
+                        </p>
+                        <p className="truncate text-xs text-slate-400">
+                          {order.customerName ?? "—"}
+                        </p>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setLabelModalOrder(order);
+                        }}
+                        className="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                        title="Print courier label"
+                      >
+                        <Printer size={15} />
+                      </button>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <span
+                        className={clsx(
+                          "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset",
+                          COURIER_BUCKET_TONE[bucket],
+                        )}
+                      >
+                        {order.courierStatus ??
+                          COURIER_STATUS_BUCKET_LABEL[bucket]}
+                      </span>
+                      {partnerMeta && (
+                        <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+                          <span
+                            className={clsx(
+                              "h-2 w-2 rounded-full",
+                              partnerMeta.color,
+                            )}
+                          />
+                          {partnerMeta.label}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs">
+                      <div className="min-w-0 text-slate-500">
+                        {order.courierSyncedAt
+                          ? relativeTime(order.courierSyncedAt)
+                          : "—"}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span
+                          className={clsx(
+                            "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset",
+                            PAYMENT_TONE[order.paymentStatus],
+                          )}
+                        >
+                          {order.paymentStatus}
+                        </span>
+                        <span className="font-semibold tabular-nums text-slate-900">
+                          {money(order.total)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            </>
           )}
 
           {!loading && shipments.length > 0 && (
