@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Search, Bell, HelpCircle, LogOut } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Search, Bell, HelpCircle, LogOut } from 'lucide-react';
 import type { NotificationDTO } from '@zetsales/shared';
 import { useAuth } from '../../context/AuthContext';
 import { Popover } from '../ui/Popover';
@@ -15,16 +15,9 @@ function initialsOf(text: string) {
 
 const NOTIFICATIONS_POLL_MS = 45_000;
 
-// The 4 bottom-nav tab roots — every other route (sub-pages, detail pages, and everything reached
-// through the "More" sheet) gets a back button instead of the logo, mobile-only, matching Sidebar's
-// branding being replaced by this same slot once the sidebar itself is hidden below lg.
-const BOTTOM_NAV_ROOTS = ['/home', '/orders', '/products', '/analytics'];
-
 export function Topbar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
-  const showBack = !BOTTOM_NAV_ROOTS.includes(location.pathname);
 
   const [notifications, setNotifications] = useState<NotificationDTO[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -59,26 +52,16 @@ export function Topbar() {
 
   return (
     <header className="flex h-16 shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3 lg:gap-4 lg:px-6">
-      {/* Mobile-only: back button on any sub-page, or the ZetSales logo + workspace name (Sidebar's
-          own branding, otherwise invisible once the sidebar hides below lg) on the 4 tab roots. */}
+      {/* Mobile-only: ZetSales logo + workspace name (Sidebar's own branding, otherwise invisible
+          once the sidebar hides below lg). Back navigation lives next to each page's own heading
+          instead (see MobileBackBar in AppShell) — not here, disconnected from the actual title. */}
       <div className="flex items-center gap-2 lg:hidden">
-        {showBack ? (
-          <button
-            onClick={() => navigate(-1)}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-          >
-            <ArrowLeft size={19} />
-          </button>
-        ) : (
-          <>
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-tr from-indigo-500 to-violet-500 text-sm font-bold text-white shadow-sm shadow-indigo-500/30">
-              Z
-            </div>
-            <span className="truncate text-[15px] font-bold leading-none tracking-tight text-slate-900">
-              {user?.businessName || 'ZetSales'}
-            </span>
-          </>
-        )}
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-tr from-indigo-500 to-violet-500 text-sm font-bold text-white shadow-sm shadow-indigo-500/30">
+          Z
+        </div>
+        <span className="truncate text-[15px] font-bold leading-none tracking-tight text-slate-900">
+          {user?.businessName || 'ZetSales'}
+        </span>
       </div>
 
       <div className="relative hidden w-full max-w-md lg:block">
