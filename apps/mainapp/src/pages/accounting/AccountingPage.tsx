@@ -616,7 +616,7 @@ export function AccountingPage() {
 
   return (
     <div className="zs-page">
-      <div className="zs-page-header flex items-center justify-between">
+      <div className="zs-page-header flex flex-wrap items-center justify-between gap-y-3">
         <div>
           <div className="flex items-center gap-2">
             <PageTitle>Accounting &amp; Finance</PageTitle>
@@ -628,7 +628,7 @@ export function AccountingPage() {
             Revenue, cost of goods sold, inventory loss, and operating expenses.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => void load()}
             disabled={loading}

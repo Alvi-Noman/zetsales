@@ -770,7 +770,7 @@ export function SupplierDetailPage() {
 
   return (
     <div className="zs-page">
-      <div className="zs-page-header flex items-center justify-between">
+      <div className="zs-page-header flex flex-wrap items-center justify-between gap-y-3">
         <div className="flex items-start gap-3">
           <button
             onClick={() => navigate("/suppliers")}
@@ -817,7 +817,7 @@ export function SupplierDetailPage() {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => void loadHeaderAndSummary()}
             className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"

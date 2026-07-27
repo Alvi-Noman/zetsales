@@ -373,14 +373,14 @@ export function SuppliersPage() {
 
   return (
     <div className="zs-page">
-      <div className="zs-page-header flex items-center justify-between">
+      <div className="zs-page-header flex flex-wrap items-center justify-between gap-y-3">
         <div>
           <PageTitle>Suppliers</PageTitle>
           <p className="zs-page-description">
             Every transaction with every supplier, in one place.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => void load()}
             disabled={loading}
