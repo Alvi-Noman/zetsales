@@ -23,6 +23,7 @@ import {
 import { Modal } from "../../components/ui/Modal";
 import { useToast } from "../../components/ui/ToastProvider";
 import { CreatePurchaseOrderModal } from "../../components/supplyChain/CreatePurchaseOrderModal";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 function money(value: number) {
   const sign = value < 0 ? "-" : "";
@@ -374,7 +375,7 @@ export function SuppliersPage() {
     <div className="zs-page">
       <div className="zs-page-header flex items-center justify-between">
         <div>
-          <h1 className="zs-page-title">Suppliers</h1>
+          <PageTitle>Suppliers</PageTitle>
           <p className="zs-page-description">
             Every transaction with every supplier, in one place.
           </p>

@@ -5,6 +5,7 @@ import type { OrderDTO, StoreDTO } from "@zetsales/shared";
 import { listOrders, listStores, updateOrder } from "../../lib/commerceApi";
 import { useToast } from "../../components/ui/ToastProvider";
 import { formatAbsoluteDateTime } from "../../components/orders/time";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 function money(order: OrderDTO) {
   return `${order.currency} ${order.total.toLocaleString()}`;
@@ -287,7 +288,7 @@ export function DispatchPage() {
       <div className="zs-page-header flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="zs-page-title">Dispatch</h1>
+            <PageTitle>Dispatch</PageTitle>
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500 tabular-nums">
               {readyCount.toLocaleString()}
             </span>

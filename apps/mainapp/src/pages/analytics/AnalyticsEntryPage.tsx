@@ -36,6 +36,7 @@ import type {
   ComparisonMode,
   CustomComparisonRange,
 } from "../../components/analytics/comparisonMode";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 // Module-level, not state: this page fully unmounts when you click into a card's detail view
 // (a separate route) and remounts on the way back, so any scroll position saved in component state
@@ -200,7 +201,7 @@ export function AnalyticsEntryPage() {
       <div className="zs-page-header">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="zs-page-title">Analytics</h1>
+            <PageTitle>Analytics</PageTitle>
             <p className="zs-page-description">
               Real performance across every connected store, right down to why
               an order didn't convert.

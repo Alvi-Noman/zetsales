@@ -4,6 +4,7 @@ import type { BusinessProfileDTO, BusinessType, SalesChannel } from "@zetsales/s
 import { getBusinessProfile, updateBusinessProfile } from "../../lib/settingsApi";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../components/ui/ToastProvider";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 const BUSINESS_TYPE_OPTIONS: BusinessType[] = [
   "I manufacture my own products",
@@ -99,7 +100,7 @@ export function GeneralSettingsPage() {
     return (
       <div className="zs-page">
         <div className="zs-page-header">
-          <h1 className="zs-page-title">General</h1>
+          <PageTitle>General</PageTitle>
           <p className="zs-page-description">Basic details about your store.</p>
         </div>
         <div className="zs-page-body">
@@ -112,7 +113,7 @@ export function GeneralSettingsPage() {
   return (
     <div className="zs-page">
       <div className="zs-page-header">
-        <h1 className="zs-page-title">General</h1>
+        <PageTitle>General</PageTitle>
         <p className="zs-page-description">Basic details about your store.</p>
       </div>
       <div className="zs-page-body overflow-y-auto">

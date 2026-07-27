@@ -13,6 +13,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { listApps } from "../../lib/commerceApi";
 import { useAuth } from "../../context/AuthContext";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 const ICONS: Record<string, LucideIcon> = {
   "phone-call": PhoneCall,
@@ -36,7 +37,7 @@ export function AppsPage() {
   return (
     <div className="zs-page">
       <div className="zs-page-header">
-        <h1 className="zs-page-title">Plugins</h1>
+        <PageTitle>Plugins</PageTitle>
         <p className="zs-page-description">
           Install optional plugins to extend your workspace.
         </p>

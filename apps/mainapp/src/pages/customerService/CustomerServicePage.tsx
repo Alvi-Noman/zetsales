@@ -15,6 +15,7 @@ import {
   uploadMessagingImage,
 } from "../../lib/messagingApi";
 import { useToast } from "../../components/ui/ToastProvider";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 const PROVIDER_ICON = { facebook: MessageCircle, instagram: Camera } as const;
 
@@ -183,7 +184,7 @@ export function CustomerServicePage() {
   return (
     <div className="zs-page">
       <div className="zs-page-header">
-        <h1 className="zs-page-title">Messages</h1>
+        <PageTitle>Messages</PageTitle>
         <p className="zs-page-description">
           All your connected Facebook and Instagram conversations, in one inbox.
         </p>

@@ -27,6 +27,7 @@ import { MessagingIntegrationsTab } from "../../components/integrations/Messagin
 import { AdAccountsTab } from "../../components/integrations/AdAccountsTab";
 import { useToast } from "../../components/ui/ToastProvider";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 type IntegrationsTab = "stores" | "couriers" | "messaging" | "adAccounts";
 
@@ -263,7 +264,7 @@ export function IntegrationsPage() {
   return (
     <div className="zs-page-scroll">
       <div className="zs-page-header">
-        <h1 className="zs-page-title">Integrations</h1>
+        <PageTitle>Integrations</PageTitle>
         <p className="zs-page-description">
           Connect your storefronts and courier accounts — orders, products and
           delivery status sync in automatically.

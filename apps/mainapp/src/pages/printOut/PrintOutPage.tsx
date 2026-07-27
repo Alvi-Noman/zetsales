@@ -50,6 +50,7 @@ import minimalPdf from "../../assets/PDFs/Minimal.pdf";
 import compactPdf from "../../assets/PDFs/Compact.pdf";
 import retailPdf from "../../assets/PDFs/Retail.pdf";
 import statementPdf from "../../assets/PDFs/Statement.pdf";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 // Saved, real print output for each format (see apps/mainapp/src/assets/PDFs) — shown directly in
 // the picker's preview panel instead of re-rendering the React component, since these are the
@@ -473,7 +474,7 @@ export function PrintOutPage() {
     <div className="zs-page">
       <div className="zs-page-header flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="zs-page-title">Print Out</h1>
+          <PageTitle>Print Out</PageTitle>
           <p className="zs-page-description">
             Choose what you need to print first; the list below will only show
             matching records.

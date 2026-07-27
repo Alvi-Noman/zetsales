@@ -14,6 +14,7 @@ import type {
   ComparisonMode,
   CustomComparisonRange,
 } from "../../components/analytics/comparisonMode";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 // One route (`/analytics/:cardKey`) for every card — the header, filter bar, and page chrome are
 // identical across all of them; only the registry entry's DetailComponent (the chart + table for
@@ -79,7 +80,7 @@ export function AnalyticsDetailPage() {
             <Icon size={18} />
           </span>
           <div>
-            <h1 className="zs-page-title">{def.title}</h1>
+            <PageTitle hideBack>{def.title}</PageTitle>
             <p className="mt-0.5 max-w-2xl text-sm text-slate-500">
               {def.description}
             </p>

@@ -26,6 +26,7 @@ import {
 import { Modal } from "../../components/ui/Modal";
 import { useToast } from "../../components/ui/ToastProvider";
 import { Barcode } from "../../components/orders/Barcode";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 function money(value: number) {
   return `৳${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
@@ -658,7 +659,7 @@ export function CourierHandoverPage() {
   return (
     <div className="zs-page">
       <div className="zs-page-header">
-        <h1 className="zs-page-title">Pickup Manifests</h1>
+        <PageTitle>Pickup Manifests</PageTitle>
         <p className="zs-page-description">
           Build courier handover sheets from pickup-ready orders.
         </p>

@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ChevronRight } from "lucide-react";
 import { REPORTS_LIST, REPORT_CATEGORY_ORDER } from "../../analytics/reportsRegistry";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 export function ReportsListPage() {
   const navigate = useNavigate();
@@ -11,7 +12,7 @@ export function ReportsListPage() {
         <button onClick={() => navigate("/analytics")} className="mb-3 flex items-center gap-1.5 text-xs font-medium text-slate-400 hover:text-slate-700">
           <ArrowLeft size={13} /> Analytics dashboard
         </button>
-        <h1 className="zs-page-title">Reports</h1>
+        <PageTitle hideBack>Reports</PageTitle>
         <p className="zs-page-description">Click a report for a date-filtered table you can export as Excel or PDF.</p>
       </div>
 

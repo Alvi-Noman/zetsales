@@ -34,6 +34,7 @@ import { LogAdCostModal } from "../../components/adPerformance/LogAdCostModal";
 import { CampaignWizard } from "../../components/adPerformance/CampaignWizard";
 import { CampaignList } from "../../components/adPerformance/CampaignList";
 import { useToast } from "../../components/ui/ToastProvider";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 type AdPerformanceTab = "performance" | "createCampaign";
 
@@ -157,7 +158,7 @@ export function AdPerformancePage() {
       <div className="zs-page-header">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="zs-page-title">Ad Performance</h1>
+            <PageTitle>Ad Performance</PageTitle>
             <p className="zs-page-description">
               {tab === "performance"
                 ? "Real CPA and cost per delivered product — spend you log against confirmed and delivered orders, not raw clicks."

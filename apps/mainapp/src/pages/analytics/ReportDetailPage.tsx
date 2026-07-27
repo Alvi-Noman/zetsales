@@ -10,6 +10,7 @@ import { REPORTS_LIST, fetchReportTable, type ReportKey, type ReportTable } from
 import { toAnalyticsQuery } from "../../analytics/query";
 import { downloadCsv } from "../../lib/csvExport";
 import { formatRangeLabel, type CustomDateRange, type DateRangeKey } from "../../components/orders/dateRange";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 export function ReportDetailPage() {
   const { reportKey } = useParams<{ reportKey: string }>();
@@ -79,7 +80,7 @@ export function ReportDetailPage() {
         </button>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="zs-page-title">{entry.label}</h1>
+            <PageTitle hideBack>{entry.label}</PageTitle>
             <p className="mt-0.5 max-w-2xl text-sm text-slate-500">{entry.description}</p>
           </div>
           <div className="flex items-center gap-2">

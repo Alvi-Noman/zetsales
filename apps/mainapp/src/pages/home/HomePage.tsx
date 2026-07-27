@@ -49,6 +49,7 @@ import {
   type CustomDateRange,
   type DateRangeKey,
 } from "../../components/orders/dateRange";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 const PIPELINE_STAGES: {
   tab: Exclude<OrderTabKey, "all">;
@@ -276,9 +277,9 @@ export function HomePage() {
     <div className="zs-page-header">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="zs-page-title">
+          <PageTitle>
             {greeting()}, {businessLabel}
-          </h1>
+          </PageTitle>
           <p className="zs-page-description">
             {new Date().toLocaleDateString(undefined, {
               weekday: "long",

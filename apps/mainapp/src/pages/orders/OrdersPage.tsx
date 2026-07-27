@@ -128,6 +128,7 @@ import {
 } from "../../components/orders/time";
 import { telLink, waLink } from "../../components/orders/contact";
 import { useToast } from "../../components/ui/ToastProvider";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 const PLATFORM_META = {
   shopify: { label: "Shopify", logo: ShopifyLogo },
@@ -1093,7 +1094,7 @@ export function OrdersPage() {
       <div className="zs-page-header flex flex-wrap items-center justify-between gap-y-3">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="zs-page-title">Orders</h1>
+            <PageTitle>Orders</PageTitle>
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500 tabular-nums">
               {(stats?.totalOrders ?? total).toLocaleString()}
             </span>

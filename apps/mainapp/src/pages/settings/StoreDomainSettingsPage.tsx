@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Check, Copy, ExternalLink, Landmark } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../components/ui/ToastProvider";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 export function StoreDomainSettingsPage() {
   const { user } = useAuth();
@@ -23,7 +24,7 @@ export function StoreDomainSettingsPage() {
   return (
     <div className="zs-page">
       <div className="zs-page-header">
-        <h1 className="zs-page-title">Store &amp; Domain</h1>
+        <PageTitle>Store &amp; Domain</PageTitle>
         <p className="zs-page-description">Your workspace's live address and currency.</p>
       </div>
       <div className="zs-page-body overflow-y-auto">

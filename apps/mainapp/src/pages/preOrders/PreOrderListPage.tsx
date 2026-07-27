@@ -46,6 +46,7 @@ import {
   hasRealBins,
 } from "../inventory/InventoryPage";
 import { Select } from "../../components/ui/Select";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 const PAGE_SIZE = 50;
 
@@ -739,7 +740,7 @@ export function PreOrderListPage() {
   return (
     <div className="zs-page">
       <div className="zs-page-header">
-        <h1 className="zs-page-title">Pre-Orders</h1>
+        <PageTitle>Pre-Orders</PageTitle>
         <p className="zs-page-description">
           Everything sold but not in stock yet — what's waiting, for how long,
           and what's ready to import.

@@ -54,6 +54,7 @@ import { Select } from "../../components/ui/Select";
 import { CreatePurchaseOrderModal } from "../../components/supplyChain/CreatePurchaseOrderModal";
 import { PrintPurchaseOrderModal } from "../../components/supplyChain/PrintPurchaseOrderModal";
 import { ConfirmPrintPromptModal } from "../../components/supplyChain/ConfirmPrintPromptModal";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 function money(value: number) {
   const sign = value < 0 ? "-" : "";
@@ -778,7 +779,7 @@ export function SupplierDetailPage() {
             <ArrowLeft size={18} />
           </button>
           <div>
-            <h1 className="zs-page-title">{supplier.name}</h1>
+            <PageTitle hideBack>{supplier.name}</PageTitle>
             <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
               {supplier.phone && (
                 <span className="flex items-center gap-1">

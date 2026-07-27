@@ -27,6 +27,7 @@ import { formatAbsoluteDateTime, relativeDayLabel } from "../../components/order
 import { MetricCard } from "../inventory/InventoryPage";
 import { useToast } from "../../components/ui/ToastProvider";
 import { useAuth } from "../../context/AuthContext";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 function money(value: number) {
   return `৳${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
@@ -140,7 +141,7 @@ export function AbandonedCheckoutsPage() {
       <div className="zs-page-header flex flex-wrap items-center justify-between gap-y-3">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="zs-page-title">Incomplete Orders</h1>
+            <PageTitle>Incomplete Orders</PageTitle>
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500 tabular-nums">
               {(stats?.totalCount ?? total).toLocaleString()}
             </span>

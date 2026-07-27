@@ -25,6 +25,7 @@ import {
 import { useToast } from "../../components/ui/ToastProvider";
 import { Modal } from "../../components/ui/Modal";
 import { MetricCard } from "../inventory/InventoryPage";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 function money(value: number) {
   return `৳${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
@@ -268,7 +269,7 @@ export function WarehousesPage() {
     <div className="zs-page">
       <div className="zs-page-header flex flex-wrap items-center justify-between gap-y-3">
         <div>
-          <h1 className="zs-page-title">Warehouses</h1>
+          <PageTitle>Warehouses</PageTitle>
           <p className="zs-page-description">
             Every real location stock lives in — add them here, everything else
             in Inventory follows.

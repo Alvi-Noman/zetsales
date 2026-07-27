@@ -38,6 +38,7 @@ import { Modal } from "../../components/ui/Modal";
 import { Popover } from "../../components/ui/Popover";
 import { useToast } from "../../components/ui/ToastProvider";
 import { useAuth } from "../../context/AuthContext";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 function money(value: number) {
   const sign = value < 0 ? "-" : "";
@@ -618,7 +619,7 @@ export function AccountingPage() {
       <div className="zs-page-header flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="zs-page-title">Accounting &amp; Finance</h1>
+            <PageTitle>Accounting &amp; Finance</PageTitle>
             <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-600">
               Profit &amp; Loss
             </span>
