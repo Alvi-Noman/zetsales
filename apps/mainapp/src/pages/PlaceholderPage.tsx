@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import { Construction } from "lucide-react";
+import { PageTitle } from "../components/layout/PageTitle";
 
 interface PlaceholderPageProps {
   title: string;
@@ -15,7 +16,7 @@ export function PlaceholderPage({
   return (
     <div className="zs-page">
       <div className="zs-page-header">
-        <h1 className="zs-page-title">{title}</h1>
+        <PageTitle>{title}</PageTitle>
       </div>
       <div className="zs-page-body flex items-center justify-center">
         <div className="zs-dashed-surface flex max-w-sm flex-col items-center px-10 py-14 text-center">

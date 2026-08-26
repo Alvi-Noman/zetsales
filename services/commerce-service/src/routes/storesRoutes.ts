@@ -12,6 +12,8 @@ import {
   wooAuthStart,
   wooAuthCallback,
   wooAuthStatus,
+  zetsiteOAuthStart,
+  zetsiteOAuthCallback,
 } from '../controllers/storesController.js';
 
 const router: Router = Router();
@@ -30,5 +32,8 @@ router.post('/stores/woocommerce/keys', requireAuth, requireTenant, requireInteg
 router.get('/stores/woocommerce/auth/start', requireAuth, requireTenant, requireIntegrations, wooAuthStart);
 router.post('/stores/woocommerce/auth/callback', wooAuthCallback); // public: WooCommerce posts keys here
 router.get('/stores/woocommerce/auth/status/:sessionId', requireAuth, requireTenant, requireIntegrations, wooAuthStatus);
+
+router.get('/stores/zetsite/oauth/start', requireAuth, requireTenant, requireIntegrations, zetsiteOAuthStart);
+router.get('/stores/zetsite/oauth/callback', zetsiteOAuthCallback); // public: zetsite redirects the browser here
 
 export default router;

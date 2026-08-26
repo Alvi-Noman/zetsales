@@ -21,6 +21,7 @@ import { LeaveTab } from "./components/LeaveTab";
 import { PayrollTab } from "./components/PayrollTab";
 import { SettingsTab } from "./components/SettingsTab";
 import { HrmOnboardingWizard } from "./components/HrmOnboardingWizard";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 type TabKey = "overview" | "employees" | "departments" | "attendance" | "leave" | "payroll" | "settings";
 
@@ -94,7 +95,7 @@ export function HrmPage() {
   return (
     <div className="zs-page-scroll">
       <div className="zs-page-header">
-        <h1 className="zs-page-title">HRM</h1>
+        <PageTitle>HRM</PageTitle>
         <p className="zs-page-description">Employees, attendance, leave, and payroll — all in one place.</p>
       </div>
 

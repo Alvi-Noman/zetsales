@@ -1,6 +1,7 @@
 import type { ShopifyProduct } from './shopifyClient.js';
 import type { WooProduct } from './wooClient.js';
 import { fetchWooProductVariations } from './wooClient.js';
+import type { ZetSiteProduct } from './zetsiteClient.js';
 
 export interface NormalizedProduct {
   externalId: string;
@@ -12,7 +13,7 @@ export interface NormalizedProduct {
   weight?: number | null;
   weightUnit?: 'kg' | 'g' | 'lb' | 'oz';
   sourceUrl?: string | null;
-  sourcePlatform?: 'alibaba' | 'manual' | 'shopify' | 'woocommerce' | null;
+  sourcePlatform?: 'alibaba' | 'manual' | 'shopify' | 'woocommerce' | 'zetsite' | null;
   storeCollections?: string[];
   options: { name: string; values: string[] }[];
   variants: {
@@ -132,5 +133,36 @@ export async function mapWooProduct(p: WooProduct, siteUrl: string, consumerKey:
         optionValues: [],
       },
     ],
+  };
+}
+
+// zetsite variants carry no id of their own (see ZetSiteVariant) — its own storefront/order pipeline
+// addresses a variant purely by its position in the array (see storefrontRoutes.ts's variantIndex),
+// so the stringified index doubles as this mapper's stable id, exactly matching what zetsite itself
+// already treats as the variant's identity. `storeUrl`, when known, is the connected store's own
+// zetsite storefront origin (e.g. its *.zetsite.com subdomain or connected custom domain) — used only
+// to build a real product link; omit it to leave `url` null.
+export function mapZetSiteProduct(p: ZetSiteProduct, storeUrl?: string | null): NormalizedProduct {
+  const images = p.media?.map((m) => m.url) ?? [];
+
+  return {
+    externalId: p.id,
+    title: p.title,
+    description: p.description || null,
+    category: p.category || null,
+    url: storeUrl && p.handle ? `${storeUrl.replace(/\/$/, '')}/products/${p.handle}` : null,
+    images,
+    sourcePlatform: 'zetsite',
+    options: p.options ?? [],
+    variants: (p.variants ?? []).map((v, index) => ({
+      id: String(index),
+      sku: v.sku || null,
+      title: v.label,
+      price: v.price ?? p.price ?? 0,
+      compareAtPrice: p.compareAtPrice ?? null,
+      inventory: v.available ?? null,
+      optionValues: v.values ?? [],
+      image: v.image ?? null,
+    })),
   };
 }

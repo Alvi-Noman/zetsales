@@ -5,6 +5,7 @@ import { INVOICE_FONT_OPTIONS, type InvoiceFont } from "@zetsales/shared";
 import { getBrandingSettings, updateInvoiceFont, uploadBrandingLogo } from "../../lib/commerceApi";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../components/ui/ToastProvider";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 export function BrandingSettingsPage() {
   const { user } = useAuth();
@@ -52,7 +53,7 @@ export function BrandingSettingsPage() {
   return (
     <div className="zs-page">
       <div className="zs-page-header">
-        <h1 className="zs-page-title">Branding</h1>
+        <PageTitle>Branding</PageTitle>
         <p className="zs-page-description">Your logo and preferred font, used later on invoices.</p>
       </div>
       <div className="zs-page-body overflow-y-auto">

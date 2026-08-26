@@ -4,12 +4,13 @@ import { ObjectId } from 'mongodb';
 import { getDb } from '../utils/db.js';
 import { decryptSecret } from '../utils/crypto.js';
 import logger from '../utils/logger.js';
-import type { ShopifyOrderWebhook, WooOrderWebhook, ShopifyCheckoutWebhook } from '../integrations/orderStatusMapper.js';
-import { upsertShopifyOrder, upsertWooOrder, applyCourierStatusUpdate } from './ordersController.js';
+import type { ShopifyOrderWebhook, WooOrderWebhook, ShopifyCheckoutWebhook, ZetSiteOrderWebhook } from '../integrations/orderStatusMapper.js';
+import { upsertShopifyOrder, upsertWooOrder, upsertZetSiteOrder, applyZetSiteOrderStatusUpdate, applyCourierStatusUpdate } from './ordersController.js';
 import { upsertShopifyAbandonedCheckout } from './abandonedCheckoutsController.js';
-import { upsertShopifyProductFromWebhook, deleteShopifyProductFromWebhook, upsertWooProductFromWebhook, deleteWooProductFromWebhook } from './productsController.js';
+import { upsertShopifyProductFromWebhook, deleteShopifyProductFromWebhook, upsertWooProductFromWebhook, deleteWooProductFromWebhook, upsertZetSiteProductFromWebhook, deleteZetSiteProductFromWebhook } from './productsController.js';
 import type { ShopifyProduct } from '../integrations/shopifyClient.js';
 import type { WooProduct } from '../integrations/wooClient.js';
+import type { ZetSiteProduct } from '../integrations/zetsiteClient.js';
 import { mapSteadfastStatus, mapPathaoStatus } from '../integrations/courierStatusMapper.js';
 import { findCourierByWebhookSecret } from './couriersController.js';
 
@@ -227,6 +228,62 @@ export async function wooProductDeleteWebhook(req: Request, res: Response) {
 
   const { id } = JSON.parse(raw.toString('utf8')) as { id: number };
   await deleteWooProductFromWebhook(store.tenantId, storeId, String(id));
+
+  res.status(200).send('ok');
+}
+
+// zetsite dispatches one unified envelope shape for every event ({event, storeId, data}) rather
+// than per-resource endpoints the way Shopify/WooCommerce do — so unlike those, one route/handler
+// covers products and orders alike, branching on `event` instead of the URL. Signed with a single
+// shared secret (ZETSITE_WEBHOOK_SECRET, same value as zetsite's own env var of that name) rather
+// than a per-store secret, since this integration has exactly one trusted partner, not a dynamic
+// app-install model the way Shopify's client-credentials webhook secret is.
+export async function zetSiteWebhook(req: Request, res: Response) {
+  const raw = req.body as Buffer;
+  const signature = req.header('X-ZetSite-Hmac-Sha256');
+  const secret = process.env.ZETSITE_WEBHOOK_SECRET || '';
+
+  if (!secret || !verifyHmac(raw, signature, secret)) {
+    logger.warn('[webhook] ZetSite signature verification failed');
+    res.status(401).send('Invalid signature');
+    return;
+  }
+
+  const { storeId } = req.params;
+  const db = getDb();
+  const store = await db.collection('stores').findOne({ _id: new ObjectId(storeId) });
+  if (!store) {
+    res.status(404).send('Unknown store');
+    return;
+  }
+
+  let payload: { event?: string; data?: unknown };
+  try {
+    payload = JSON.parse(raw.toString('utf8'));
+  } catch {
+    res.status(400).send('Invalid payload');
+    return;
+  }
+
+  switch (payload.event) {
+    case 'products/create':
+    case 'products/update':
+      await upsertZetSiteProductFromWebhook(store.tenantId, storeId, null, payload.data as ZetSiteProduct);
+      break;
+    case 'products/delete':
+      await deleteZetSiteProductFromWebhook(store.tenantId, storeId, String((payload.data as { id: string }).id));
+      break;
+    case 'orders/create':
+      await upsertZetSiteOrder(store.tenantId, storeId, payload.data as ZetSiteOrderWebhook);
+      break;
+    case 'orders/updated': {
+      const { id, status } = payload.data as { id: string; status: string };
+      await applyZetSiteOrderStatusUpdate(store.tenantId, storeId, String(id), status);
+      break;
+    }
+    default:
+      logger.warn(`[zetsite] Unrecognized webhook event: ${payload.event}`);
+  }
 
   res.status(200).send('ok');
 }

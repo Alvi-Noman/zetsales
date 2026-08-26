@@ -23,6 +23,7 @@ import {
 import { Modal } from "../../components/ui/Modal";
 import { useToast } from "../../components/ui/ToastProvider";
 import { CreatePurchaseOrderModal } from "../../components/supplyChain/CreatePurchaseOrderModal";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 function money(value: number) {
   const sign = value < 0 ? "-" : "";
@@ -372,14 +373,14 @@ export function SuppliersPage() {
 
   return (
     <div className="zs-page">
-      <div className="zs-page-header flex items-center justify-between">
+      <div className="zs-page-header flex flex-wrap items-center justify-between gap-y-3">
         <div>
-          <h1 className="zs-page-title">Suppliers</h1>
+          <PageTitle>Suppliers</PageTitle>
           <p className="zs-page-description">
             Every transaction with every supplier, in one place.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => void load()}
             disabled={loading}

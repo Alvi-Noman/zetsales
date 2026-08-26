@@ -83,6 +83,7 @@ import { Popover } from "../../components/ui/Popover";
 import { useToast } from "../../components/ui/ToastProvider";
 import { useClickOutside } from "../../hooks/useClickOutside";
 import { useAuth } from "../../context/AuthContext";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 const DEFAULT_LEAD_TIME_DAYS = 7;
 
@@ -3985,7 +3986,7 @@ export function InventoryPage() {
       <div className="zs-page-header flex flex-wrap items-center justify-between gap-y-3">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="zs-page-title">Inventory</h1>
+            <PageTitle>Inventory</PageTitle>
             <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-600">
               Command center
             </span>

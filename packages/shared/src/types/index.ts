@@ -371,7 +371,7 @@ export type UpdateBusinessProfileInput = Partial<
 
 // 'csv' is a synthetic platform for the generic "CSV Import" bucket a tenant gets when they import
 // orders not tied to any real storefront — see getOrCreateCsvImportStore in storesController.ts.
-export type StorePlatform = 'shopify' | 'woocommerce' | 'csv';
+export type StorePlatform = 'shopify' | 'woocommerce' | 'zetsite' | 'csv';
 export type StoreStatus = 'connected' | 'error' | 'pending';
 export type StoreConnectionMethod = 'oauth' | 'token' | 'keys' | 'manual';
 

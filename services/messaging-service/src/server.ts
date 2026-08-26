@@ -1,4 +1,5 @@
 import { env } from '@zetsales/config/validateEnv';
+import './instrument.js';
 import app from './app.js';
 import { connectDb, client } from './utils/db.js';
 import logger from './utils/logger.js';

@@ -2,6 +2,7 @@ import express, { type Application, type Request, type Response, type NextFuncti
 import cors from 'cors';
 import { createProxyMiddleware, fixRequestBody } from 'http-proxy-middleware';
 import type { IncomingMessage } from 'http';
+import * as Sentry from '@sentry/node';
 import logger from './utils/logger.js';
 
 type NodeErr = Error & { code?: string };
@@ -124,5 +125,9 @@ if (process.env.NODE_ENV !== 'production') {
     res.status(404).json({ message: 'Route not found', path: req.originalUrl });
   });
 }
+
+// Proxy failures are already handled per-route via onError above; this only catches errors
+// thrown by gateway-local middleware (e.g. the CORS origin check) that Express routes here.
+Sentry.setupExpressErrorHandler(app);
 
 export default app;

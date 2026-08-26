@@ -16,6 +16,7 @@ import { listCustomers } from "../../lib/commerceApi";
 import type { CustomerRowDTO } from "@zetsales/shared";
 import { useToast } from "../../components/ui/ToastProvider";
 import { AppBlock } from "../../components/apps/AppBlock";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 function money(value: number) {
   return `৳${Math.round(value).toLocaleString()}`;
@@ -164,7 +165,7 @@ export function CustomersPage() {
     <div className="zs-page">
       <div className="zs-page-header flex items-center justify-between">
         <div>
-          <h1 className="zs-page-title">Customers</h1>
+          <PageTitle>Customers</PageTitle>
           <p className="zs-page-description">
             Every customer who's ever placed an order, ranked by lifetime value.
           </p>

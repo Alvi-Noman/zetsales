@@ -21,6 +21,7 @@ import {
 } from "../../lib/teamApi";
 import { NAV_ITEMS, NAV_FOOTER_ITEMS } from "../../nav/navigation";
 import { Select } from "../../components/ui/Select";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 const MODULE_LABELS: Record<ModuleKey, string> = Object.fromEntries(
   [...NAV_ITEMS, ...NAV_FOOTER_ITEMS].map((item) => [item.module, item.label]),
@@ -163,7 +164,7 @@ export function TeamPage() {
     <div className="zs-page-scroll">
       <div className="zs-page-header flex items-center justify-between">
         <div>
-          <h1 className="zs-page-title">Team</h1>
+          <PageTitle>Team</PageTitle>
           <p className="zs-page-description">
             Manage who has access to your workspace and what they can do.
           </p>

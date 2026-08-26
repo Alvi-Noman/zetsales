@@ -38,6 +38,10 @@ export function shopifyOAuthStartUrl(shopDomain: string) {
   return `/api/v1/commerce/stores/shopify/oauth/start?shop=${encodeURIComponent(shopDomain)}`;
 }
 
+export function zetsiteOAuthStartUrl() {
+  return '/api/v1/commerce/stores/zetsite/oauth/start';
+}
+
 export async function connectWooKeys(siteUrl: string, consumerKey: string, consumerSecret: string) {
   const res = await api.post('/commerce/stores/woocommerce/keys', { siteUrl, consumerKey, consumerSecret });
   return res.data.store as StoreDTO;

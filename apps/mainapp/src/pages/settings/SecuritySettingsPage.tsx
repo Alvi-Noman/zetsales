@@ -5,6 +5,7 @@ import { changePassword, listSessions, revokeAllSessions, revokeSession } from "
 import { useToast } from "../../components/ui/ToastProvider";
 import { parseUserAgent } from "../../lib/parseUserAgent";
 import { relativeTime } from "../../components/orders/time";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 export function SecuritySettingsPage() {
   const { push } = useToast();
@@ -78,7 +79,7 @@ export function SecuritySettingsPage() {
   return (
     <div className="zs-page">
       <div className="zs-page-header">
-        <h1 className="zs-page-title">Security</h1>
+        <PageTitle>Security</PageTitle>
         <p className="zs-page-description">Manage your account password.</p>
       </div>
       <div className="zs-page-body overflow-y-auto">

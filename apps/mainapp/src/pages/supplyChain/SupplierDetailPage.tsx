@@ -54,6 +54,7 @@ import { Select } from "../../components/ui/Select";
 import { CreatePurchaseOrderModal } from "../../components/supplyChain/CreatePurchaseOrderModal";
 import { PrintPurchaseOrderModal } from "../../components/supplyChain/PrintPurchaseOrderModal";
 import { ConfirmPrintPromptModal } from "../../components/supplyChain/ConfirmPrintPromptModal";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 function money(value: number) {
   const sign = value < 0 ? "-" : "";
@@ -769,7 +770,7 @@ export function SupplierDetailPage() {
 
   return (
     <div className="zs-page">
-      <div className="zs-page-header flex items-center justify-between">
+      <div className="zs-page-header flex flex-wrap items-center justify-between gap-y-3">
         <div className="flex items-start gap-3">
           <button
             onClick={() => navigate("/suppliers")}
@@ -778,7 +779,7 @@ export function SupplierDetailPage() {
             <ArrowLeft size={18} />
           </button>
           <div>
-            <h1 className="zs-page-title">{supplier.name}</h1>
+            <PageTitle hideBack>{supplier.name}</PageTitle>
             <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
               {supplier.phone && (
                 <span className="flex items-center gap-1">
@@ -816,7 +817,7 @@ export function SupplierDetailPage() {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => void loadHeaderAndSummary()}
             className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"

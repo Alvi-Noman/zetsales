@@ -26,6 +26,7 @@ import type {
 import { STAGE_LABEL } from "../../components/orders/orderTone";
 import { useToast } from "../../components/ui/ToastProvider";
 import { AppBlock } from "../../components/apps/AppBlock";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 function money(value: number) {
   return `৳${Math.round(value).toLocaleString()}`;
@@ -159,7 +160,7 @@ export function CustomerDetailPage() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="zs-page-title">{customer.name ?? "No name"}</h1>
+              <PageTitle hideBack>{customer.name ?? "No name"}</PageTitle>
               <span
                 className={clsx(
                   "rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset",

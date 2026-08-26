@@ -53,8 +53,8 @@ export function Topbar() {
   return (
     <header className="flex h-16 shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3 lg:gap-4 lg:px-6">
       {/* Mobile-only: ZetSales logo + workspace name (Sidebar's own branding, otherwise invisible
-          once the sidebar hides below lg). Back navigation lives next to each page's own heading
-          instead (see MobileBackBar in AppShell) — not here, disconnected from the actual title. */}
+          once the sidebar hides below lg). Back navigation lives inline next to each page's own
+          heading instead (see PageTitle) — not here, disconnected from the actual title. */}
       <div className="flex items-center gap-2 lg:hidden">
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-tr from-indigo-500 to-violet-500 text-sm font-bold text-white shadow-sm shadow-indigo-500/30">
           Z

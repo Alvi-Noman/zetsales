@@ -31,6 +31,7 @@ import brandingRoutes from './routes/brandingRoutes.js';
 import oauthRoutes from './routes/oauthRoutes.js';
 import webhooksRoutes from './routes/webhooksRoutes.js';
 import logger from './utils/logger.js';
+import * as Sentry from '@sentry/node';
 import { errorHandler } from './middleware/errorHandler.js';
 import { wrapAsyncRouter } from './middleware/asyncHandler.js';
 import { UPLOAD_DIR } from './middleware/upload.js';
@@ -135,6 +136,9 @@ if (!isProd) {
   });
 }
 
+// Must be registered before errorHandler below so Sentry captures the original error (message,
+// stack, type) — errorHandler only logs a formatted string, which loses that detail.
+Sentry.setupExpressErrorHandler(app);
 app.use(errorHandler);
 
 export default app;

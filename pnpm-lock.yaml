@@ -274,6 +274,9 @@ importers:
 
   services/api-gateway:
     dependencies:
+      '@sentry/node':
+        specifier: ^8.40.0
+        version: 8.55.2
       '@types/mongodb':
         specifier: ^4.0.7
         version: 4.0.7
@@ -319,6 +322,9 @@ importers:
       winston:
         specifier: ^3.17.0
         version: 3.19.0
+      winston-transport:
+        specifier: ^4.9.0
+        version: 4.9.0
       zod:
         specifier: ^4.0.14
         version: 4.4.3
@@ -583,6 +589,9 @@ importers:
 
   services/messaging-service:
     dependencies:
+      '@sentry/node':
+        specifier: ^8.40.0
+        version: 8.55.2
       '@zetsales/config':
         specifier: workspace:*
         version: link:../../packages/config
@@ -622,6 +631,9 @@ importers:
       winston:
         specifier: ^3.17.0
         version: 3.19.0
+      winston-transport:
+        specifier: ^4.9.0
+        version: 4.9.0
       zod:
         specifier: ^4.0.14
         version: 4.4.3

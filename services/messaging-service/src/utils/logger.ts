@@ -1,5 +1,6 @@
 import { createLogger, format, transports } from 'winston';
 import path from 'path';
+import { SentryTransport } from './sentryTransport.js';
 
 const customLevels = {
   error: 0,
@@ -22,6 +23,7 @@ const logger = createLogger({
     new transports.Console(),
     new transports.File({ filename: path.join('logs', 'error.log'), level: 'error' }),
     new transports.File({ filename: path.join('logs', 'combined.log') }),
+    ...(process.env.SENTRY_DSN ? [new SentryTransport({ level: 'error' })] : []),
   ],
 });
 

@@ -29,6 +29,7 @@ import { Select } from "../../components/ui/Select";
 import { useToast } from "../../components/ui/ToastProvider";
 import { BinPicker, hasRealBins } from "../inventory/InventoryPage";
 import { useAuth } from "../../context/AuthContext";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 const PLATFORM_META = {
   shopify: { label: "Shopify", color: "bg-[#95BF47]", icon: ShoppingBag },
@@ -210,7 +211,7 @@ export function AddProductPage() {
           <ArrowLeft size={18} />
         </button>
         <div>
-          <h1 className="zs-page-title">Add product</h1>
+          <PageTitle hideBack>Add product</PageTitle>
           <p className="zs-page-description">
             Create once, push to any mix of your connected stores.
           </p>

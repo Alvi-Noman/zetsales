@@ -1,11 +1,9 @@
+import './instrument.js';
 import app from './app.js';
-import { config } from 'dotenv';
 import fs from 'fs';
 import http from 'http';
 import https from 'https';
 import logger from './utils/logger.js';
-
-config();
 
 const PORT = Number(process.env.PORT) || 8080;
 const KEY_PATH = process.env.SSL_KEY_PATH;

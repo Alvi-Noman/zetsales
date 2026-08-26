@@ -26,6 +26,7 @@ import {
 } from "../../components/products/ProductPushProgress";
 import { useToast } from "../../components/ui/ToastProvider";
 import { useAuth } from "../../context/AuthContext";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 const PLATFORM_META = {
   shopify: { label: "Shopify", color: "bg-[#95BF47]", icon: ShoppingBag },
@@ -190,7 +191,7 @@ export function EditProductPage() {
           <ArrowLeft size={18} />
         </button>
         <div>
-          <h1 className="zs-page-title">Edit product</h1>
+          <PageTitle hideBack>Edit product</PageTitle>
           <p className="zs-page-description">
             Changes push straight to the connected store(s).
           </p>

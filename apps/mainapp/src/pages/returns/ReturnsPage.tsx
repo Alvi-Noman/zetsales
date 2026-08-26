@@ -52,6 +52,7 @@ import {
   BinPicker,
   NewCountModal,
 } from "../inventory/InventoryPage";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 const RETURNS_AGING_DAYS = 3;
 function isAgingPackage(pkg: { waitingSince: string; isHeld: boolean }) {
@@ -1577,7 +1578,7 @@ export function ReturnsPage() {
       <div className="zs-page-header">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="zs-page-title">Returns to process</h1>
+            <PageTitle>Returns to process</PageTitle>
             <p className="zs-page-description">
               Courier-returned packages waiting on receipt and QC.
             </p>

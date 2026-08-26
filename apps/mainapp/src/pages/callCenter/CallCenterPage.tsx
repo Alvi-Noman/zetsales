@@ -15,6 +15,7 @@ import { AgentRoster } from "./components/AgentRoster";
 import { CallQueue } from "./components/CallQueue";
 import { HourlyVolumeChart } from "./components/HourlyVolumeChart";
 import { Leaderboard } from "./components/Leaderboard";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 const POLL_INTERVAL_MS = 10_000;
 
@@ -84,7 +85,7 @@ export function CallCenterPage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="zs-page-title">Call Center</h1>
+              <PageTitle>Call Center</PageTitle>
               <span className="relative flex h-2 w-2">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />

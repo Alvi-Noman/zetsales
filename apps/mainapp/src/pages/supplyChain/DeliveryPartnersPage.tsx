@@ -53,6 +53,7 @@ import {
   COURIER_BUCKET_TONE,
   COURIER_PARTNER_META,
 } from "./deliveryPartnerTone";
+import { PageTitle } from "../../components/layout/PageTitle";
 
 function money(value: number) {
   return `৳${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
@@ -253,7 +254,7 @@ export function DeliveryPartnersPage() {
       <div className="zs-page-header flex flex-wrap items-center justify-between gap-y-3">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="zs-page-title">Delivery Partners</h1>
+            <PageTitle>Delivery Partners</PageTitle>
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500 tabular-nums">
               {(stats?.total ?? total).toLocaleString()}
             </span>
