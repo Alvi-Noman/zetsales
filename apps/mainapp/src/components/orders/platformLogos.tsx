@@ -1,4 +1,4 @@
-import { FileSpreadsheet } from 'lucide-react';
+import { FileSpreadsheet, Globe } from 'lucide-react';
 import shopifyLogoUrl from '../../assets/logos/shopify-logo-svg-vector.svg';
 import wooCommerceLogoUrl from '../../assets/logos/woocommerce-logo-svg-vector.svg';
 
@@ -22,4 +22,10 @@ export function WooCommerceLogo({ size = 18, className }: LogoProps) {
 // every `PLATFORM_META[store.platform]` lookup across the app has a 'csv' entry to fall back on.
 export function CsvLogo({ size = 18, className }: LogoProps) {
   return <FileSpreadsheet size={size} className={className} />;
+}
+
+// ZetSite likewise has no shipped brand-mark asset here — a plain globe icon stands in, same
+// fallback reasoning as CsvLogo above.
+export function ZetSiteLogo({ size = 18, className }: LogoProps) {
+  return <Globe size={size} className={className} />;
 }
