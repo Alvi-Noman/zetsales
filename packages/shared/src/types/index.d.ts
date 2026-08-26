@@ -165,7 +165,7 @@ export interface NotificationDTO {
     };
 }
 export type UpdateBusinessProfileInput = Partial<Pick<BusinessProfileDTO, 'name' | 'businessType' | 'phone' | 'channels' | 'monthlyOrders' | 'teamSize'>>;
-export type StorePlatform = 'shopify' | 'woocommerce' | 'csv';
+export type StorePlatform = 'shopify' | 'woocommerce' | 'zetsite' | 'csv';
 export type StoreStatus = 'connected' | 'error' | 'pending';
 export type StoreConnectionMethod = 'oauth' | 'token' | 'keys' | 'manual';
 export interface StoreDTO {

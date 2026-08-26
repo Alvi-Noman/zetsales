@@ -4,7 +4,7 @@
   }
 }
 
-zetsales.com, www.zetsales.com, app.zetsales.com, zetsales.online, www.zetsales.online {
+zetsales.com, www.zetsales.com, app.zetsales.com {
   encode zstd gzip
   reverse_proxy mainapp:80
 }

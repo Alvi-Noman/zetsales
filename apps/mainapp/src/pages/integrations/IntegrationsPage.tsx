@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Ban,
   FileSpreadsheet,
+  Globe,
   Megaphone,
   MessageCircle,
   Package,
@@ -22,6 +23,7 @@ import {
 } from "../../lib/commerceApi";
 import { ConnectShopifyModal } from "../../components/integrations/ConnectShopifyModal";
 import { ConnectWooCommerceModal } from "../../components/integrations/ConnectWooCommerceModal";
+import { ConnectZetSiteModal } from "../../components/integrations/ConnectZetSiteModal";
 import { CourierIntegrationsTab } from "../../components/integrations/CourierIntegrationsTab";
 import { MessagingIntegrationsTab } from "../../components/integrations/MessagingIntegrationsTab";
 import { AdAccountsTab } from "../../components/integrations/AdAccountsTab";
@@ -45,6 +47,7 @@ const INTEGRATIONS_TABS: {
 const PLATFORM_META = {
   shopify: { label: "Shopify", color: "bg-[#95BF47]", icon: ShoppingBag },
   woocommerce: { label: "WooCommerce", color: "bg-[#7f54b3]", icon: StoreIcon },
+  zetsite: { label: "ZetSite", color: "bg-slate-900", icon: Globe },
   csv: { label: "CSV Import", color: "bg-slate-500", icon: FileSpreadsheet },
 } as const;
 
@@ -139,6 +142,7 @@ export function IntegrationsPage() {
   const [shopifyOAuthEnabled, setShopifyOAuthEnabled] = useState(false);
   const [shopifyModalOpen, setShopifyModalOpen] = useState(false);
   const [wooModalOpen, setWooModalOpen] = useState(false);
+  const [zetsiteModalOpen, setZetsiteModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<IntegrationsTab>("stores");
   const [resyncingStoreId, setResyncingStoreId] = useState<string | null>(null);
   const [storePendingRemoval, setStorePendingRemoval] = useState<StoreDTO | null>(null);
@@ -203,6 +207,9 @@ export function IntegrationsPage() {
     } else if (connect === "woocommerce" || connect === "woo") {
       setActiveTab("stores");
       setWooModalOpen(true);
+    } else if (connect === "zetsite") {
+      setActiveTab("stores");
+      setZetsiteModalOpen(true);
     }
 
     if (connected || error || connect) {
@@ -260,6 +267,7 @@ export function IntegrationsPage() {
 
   const shopifyCount = stores.filter((s) => s.platform === "shopify").length;
   const wooCount = stores.filter((s) => s.platform === "woocommerce").length;
+  const zetsiteCount = stores.filter((s) => s.platform === "zetsite").length;
 
   return (
     <div className="zs-page-scroll">
@@ -297,7 +305,7 @@ export function IntegrationsPage() {
       <div className="zs-page-body">
         {activeTab === "stores" ? (
           <div className="space-y-8">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <div className="flex items-center justify-between zs-surface p-5">
                 <div className="flex items-center gap-3">
                   <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#95BF47] text-white">
@@ -335,6 +343,26 @@ export function IntegrationsPage() {
                 </div>
                 <button
                   onClick={() => setWooModalOpen(true)}
+                  className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+                >
+                  <Plus size={14} /> Connect
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between zs-surface p-5">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-slate-900 text-white">
+                    <Globe size={20} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-slate-800">ZetSite</p>
+                    <p className="text-xs text-slate-400">
+                      {zetsiteCount} store{zetsiteCount === 1 ? "" : "s"} connected
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setZetsiteModalOpen(true)}
                   className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white hover:bg-slate-800"
                 >
                   <Plus size={14} /> Connect
@@ -396,6 +424,10 @@ export function IntegrationsPage() {
         open={wooModalOpen}
         onClose={() => setWooModalOpen(false)}
         onConnected={handleConnected}
+      />
+      <ConnectZetSiteModal
+        open={zetsiteModalOpen}
+        onClose={() => setZetsiteModalOpen(false)}
       />
       <ConfirmDialog
         open={storePendingRemoval != null}

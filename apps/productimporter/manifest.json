@@ -30,7 +30,6 @@
   "host_permissions": [
     "https://zetsales.com/*",
     "https://*.zetsales.com/*",
-    "https://zetsales.online/*",
     "http://localhost:8081/*"
   ],
   "permissions": ["storage"]

@@ -20,6 +20,7 @@ import {
 } from '../integrations/shopifyClient.js';
 import { normalizeSiteUrl, verifyWooKeys, buildWooAuthUrl, registerWooWebhook } from '../integrations/wooClient.js';
 import { getValidShopifyAccessToken } from '../integrations/shopifyAuth.js';
+import { buildZetSiteAuthorizeUrl, exchangeZetSiteCode, registerZetSiteWebhook } from '../integrations/zetsiteClient.js';
 import { upsertShopifyAbandonedCheckout } from './abandonedCheckoutsController.js';
 
 const APP_NAME = 'ZetSales';
@@ -117,6 +118,20 @@ async function registerWooProductWebhooks(siteUrl: string, consumerKey: string, 
     ]);
   } catch (err) {
     logger.warn(`[woocommerce] Could not register product webhooks for ${siteUrl}: ${(err as Error).message}`);
+  }
+}
+
+// Registers where zetsite should deliver live product/order events for this store — a single
+// registration covers every event, since zetsite dispatches one unified envelope shape rather than
+// per-resource webhook topics the way Shopify/WooCommerce do (see the siblings above). Best-effort
+// like those, same reasoning: never blocks the connection over a registration hiccup.
+async function registerZetSiteWebhooks(accessToken: string, storeId: string) {
+  const base = process.env.PUBLIC_COMMERCE_URL || 'http://localhost:8081/api/v1/commerce';
+  const address = `${base}/webhooks/zetsite/${storeId}`;
+  try {
+    await registerZetSiteWebhook(accessToken, address, ['products/create', 'products/update', 'products/delete', 'orders/create', 'orders/updated']);
+  } catch (err) {
+    logger.warn(`[zetsite] Could not register webhooks for store ${storeId}: ${(err as Error).message}`);
   }
 }
 
@@ -254,6 +269,10 @@ export async function resyncStore(req: AuthenticatedRequest, res: Response) {
       const consumerSecret = decryptSecret(store.credentials.consumerSecret);
       await registerWooProductWebhooks(store.shopDomain, consumerKey, consumerSecret, storeId);
       await registerWooOrderWebhooks(store.shopDomain, consumerKey, consumerSecret, storeId);
+      res.json({ success: true, checkoutsImported: 0 });
+    } else if (store.platform === 'zetsite') {
+      const accessToken = decryptSecret(store.credentials.accessToken);
+      await registerZetSiteWebhooks(accessToken, storeId);
       res.json({ success: true, checkoutsImported: 0 });
     } else {
       res.status(400).json({ success: false, message: 'This store type has no webhooks to resync.' });
@@ -558,4 +577,68 @@ export async function wooAuthStatus(req: AuthenticatedRequest, res: Response) {
   await registerWooOrderWebhooks(session.siteUrl, consumerKey, consumerSecret, result!._id.toString());
 
   res.json({ success: true, status: 'connected', store: toStoreDto(result) });
+}
+
+// --- zetsite: real OAuth authorization-code flow, one static trusted partner -------------------
+//
+// zetsite (a separate storefront-builder product the same operator owns) has no dynamic OAuth-client
+// registry — it trusts one hardcoded partner identified by a shared secret, so this is simpler than
+// Shopify's OAuth start: no shop-domain lookup, no per-install client id, just a signed state token
+// (same jwt.sign pattern shopifyOAuthStart uses) carrying which tenant initiated the connect.
+
+export async function zetsiteOAuthStart(req: AuthenticatedRequest, res: Response) {
+  if (!process.env.ZETSITE_API_URL || !process.env.ZETSITE_INTEGRATION_SECRET) {
+    res.status(501).json({
+      success: false,
+      message: 'ZetSite integration is not configured on this server yet. Set ZETSITE_API_URL and ZETSITE_INTEGRATION_SECRET.',
+    });
+    return;
+  }
+
+  const state = jwt.sign({ tenantId: req.user!.tenantId }, env.JWT_SECRET, { expiresIn: '15m' });
+  res.redirect(buildZetSiteAuthorizeUrl(state));
+}
+
+export async function zetsiteOAuthCallback(req: AuthenticatedRequest, res: Response) {
+  const { code, state, error } = req.query as { code?: string; state?: string; error?: string };
+
+  if (error) {
+    res.redirect(`${process.env.PUBLIC_APP_URL || 'http://localhost:3000'}/integrations?error=zetsite`);
+    return;
+  }
+  if (!code || !state) {
+    res.status(400).send('Invalid ZetSite OAuth callback.');
+    return;
+  }
+
+  try {
+    const decoded = jwt.verify(state, env.JWT_SECRET) as { tenantId: string };
+    const exchanged = await exchangeZetSiteCode(code);
+
+    const db = getDb();
+    const now = new Date();
+    const result = await db.collection('stores').findOneAndUpdate(
+      { tenantId: decoded.tenantId, platform: 'zetsite', shopDomain: exchanged.storeSlug },
+      {
+        $set: {
+          displayName: exchanged.storeName,
+          status: 'connected',
+          connectionMethod: 'oauth',
+          // zetsite's own storeId, kept alongside the access token — needed if a future feature
+          // ever has to disambiguate beyond what the token itself already scopes requests to.
+          credentials: { accessToken: encryptSecret(exchanged.accessToken), zetSiteStoreId: exchanged.storeId },
+          updatedAt: now,
+        },
+        $setOnInsert: { tenantId: decoded.tenantId, platform: 'zetsite', shopDomain: exchanged.storeSlug, productCount: 0, lastSyncedAt: null, createdAt: now },
+      },
+      { upsert: true, returnDocument: 'after' }
+    );
+
+    await registerZetSiteWebhooks(exchanged.accessToken, result!._id.toString());
+
+    res.redirect(`${process.env.PUBLIC_APP_URL || 'http://localhost:3000'}/integrations?connected=zetsite`);
+  } catch (err) {
+    logger.warn(`[zetsite connect] callback failed: ${(err as Error).message}`);
+    res.redirect(`${process.env.PUBLIC_APP_URL || 'http://localhost:3000'}/integrations?error=zetsite`);
+  }
 }

@@ -19,7 +19,8 @@ import {
 } from '../integrations/shopifyClient.js';
 import { getValidShopifyAccessToken } from '../integrations/shopifyAuth.js';
 import { fetchWooProducts, createWooProduct, updateWooProduct, deleteWooProduct, fetchWooCategories, type WooProduct } from '../integrations/wooClient.js';
-import { mapShopifyProduct, mapWooProduct, type NormalizedProduct } from '../integrations/productMapper.js';
+import { fetchZetSiteProducts, createZetSiteProduct, updateZetSiteProduct, deleteZetSiteProduct, type ZetSiteProduct } from '../integrations/zetsiteClient.js';
+import { mapShopifyProduct, mapWooProduct, mapZetSiteProduct, type NormalizedProduct } from '../integrations/productMapper.js';
 import { previewAlibabaProduct } from '../integrations/alibabaImporter.js';
 
 // Strips protocol/www/trailing slash/query string and lowercases, so a pasted URL that differs
@@ -285,6 +286,25 @@ export async function deleteWooProductFromWebhook(tenantId: string, storeId: str
   await db.collection('stores').updateOne({ _id: new ObjectId(storeId) }, { $set: { productCount } });
 }
 
+// Called from zetsite's products/create and products/update webhook events (see
+// webhooksController.ts's zetSiteWebhook) — mirrors upsertShopifyProductFromWebhook. `storeUrl` is
+// the connected zetsite store's own storefront origin, saved on the store record at connect time.
+export async function upsertZetSiteProductFromWebhook(tenantId: string, storeId: string, storeUrl: string | null, product: ZetSiteProduct) {
+  const db = getDb();
+  await upsertProduct(tenantId, storeId, mapZetSiteProduct(product, storeUrl));
+  const productCount = await db.collection('products').countDocuments({ tenantId, storeId });
+  await db.collection('stores').updateOne({ _id: new ObjectId(storeId) }, { $set: { productCount } });
+}
+
+// Called from zetsite's products/delete webhook event — mirrors deleteShopifyProductFromWebhook.
+export async function deleteZetSiteProductFromWebhook(tenantId: string, storeId: string, externalId: string) {
+  const db = getDb();
+  const deleted = await db.collection('products').findOneAndDelete({ tenantId, storeId, externalId: String(externalId) });
+  if (deleted) await db.collection('inventoryLevels').deleteMany({ tenantId, productId: deleted._id.toString() });
+  const productCount = await db.collection('products').countDocuments({ tenantId, storeId });
+  await db.collection('stores').updateOne({ _id: new ObjectId(storeId) }, { $set: { productCount } });
+}
+
 // Streams import progress live via Server-Sent Events instead of one long blocking request, so
 // the UI can show a real "N of Total imported" counter (and the product currently being pulled
 // in) rather than a spinner with no idea how far along it is.
@@ -329,6 +349,27 @@ export async function importStoreProductsStream(req: AuthenticatedRequest, res: 
         }
         pageInfo = cancelled ? null : nextPageInfo;
       } while (pageInfo && !cancelled);
+    } else if (store.platform === 'zetsite') {
+      const accessToken = decryptSecret(store.credentials.accessToken);
+      let page = 1;
+      let total: number | null = null;
+      let hasMore = true;
+
+      while (!cancelled && hasMore) {
+        const result = await fetchZetSiteProducts(accessToken, page);
+        if (total === null) {
+          total = result.total;
+          send({ type: 'start', total });
+        }
+        for (const p of result.products) {
+          if (cancelled) break;
+          await upsertProduct(store.tenantId, storeId, mapZetSiteProduct(p));
+          imported += 1;
+          send({ type: 'progress', imported, total, title: p.title });
+        }
+        hasMore = result.hasMore;
+        page += 1;
+      }
     } else {
       const consumerKey = decryptSecret(store.credentials.consumerKey);
       const consumerSecret = decryptSecret(store.credentials.consumerSecret);
@@ -570,7 +611,7 @@ const productBaseFields = {
   weight: z.number().positive().optional(),
   weightUnit: z.enum(['kg', 'g', 'lb', 'oz']).default('kg'),
   sourceUrl: z.string().trim().url().optional(),
-  sourcePlatform: z.enum(['alibaba', 'manual', 'shopify', 'woocommerce']).optional(),
+  sourcePlatform: z.enum(['alibaba', 'manual', 'shopify', 'woocommerce', 'zetsite']).optional(),
   options: z.array(productOptionSchema).max(3).default([]),
   variants: z.array(productVariantInputSchema).min(1),
 };
@@ -695,6 +736,14 @@ async function pushToStore(store: any, input: ProductPushInput, collectionIds: s
       ? await updateShopifyProduct(store.shopDomain, accessToken, existing.externalId, input, existing.variants, collectionIds)
       : await createShopifyProduct(store.shopDomain, accessToken, input, collectionIds);
     return mapShopifyProduct(product, store.shopDomain);
+  }
+
+  if (store.platform === 'zetsite') {
+    const accessToken = decryptSecret(store.credentials.accessToken);
+    const product = existing
+      ? await updateZetSiteProduct(accessToken, existing.externalId, input)
+      : await createZetSiteProduct(accessToken, input);
+    return mapZetSiteProduct(product);
   }
 
   const consumerKey = decryptSecret(store.credentials.consumerKey);
@@ -1004,6 +1053,9 @@ export async function deleteProduct(req: AuthenticatedRequest, res: Response) {
         if (store.platform === 'shopify') {
           const accessToken = await getValidShopifyAccessToken(store);
           await deleteShopifyProduct(store.shopDomain, accessToken, target.externalId);
+        } else if (store.platform === 'zetsite') {
+          const accessToken = decryptSecret(store.credentials.accessToken);
+          await deleteZetSiteProduct(accessToken, target.externalId);
         } else {
           const consumerKey = decryptSecret(store.credentials.consumerKey);
           const consumerSecret = decryptSecret(store.credentials.consumerSecret);

@@ -183,3 +183,75 @@ export function mapWooPaymentStatus(order: WooOrderWebhook): MappedPaymentStatus
       return 'COD Pending';
   }
 }
+
+// zetsite's storefront checkout is COD-only with four flat statuses (see storefrontRoutes.ts /
+// integrationRoutes.ts on zetsite's side) — no payment-gateway vocabulary, no separate
+// confirmation-call concept, so this mapping is intentionally much smaller than Shopify/Woo's.
+export type ZetSiteOrderStatus = 'new' | 'confirmed' | 'shipped' | 'cancelled';
+
+export interface ZetSiteOrderWebhook {
+  id: string;
+  productId: string | null;
+  variantIndex: number | null;
+  variantLabel: string | null;
+  quantity: number;
+  customer: { name: string; phone: string; address: string };
+  shippingLabel: string;
+  shippingCost: number;
+  subtotal: number;
+  total: number;
+  status: ZetSiteOrderStatus;
+  createdAt: string;
+}
+
+export function zetSiteOrderAddress(order: ZetSiteOrderWebhook): string | null {
+  return order.customer?.address || null;
+}
+
+export function mapZetSiteOrderStage(status: ZetSiteOrderStatus): MappedStage {
+  switch (status) {
+    case 'confirmed':
+      return 'Confirmed';
+    case 'shipped':
+      return 'Shipped';
+    case 'cancelled':
+      return 'Cancelled';
+    default:
+      return 'Pending';
+  }
+}
+
+// zetsite's checkout never captures a payment gateway result — every order sits as COD until a
+// human (or a later courier webhook) confirms it, same convention as isWooCod's COD branch above.
+export function mapZetSitePaymentStatus(): MappedPaymentStatus {
+  return 'COD Pending';
+}
+
+// Reverse direction for the two-way part: when zetsales itself moves an order to a new stage (via
+// updateOrder), this decides what to push back to a connected zetsite store. Returns null for a
+// zetsales-only stage that has no meaningful zetsite equivalent — callers should skip the push-back
+// in that case rather than force a misleading status.
+export function mapZetSalesStageToZetSiteStatus(stage: MappedStage | string): ZetSiteOrderStatus | null {
+  switch (stage) {
+    case 'Pending':
+    case 'Flagged':
+    case 'On Hold':
+      return 'new';
+    case 'Confirmed':
+    case 'Processing':
+    case 'Ready for Pickup':
+      return 'confirmed';
+    case 'Shipped':
+    case 'Out for Delivery':
+    case 'Delivered':
+    case 'Partial Delivered':
+      return 'shipped';
+    case 'Cancelled':
+    case 'Returned':
+    case 'RTO Initiated':
+    case 'QC Pending':
+      return 'cancelled';
+    default:
+      return null;
+  }
+}

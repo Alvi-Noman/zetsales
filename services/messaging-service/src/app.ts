@@ -8,6 +8,7 @@ import accountsRoutes from './routes/accountsRoutes.js';
 import conversationsRoutes from './routes/conversationsRoutes.js';
 import webhookRoutes from './routes/webhookRoutes.js';
 import logger from './utils/logger.js';
+import * as Sentry from '@sentry/node';
 import { errorHandler } from './middleware/errorHandler.js';
 import { UPLOAD_DIR } from './middleware/upload.js';
 
@@ -79,6 +80,9 @@ if (!isProd) {
   });
 }
 
+// Must be registered before errorHandler below so Sentry captures the original error (message,
+// stack, type) — errorHandler only logs a formatted string, which loses that detail.
+Sentry.setupExpressErrorHandler(app);
 app.use(errorHandler);
 
 export default app;

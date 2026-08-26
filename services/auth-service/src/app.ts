@@ -8,6 +8,7 @@ import authRoutes from './routes/authRoutes.js';
 import teamRoutes from './routes/teamRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import logger from './utils/logger.js';
+import * as Sentry from '@sentry/node';
 import { errorHandler } from './middleware/errorHandler.js';
 
 const app: Application = express();
@@ -116,6 +117,9 @@ if (!isProd) {
   });
 }
 
+// Must be registered before errorHandler below so Sentry captures the original error (message,
+// stack, type) — errorHandler only logs a formatted string, which loses that detail.
+Sentry.setupExpressErrorHandler(app);
 app.use(errorHandler);
 
 export default app;

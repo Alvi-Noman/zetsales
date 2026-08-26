@@ -11,6 +11,7 @@ import { COURIER_STATUS_BUCKETS, bucketForCourierStatus } from '@zetsales/shared
 import { fetchShopifyOrderCount, fetchShopifyOrders } from '../integrations/shopifyClient.js';
 import { getValidShopifyAccessToken } from '../integrations/shopifyAuth.js';
 import { fetchWooOrders } from '../integrations/wooClient.js';
+import { fetchZetSiteOrders, updateZetSiteOrderStatus } from '../integrations/zetsiteClient.js';
 import { applyInventoryStageEffect, checkFulfillmentReadiness, checkStockForConfirm, recordFulfillmentWarehouse, resolveInventoryState, resolveLineItemStock } from '../integrations/inventoryEffects.js';
 import { createSteadfastConsignment } from '../integrations/steadfastClient.js';
 import { createPathaoOrder } from '../integrations/pathaoClient.js';
@@ -37,8 +38,14 @@ import {
   wooOrderSubtotal,
   wooOrderShippingFee,
   WOO_INCOMPLETE_STATUSES,
+  mapZetSiteOrderStage,
+  mapZetSitePaymentStatus,
+  zetSiteOrderAddress,
+  mapZetSalesStageToZetSiteStatus,
   type ShopifyOrderWebhook,
   type WooOrderWebhook,
+  type ZetSiteOrderWebhook,
+  type ZetSiteOrderStatus,
 } from '../integrations/orderStatusMapper.js';
 import { upsertWooAbandonedCheckout } from './abandonedCheckoutsController.js';
 
@@ -374,6 +381,119 @@ export async function upsertWooOrder(tenantId: string, storeId: string, order: W
   }
 }
 
+// Mirrors upsertShopifyOrder/upsertWooOrder for zetsite's orders/create webhook — the full order
+// payload arrives in one shot (zetsite has no separate "checkout" object and no gateway concept),
+// so unlike Woo there's no incomplete-checkout branch to route elsewhere.
+export async function upsertZetSiteOrder(tenantId: string, storeId: string, order: ZetSiteOrderWebhook) {
+  const db = getDb();
+  const now = new Date();
+  const existing = await db.collection('orders').findOne({ tenantId, storeId, externalId: order.id }, { projection: { stageSource: 1, stage: 1, heldFromStage: 1 } });
+
+  const setFields: Record<string, unknown> = {
+    number: order.id.slice(-8).toUpperCase(),
+    paymentStatus: mapZetSitePaymentStatus(),
+    paymentMethod: 'Cash on Delivery' as const,
+    subtotal: order.subtotal,
+    shippingFee: order.shippingCost,
+    total: order.total,
+    currency: 'BDT',
+    tags: [] as string[],
+    customerName: order.customer?.name || null,
+    customerPhone: order.customer?.phone || null,
+    customerEmail: null,
+    address: zetSiteOrderAddress(order),
+    lineItems: [
+      {
+        title: order.variantLabel || 'Product',
+        variant: order.variantLabel || null,
+        quantity: order.quantity,
+        price: order.quantity > 0 ? order.total / order.quantity : order.total,
+        sku: null,
+        variantId: order.productId != null && order.variantIndex != null ? `${order.productId}:${order.variantIndex}` : null,
+      },
+    ],
+    createdAt: new Date(order.createdAt),
+    updatedAt: now,
+  };
+
+  let newStage: string = mapZetSiteOrderStage(order.status);
+  const canRestage = !existing || existing.stageSource !== 'manual' || order.status === 'cancelled';
+  let autoFlagReason: string | null = null;
+  let autoCancelReason: string | null = null;
+  if (canRestage && newStage === 'Pending') {
+    if (await isCustomerBlocked(tenantId, setFields.customerPhone as string | null)) {
+      newStage = 'Cancelled';
+      autoCancelReason = 'Blocked customer';
+    } else {
+      autoFlagReason = await maybeAutoFlagForFraud(tenantId, setFields.customerPhone as string | null, setFields.total as number);
+      if (autoFlagReason) newStage = 'Flagged';
+    }
+  }
+
+  const stageChanging = canRestage && newStage !== existing?.stage;
+  if (canRestage) {
+    setFields.stage = newStage;
+    setFields.stageSource = 'synced';
+    setFields.flagReason = autoFlagReason;
+    if (autoCancelReason) setFields.cancelReason = 'Blocked customer';
+  }
+
+  const setOnInsert: Record<string, unknown> = {
+    tenantId, storeId, externalId: order.id, platform: 'zetsite', ...SEED_FIELDS,
+    courierZoneTier: detectZoneTier((setFields.address as string) ?? ''),
+  };
+  if (!existing) setOnInsert.history = [{ label: 'Order placed', detail: 'Synced from ZetSite', at: new Date(order.createdAt) }];
+
+  const update: Record<string, unknown> = { $set: setFields, $setOnInsert: setOnInsert };
+  if (existing && stageChanging) {
+    update.$push = { history: { label: newStage, detail: autoCancelReason || autoFlagReason || 'Synced from ZetSite', at: now } };
+  }
+
+  await db.collection('orders').updateOne({ tenantId, storeId, externalId: order.id }, update, { upsert: true });
+  if (!existing) {
+    void dispatchAppWebhook(tenantId, 'orders/create', { storeId, externalId: order.id, number: setFields.number, stage: setFields.stage ?? newStage });
+    void checkAndStoreSteadfastFraud(tenantId, { tenantId, storeId, externalId: order.id }, setFields.customerPhone as string | null);
+    void checkAndStorePathaoFraud(tenantId, { tenantId, storeId, externalId: order.id }, setFields.customerPhone as string | null);
+  }
+
+  if (stageChanging) {
+    const fromState = existing ? resolveInventoryState(existing.stage, existing.heldFromStage) : 'none';
+    const toState = resolveInventoryState(newStage as OrderStage, undefined);
+    const { cogsDelta, warehouse } = await applyInventoryStageEffect(tenantId, setFields.lineItems as { sku: string | null; variant: string | null; quantity: number }[], fromState, toState);
+    if (cogsDelta !== 0) await db.collection('orders').updateOne({ tenantId, storeId, externalId: order.id }, { $inc: { cogsTotal: cogsDelta } });
+    await recordFulfillmentWarehouse({ tenantId, storeId, externalId: order.id }, fromState, warehouse);
+  }
+}
+
+// zetsite's orders/updated webhook only carries {id, status} (see integrationRoutes.ts's PATCH
+// .../orders/:id/status on zetsite's side) — not a full order snapshot — so this restages an
+// already-synced order in place rather than reusing upsertZetSiteOrder's full-document upsert. A
+// status update for an order zetsale hasn't seen yet (orders/create raced behind it, or predates
+// this integration) is dropped rather than half-created from a bare status, same as how a courier
+// status update can't materialize an order that was never placed.
+export async function applyZetSiteOrderStatusUpdate(tenantId: string, storeId: string, externalId: string, status: string) {
+  const db = getDb();
+  const current = await db.collection('orders').findOne({ tenantId, storeId, externalId });
+  if (!current) return;
+
+  const newStage = mapZetSiteOrderStage(status as ZetSiteOrderStatus);
+  const canRestage = current.stageSource !== 'manual' || status === 'cancelled';
+  if (!canRestage || newStage === current.stage) return;
+
+  const now = new Date();
+  const update: Record<string, unknown> = {
+    $set: { stage: newStage, stageSource: 'synced', updatedAt: now },
+    $push: { history: { label: newStage, detail: 'Synced from ZetSite', at: now } },
+  };
+  await db.collection('orders').updateOne({ _id: current._id }, update);
+
+  const fromState = resolveInventoryState(current.stage, current.heldFromStage);
+  const toState = resolveInventoryState(newStage, undefined);
+  const { cogsDelta, warehouse } = await applyInventoryStageEffect(tenantId, current.lineItems, fromState, toState);
+  if (cogsDelta !== 0) await db.collection('orders').updateOne({ _id: current._id }, { $inc: { cogsTotal: cogsDelta } });
+  await recordFulfillmentWarehouse({ _id: current._id, tenantId }, fromState, warehouse);
+}
+
 // Backfills historical orders (everything placed before the webhook subscription existed) via
 // the same live-progress SSE pattern as product import — a store can easily have thousands of
 // past orders, so the UI needs a real "N of Total" counter rather than a blind spinner.
@@ -418,6 +538,27 @@ export async function importStoreOrdersStream(req: AuthenticatedRequest, res: Re
         }
         pageInfo = cancelled ? null : nextPageInfo;
       } while (pageInfo && imported < 20_000);
+    } else if (store.platform === 'zetsite') {
+      const accessToken = decryptSecret(store.credentials.accessToken);
+      let page = 1;
+      let total: number | null = null;
+      let hasMore = true;
+
+      while (!cancelled && hasMore && imported < 20_000) {
+        const result = await fetchZetSiteOrders(accessToken, page);
+        if (total === null) {
+          total = result.total;
+          send({ type: 'start', total });
+        }
+        for (const o of result.orders) {
+          if (cancelled) break;
+          await upsertZetSiteOrder(store.tenantId, storeId, o);
+          imported += 1;
+          send({ type: 'progress', imported, total, title: o.variantLabel || o.id });
+        }
+        hasMore = result.hasMore;
+        page += 1;
+      }
     } else {
       const consumerKey = decryptSecret(store.credentials.consumerKey);
       const consumerSecret = decryptSecret(store.credentials.consumerSecret);
@@ -2201,7 +2342,29 @@ export async function updateOrder(req: AuthenticatedRequest, res: Response) {
   void dispatchAppWebhook(tenantId, 'orders/updated', dto);
   if (result.stage === 'Confirmed' && current.stage !== 'Confirmed') void dispatchAppWebhook(tenantId, 'orders/confirmed', dto);
   if (result.stage === 'Cancelled' && current.stage !== 'Cancelled') void dispatchAppWebhook(tenantId, 'orders/cancelled', dto);
+  if (result.stage !== current.stage) void pushOrderStatusToZetSite(tenantId, result);
   res.json({ success: true, order: dto });
+}
+
+// The two-way part for orders: a stage change made here gets pushed back to the connected zetsite
+// store that originated it, so zetsite's own Orders page reflects what staff just did in ZetSales
+// (e.g. confirming a call, marking it shipped) instead of only flowing one direction. No-ops for
+// every order that isn't from a zetsite store, and for a stage with no meaningful zetsite status
+// (mapZetSalesStageToZetSiteStatus returning null) — fire-and-forget like the outbound app-webhook
+// dispatch above, since a slow/unreachable zetsite shouldn't block the staff member's own PATCH.
+async function pushOrderStatusToZetSite(tenantId: string, order: any) {
+  if (order.platform !== 'zetsite') return;
+  const status = mapZetSalesStageToZetSiteStatus(order.stage);
+  if (!status) return;
+  try {
+    const db = getDb();
+    const store = await db.collection('stores').findOne({ _id: new ObjectId(order.storeId), tenantId });
+    if (!store) return;
+    const accessToken = decryptSecret(store.credentials.accessToken);
+    await updateZetSiteOrderStatus(accessToken, order.externalId, status);
+  } catch (err) {
+    logger.warn(`[zetsite] Could not push order status for ${order.externalId}: ${(err as Error).message}`);
+  }
 }
 
 const upsellSchema = z.object({

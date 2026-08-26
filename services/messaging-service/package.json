@@ -11,6 +11,7 @@
     "lint": "eslint \"**/*.ts\""
   },
   "dependencies": {
+    "@sentry/node": "^8.40.0",
     "@zetsales/config": "workspace:*",
     "@zetsales/shared": "workspace:*",
     "axios": "^1.11.0",
@@ -24,6 +25,7 @@
     "morgan": "^1.10.1",
     "multer": "^1.4.5-lts.1",
     "winston": "^3.17.0",
+    "winston-transport": "^4.9.0",
     "zod": "^4.0.14"
   },
   "devDependencies": {
