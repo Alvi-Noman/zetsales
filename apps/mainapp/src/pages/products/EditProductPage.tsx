@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   FileSpreadsheet,
+  Globe,
   Loader2,
   ShoppingBag,
   Store as StoreIcon,
@@ -31,6 +32,7 @@ import { PageTitle } from "../../components/layout/PageTitle";
 const PLATFORM_META = {
   shopify: { label: "Shopify", color: "bg-[#95BF47]", icon: ShoppingBag },
   woocommerce: { label: "WooCommerce", color: "bg-[#7f54b3]", icon: StoreIcon },
+  zetsite: { label: "ZetSite", color: "bg-slate-900", icon: Globe },
   csv: { label: "CSV Import", color: "bg-slate-500", icon: FileSpreadsheet },
 } as const;
 

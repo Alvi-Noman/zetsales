@@ -248,7 +248,7 @@ export async function uploadProductImages(files: File[]) {
 export interface ProductStoreRef {
   storeId: string;
   displayName: string;
-  platform: 'shopify' | 'woocommerce';
+  platform: 'shopify' | 'woocommerce' | 'zetsite';
 }
 
 export async function getProduct(id: string) {

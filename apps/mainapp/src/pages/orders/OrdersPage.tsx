@@ -73,6 +73,7 @@ import {
   CsvLogo,
   ShopifyLogo,
   WooCommerceLogo,
+  ZetSiteLogo,
 } from "../../components/orders/platformLogos";
 import {
   STAGE_TONE,
@@ -133,6 +134,7 @@ import { PageTitle } from "../../components/layout/PageTitle";
 const PLATFORM_META = {
   shopify: { label: "Shopify", logo: ShopifyLogo },
   woocommerce: { label: "WooCommerce", logo: WooCommerceLogo },
+  zetsite: { label: "ZetSite", logo: ZetSiteLogo },
   csv: { label: "CSV Import", logo: CsvLogo },
 } as const;
 

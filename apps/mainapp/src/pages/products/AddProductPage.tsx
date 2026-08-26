@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
+  Globe,
   Loader2,
   Package,
   ShoppingBag,
@@ -34,12 +35,13 @@ import { PageTitle } from "../../components/layout/PageTitle";
 const PLATFORM_META = {
   shopify: { label: "Shopify", color: "bg-[#95BF47]", icon: ShoppingBag },
   woocommerce: { label: "WooCommerce", color: "bg-[#7f54b3]", icon: StoreIcon },
+  zetsite: { label: "ZetSite", color: "bg-slate-900", icon: Globe },
 } as const;
 
 // The synthetic "CSV Import" store (see getOrCreateCsvImportStore) isn't a real storefront —
 // products can't be pushed there, so it never belongs in this picker.
-const isPushableStore = (s: StoreDTO): s is StoreDTO & { platform: "shopify" | "woocommerce" } =>
-  s.platform === "shopify" || s.platform === "woocommerce";
+const isPushableStore = (s: StoreDTO): s is StoreDTO & { platform: "shopify" | "woocommerce" | "zetsite" } =>
+  s.platform === "shopify" || s.platform === "woocommerce" || s.platform === "zetsite";
 
 export function AddProductPage() {
   const navigate = useNavigate();

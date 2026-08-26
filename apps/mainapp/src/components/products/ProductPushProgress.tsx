@@ -1,5 +1,6 @@
 import {
   CheckCircle2,
+  Globe,
   Loader2,
   ShoppingBag,
   Store as StoreIcon,
@@ -9,12 +10,13 @@ import {
 const PLATFORM_ICON = {
   shopify: ShoppingBag,
   woocommerce: StoreIcon,
+  zetsite: Globe,
 } as const;
 
 export interface PushProgressItem {
   storeId: string;
   displayName: string;
-  platform: "shopify" | "woocommerce";
+  platform: "shopify" | "woocommerce" | "zetsite";
   status: "pending" | "pushing" | "done" | "error";
   error?: string;
 }
